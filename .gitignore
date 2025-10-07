@@ -1,0 +1,35 @@
+# Julia
+*.jl.*.cov
+*.jl.cov
+*.jl.mem
+/Manifest.toml
+/docs/build/
+/docs/site/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Build artifacts
+deps/deps.jl
+deps/build.log
+deps/downloads/
+
+# Local testing
+scratch/
+tmp/

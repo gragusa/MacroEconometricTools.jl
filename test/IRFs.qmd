@@ -1,0 +1,215 @@
+---
+title: "The IRFs package"
+---
+
+## Installation
+
+To install the package
+```julia
+using Pkg
+Pkg.add("https://github.com/gragusa/IRFs.jl")
+```
+
+```{julia}
+using IRFs
+```
+
+
+## VAR
+
+A Vector Autoregression (VAR) is 
+$$
+Y_t = c + A_1 Y_{t-1} + A_2 Y_{t-2} + \dots + A_p Y_{t-p} + \varepsilon_t, \quad t=p+1,\ldots, T.
+$$
+where $Y_t$ is $m\times 1$ vector of time-series, $c$ is a $m\times 1$ vector of constant, and $A_j$, $j=1,\ldots,p$, are $m\times m$ matrices of parameters.
+
+To showcase the `IRFs.jl` package, we will use the Kilian and Kim dataset.
+
+```{julia}
+using CSV
+using DataFrames
+using Dates
+using Test
+using Plots
+function get_data()
+  path_d = @__DIR__
+  @show path_d
+  @show joinpath(path_d, "kilian_kim_original_dataset.csv")
+  data = DataFrame(CSV.File(joinpath(path_d, "kilian_kim_original_dataset.csv"), header=false))
+  names = [:CFNAI, :CPI, :PCOM, :FF]
+  rename!(data, names)
+  DY    = data[!, :CFNAI][2:end] # CFNAI
+  DP    = (log.(data[!, :CPI][2:end]) - log.(data[!, :CPI][1:end - 1])) * 100  # D(log(CPI))
+  DPCOM = ((log.(data[!, :PCOM][2:end]) - log.(data[!, :CPI][2:end])) - (log.(data[!, :PCOM][1:end - 1]) - log.(data[!, :CPI][1:end - 1]))) * 100 # D(log(real PCOM)): CRB
+  FF    = data[!, :FF][2:end]  # FedFound
+ return [DY DP DPCOM FF], names
+end
+
+Y, names = get_data()
+#plot(Y; layout = (2,2))
+```
+
+
+
+### Estimation 
+To estimate a VAR with $p=12$:
+
+```{julia}
+using IRFs
+v = VAR(Y, 12, names = names, index = Date(1970,1,1):Month(1):Date(2007, 12, 1))
+IRFs.fit!(v)
+```
+
+
+We can summarize the VAR:
+
+```{julia}
+summary(v)
+```
+
+## Impulse Response function
+
+The impulse response function of the VAR using a Triangular identification scheme with UnitEffect normalization:
+
+```{julia}
+R = TriangularRestriction(v, UnitEffect())
+irf_1 = impulseresponse(v, R; horizon=24, ci_type=:delta)
+```
+
+`ci_type` specifies the confidence interval types:
+- `:delta`: delta method
+- `:bootstrap`: standard bootstrap
+- `:wildbootstrap`: wild bootstrap
+- `:blockbootstrap`: block-bootstrap
+
+For the case `:blockbootstrap`, there is an option `block_width` (default=10), which specifies the block width
+
+```{julia}
+bbirf = impulseresponse(v, R; horizon=24, ci_type=:blockbootstrap, block_width=11)
+```
+
+We can finally plot the IRF
+```{julia}
+plot(bbirf)
+```
+
+## Local projection
+
+The type `LocalProjection` specifies the local projection. At the moment only the triangular identification is available\dots
+
+```{julia}
+lp = IRFs.LocalProjection(Y, 12; names = names)
+```
+
+Not `lp` is of type `LocalProjection`. The command `lp_irfs` estimates the following set of regressions 
+
+$$
+Y_{j,t+h}=\alpha^{(h)}+\beta^{(h)}Y_{s,t}+\sum_{\stackrel{i\leqslant m}{i\neq s}}\gamma_{i}^{(h)}R_{ji}Y_{i,t}+\sum_{r\leqslant p}\sum_{i\leqslant m}\delta_{ih}Y_{i,t-r}+u_{j,t+h}, j\leqslant m, s\leqslant m, h\leqslant H.
+$$
+The term $R_{ji}$ denote the element $(i,j)$ of the matrix $R$ used to identify the projection, that is, the matrix mapping structural errors in to innovations
+$$
+Ru_t = \varepsilon_t.
+$$
+$R$ has the diagonal equal to 1 (unit effect normalization). 
+
+```{julia}
+lp_irf = IRFs.impulseresponse_fit(lp, 24) ## 24 horizon
+```
+`lp_irf.ols` collects the regression. 
+
+```{julia}
+ols = lp_irf.ols;
+```
+
+So, the IRF of shock `j` on variable `i` at lag `h` is 
+```{julia}
+h = 1
+i = 1
+j = 2
+coef(ols[i,j][j])[h]
+```
+
+The impulse response functions are collected in `irf`
+```{julia}
+lp_irfs = lp_irf.irf
+```
+
+The impulse to variable `j` to a shock `s` at horizon `h` is
+
+```{julia}
+j = 2
+s = 1
+h = 1
+lp_irfs[j, s, h]
+```
+
+Alterntevely, we can use the following convention
+```{julia}
+lp_irfs[variable=:CPI, shock=:FF, horizon=1:25]
+```
+
+
+By default, the `lpirf` calculates the SE using the White variance estimator (HR1()). 
+
+```{julia}
+se_lp_irf = lp_irf.se
+```
+
+The standard errors can be accessed using the same convention of the impulse responses.
+```{julia}
+se_lp_irf[variable=:CPI, shock=:FF, horizon=1:25]
+```
+
+We can plot the IRFs using 
+```{julia}
+plot(lp_irf)
+```
+
+To update the local projection irf's se using different estimator is possible using `confidencebands!`. 
+```{julia}
+k = Kernels([Bartlett(max(0,h-1)) for h in 0:24]);
+IRFs.confidencebands!(lp_irf, k) ## HAC with Bartlett kernel with optimal bandwidth
+```
+
+Now we can plot using the se that uses the Bartlett kernel with a Bandwidth that is equal to `h`
+```{julia}
+plot(lp_irf)
+```
+
+
+### Monte Carlo simulations
+
+To simulate a VAR using an estimated one, we can use
+`simulate!`. 
+
+Let `YY` be the matric the will host the simulated variables
+
+```{julia}
+p = 12 ## Important
+YY = Matrix{Float64}(undef, 1500 + p, 4)
+fill!(YY, 0.0)
+YYY = copy(YY)
+```
+
+We can simulate using the coefficient and the variance of the innovation
+```{julia}
+using LinearAlgebra
+C = cholesky(v.Sigma_e)
+epsilon = randn(1500, 4)*C.U;
+
+## :leavealone leaves the first p=12 alone
+## since they are zero, we are setting them equal
+## the unconditional mean (the VAR is estimated in 
+## deviation from the mean)
+```
+
+```{julia}
+simulate!(YY, epsilon, v, :mean)
+IRFs.simulates!(YYY, epsilon, v, :mean)
+```
+
+```{julia}
+v_ = VAR(YY, 12, names = [:CFNAI, :CPI, :PCOM, :FF])
+```
+
+

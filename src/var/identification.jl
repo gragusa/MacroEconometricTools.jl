@@ -1,0 +1,428 @@
+# ============================================================================
+# Structural Identification Schemes
+# ============================================================================
+
+"""
+    identify(model::VARModel, id::AbstractIdentification)
+
+Compute structural impact matrix from identification scheme.
+
+# Returns
+- Impact matrix `P` such that structural shocks ε relate to reduced-form shocks u via u = P*ε
+"""
+function identify(model::VARModel, id::AbstractIdentification)
+    if id isa CholeskyID
+        return identify_cholesky(model, id)
+    elseif id isa SignRestriction
+        return identify_sign(model, id)
+    elseif id isa IVIdentification
+        return identify_iv(model, id)
+    else
+        throw(ArgumentError("Unknown identification scheme: $(typeof(id))"))
+    end
+end
+
+# ============================================================================
+# Cholesky Identification
+# ============================================================================
+
+"""
+    identify_cholesky(model::VARModel, id::CholeskyID)
+
+Recursive (Cholesky) identification.
+
+Computes lower-triangular Cholesky factor: Σ = P*P'
+
+# Arguments
+- `model::VARModel`: Estimated VAR model
+- `id::CholeskyID`: Cholesky identification with optional variable ordering
+
+# Returns
+- Lower-triangular impact matrix
+"""
+function identify_cholesky(model::VARModel{T}, id::CholeskyID) where T
+    Σ = vcov(model)
+
+    # Handle variable ordering
+    if id.ordering !== nothing
+        perm = get_permutation(model.names, id.ordering)
+        Σ_ordered = Σ[perm, perm]
+        P_ordered = Matrix(cholesky(Σ_ordered).L)
+
+        # Permute back to original ordering
+        inv_perm = invperm(perm)
+        P = P_ordered[inv_perm, inv_perm]
+    else
+        # Use data ordering
+        P = Matrix(cholesky(Σ).L)
+    end
+
+    return P
+end
+
+"""
+    get_permutation(names::Vector{Symbol}, ordering::Vector{Symbol})
+
+Get permutation vector to reorder variables according to `ordering`.
+"""
+function get_permutation(names::Vector{Symbol}, ordering::Vector{Symbol})
+    length(names) == length(ordering) ||
+        throw(ArgumentError("Ordering must include all variables"))
+
+    Set(names) == Set(ordering) ||
+        throw(ArgumentError("Ordering must contain same variables as data"))
+
+    return [findfirst(==(v), names) for v in ordering]
+end
+
+# ============================================================================
+# Sign Restrictions
+# ============================================================================
+
+"""
+    identify_sign(model::VARModel, id::SignRestriction; kwargs...)
+
+Identification via sign restrictions.
+
+Uses algorithm of Rubio-Ramírez, Waggoner, and Zha (2010).
+
+# Arguments
+- `model::VARModel`: Estimated VAR model
+- `id::SignRestriction`: Sign restriction specification
+
+# Keyword Arguments
+- `max_draws::Int=10000`: Maximum number of rotation draws
+- `parallel::Symbol=:none`: Parallelization (`:none`, `:distributed`)
+- `verbose::Bool=false`: Print progress information
+
+# Returns
+- Impact matrix satisfying sign restrictions
+
+# Examples
+```julia
+# Serial search
+P = identify_sign(model, id; max_draws=10000)
+
+# Distributed search (requires Distributed + workers)
+using Distributed
+addprocs(4)
+@everywhere using MacroEconometricTools
+P = identify_sign(model, id; max_draws=50000, parallel=:distributed)
+```
+"""
+function identify_sign(model::VARModel{T}, id::SignRestriction;
+                      max_draws::Int=10000,
+                      parallel::Symbol=:none,
+                      verbose::Bool=false) where T
+
+    parallel ∈ [:none, :distributed] ||
+        throw(ArgumentError("parallel must be :none or :distributed"))
+
+    if parallel == :distributed
+        return identify_sign_distributed(model, id, max_draws, verbose)
+    else
+        return identify_sign_serial(model, id, max_draws, verbose)
+    end
+end
+
+"""
+    identify_sign_serial(model, id, max_draws, verbose)
+
+Serial sign restriction search.
+"""
+function identify_sign_serial(model::VARModel{T}, id::SignRestriction,
+                              max_draws::Int, verbose::Bool) where T
+    n_vars_val = n_vars(model)
+    Σ = vcov(model)
+
+    # Cholesky as starting point
+    P_chol = Matrix(cholesky(Σ).L)
+
+    # Search for valid rotation
+    for iter in 1:max_draws
+        # Random orthogonal matrix via QR decomposition
+        Q = generate_random_orthogonal(n_vars_val)
+
+        # Candidate impact matrix
+        P_candidate = P_chol * Q
+
+        # Check sign restrictions on impact or IRFs
+        if check_sign_restrictions(P_candidate, id.restrictions, model, id.horizon)
+            if verbose
+                println("Found valid rotation at attempt $iter")
+            end
+            return P_candidate
+        end
+
+        if verbose && iter % 1000 == 0
+            println("Completed $iter draws, no valid rotation found yet...")
+        end
+    end
+
+    throw(ErrorException("Could not find impact matrix satisfying sign restrictions after $max_draws attempts"))
+end
+
+"""
+    identify_sign_distributed(model, id, max_draws, verbose)
+
+Distributed sign restriction search using multiple processes.
+
+Divides search across workers and stops when first valid rotation is found.
+"""
+function identify_sign_distributed(model::VARModel{T}, id::SignRestriction,
+                                   max_draws::Int, verbose::Bool) where T
+
+    # Check if Distributed is available
+    if !isdefined(Main, :Distributed)
+        @warn "Distributed package not loaded. Falling back to serial execution."
+        return identify_sign_serial(model, id, max_draws, verbose)
+    end
+
+    using Distributed
+
+    if nworkers() == 1
+        @warn "No worker processes available. Falling back to serial execution."
+        return identify_sign_serial(model, id, max_draws, verbose)
+    end
+
+    n_vars_val = n_vars(model)
+    Σ = vcov(model)
+    P_chol = Matrix(cholesky(Σ).L)
+
+    # Function to search for valid rotation (returns nothing if not found)
+    # Takes (n_attempts, worker_id, base_seed) for independent streams
+    function search_rotations(work_info::Tuple{Int,Int,UInt64})
+        n_attempts, worker_id, base_seed = work_info
+
+        # Create worker-specific seed using base seed and worker ID
+        # The golden ratio constant ensures good mixing
+        worker_seed = base_seed + UInt64(worker_id) * 0x9e3779b97f4a7c15
+        Random.seed!(worker_seed)
+
+        for attempt in 1:n_attempts
+            Q = generate_random_orthogonal(n_vars_val)
+            P_candidate = P_chol * Q
+
+            if check_sign_restrictions(P_candidate, id.restrictions, model, id.horizon)
+                return (found=true, P=P_candidate, attempt=attempt)
+            end
+        end
+
+        return (found=false, P=nothing, attempt=n_attempts)
+    end
+
+    # Divide work across workers
+    n_w = nworkers()
+    draws_per_worker = div(max_draws, n_w)
+
+    # Generate base seed from hardware RNG for true randomness
+    base_seed = rand(Random.RandomDevice(), UInt64)
+    work_specs = [(draws_per_worker, i, base_seed) for i in 1:n_w]
+
+    if verbose
+        println("Searching for valid rotation using $n_w workers ($draws_per_worker draws each)...")
+    end
+
+    # Parallel search - returns as soon as first worker finds valid rotation
+    results = pmap(search_rotations, work_specs)
+
+    # Find first successful result
+    for (worker_id, result) in enumerate(results)
+        if result.found
+            if verbose
+                println("Worker $worker_id found valid rotation at attempt $(result.attempt)")
+            end
+            return result.P
+        end
+    end
+
+    # If no worker found valid rotation
+    total_attempts = n_w * draws_per_worker
+    throw(ErrorException("Could not find impact matrix satisfying sign restrictions after $total_attempts attempts across $n_w workers"))
+end
+
+"""
+    generate_random_orthogonal(n::Int)
+
+Generate random orthogonal matrix via QR decomposition of random normal matrix.
+"""
+function generate_random_orthogonal(n::Int)
+    X = randn(n, n)
+    Q, R = qr(X)
+    # Normalize to ensure det(Q) = 1
+    D = Diagonal(sign.(diag(R)))
+    return Matrix(Q * D)
+end
+
+"""
+    check_sign_restrictions(P, restrictions, model, horizon)
+
+Check if impact matrix satisfies sign restrictions.
+
+# Arguments
+- `P::Matrix`: Candidate impact matrix
+- `restrictions::Matrix{Int}`: Sign restriction matrix (+1, -1, 0 for no restriction)
+- `model::VARModel`: VAR model
+- `horizon::Int`: Horizon over which restrictions apply
+
+# Returns
+- `true` if restrictions are satisfied
+"""
+function check_sign_restrictions(P::Matrix{T}, restrictions::Matrix{Int},
+                                 model::VARModel, horizon::Int) where T
+    n_vars_val = size(P, 1)
+
+    # Check impact (horizon 0)
+    for i in 1:n_vars_val
+        for j in 1:n_vars_val
+            if restrictions[i, j] == 1 && P[i, j] < 0
+                return false
+            elseif restrictions[i, j] == -1 && P[i, j] > 0
+                return false
+            end
+        end
+    end
+
+    # Check restrictions on IRFs up to horizon if horizon > 0
+    if horizon > 0
+        # Compute IRFs
+        F = model.companion
+        n_lags_val = n_lags(model)
+        Φ = compute_ma_matrices(F, horizon, n_vars_val, n_lags_val)
+
+        for h in 1:horizon
+            IRF_h = Φ[:, :, h+1] * P
+            for i in 1:n_vars_val
+                for j in 1:n_vars_val
+                    if restrictions[i, j] == 1 && IRF_h[i, j] < 0
+                        return false
+                    elseif restrictions[i, j] == -1 && IRF_h[i, j] > 0
+                        return false
+                    end
+                end
+            end
+        end
+    end
+
+    return true
+end
+
+# ============================================================================
+# IV Identification (placeholder - full implementation in ivsvar/)
+# ============================================================================
+
+"""
+    identify_iv(model::VARModel, id::IVIdentification)
+
+Identification via instrumental variables.
+
+For IV-SVAR models, identification is performed during estimation.
+This function extracts the identified structural matrix.
+"""
+function identify_iv(model::VARModel, id::IVIdentification)
+    # Check if model was estimated with IV
+    if !(model.spec isa IVSVAR)
+        throw(ArgumentError("IV identification requires model estimated with IVSVAR"))
+    end
+
+    # Extract structural impact from model metadata
+    if haskey(model.metadata, :structural_impact)
+        return model.metadata.structural_impact
+    else
+        throw(ErrorException("Structural impact matrix not found in model metadata"))
+    end
+end
+
+# ============================================================================
+# Normalization
+# ============================================================================
+
+"""
+    AbstractNormalization
+
+Abstract type for shock normalization schemes.
+"""
+abstract type AbstractNormalization end
+
+"""
+    UnitStd <: AbstractNormalization
+
+Normalize shocks to have unit variance (standard normalization).
+"""
+struct UnitStd <: AbstractNormalization end
+
+"""
+    UnitEffect <: AbstractNormalization
+
+Normalize shocks to have unit effect on diagonal (on impact).
+"""
+struct UnitEffect <: AbstractNormalization end
+
+"""
+    normalize!(P::Matrix, norm::AbstractNormalization)
+
+Normalize impact matrix according to normalization scheme.
+
+# Arguments
+- `P::Matrix`: Impact matrix
+- `norm::AbstractNormalization`: Normalization scheme
+
+# Returns
+- Normalized impact matrix (modifies in place)
+"""
+function normalize!(P::Matrix{T}, ::UnitStd) where T
+    # Already normalized with Cholesky: P*P' = Σ implies structural shocks have unit variance
+    return P
+end
+
+function normalize!(P::Matrix{T}, ::UnitEffect) where T
+    # Normalize so diagonal elements are 1 (unit effect on impact)
+    n = size(P, 1)
+    for j in 1:n
+        scale = P[j, j]
+        if abs(scale) > eps(T)
+            P[:, j] ./= scale
+        end
+    end
+    return P
+end
+
+"""
+    normalize(P::Matrix, norm::AbstractNormalization)
+
+Non-mutating version of normalize!
+"""
+normalize(P::Matrix, norm::AbstractNormalization) = normalize!(copy(P), norm)
+
+# ============================================================================
+# MA Representation
+# ============================================================================
+
+"""
+    compute_ma_matrices(F::Matrix, horizon::Int, n_vars::Int, n_lags::Int)
+
+Compute moving average (MA) representation matrices Φ_h = F^h.
+
+# Returns
+- Array of size (n_vars, n_vars, horizon+1) with MA coefficients
+"""
+function compute_ma_matrices(F::Matrix{T}, horizon::Int, n_vars::Int, n_lags::Int) where T
+    # Preallocate
+    Φ = zeros(T, n_vars, n_vars, horizon + 1)
+
+    # Φ_0 = I
+    Φ[:, :, 1] = Matrix{T}(I, n_vars, n_vars)
+
+    # Selection matrix to extract first n_vars rows
+    J = zeros(T, n_vars, n_vars * n_lags)
+    J[:, 1:n_vars] = Matrix{T}(I, n_vars, n_vars)
+
+    # Φ_h = J * F^h * J' (but F is already in companion form)
+    F_power = copy(F)
+    for h in 1:horizon
+        Φ[:, :, h+1] = J * F_power * J'
+        F_power = F_power * F
+    end
+
+    return Φ
+end
