@@ -459,10 +459,10 @@ Three bootstrap methods are implemented:
 
 **Procedure**:
 ```julia
-function wild_bootstrap_residuals(residuals::Matrix)
+function wild_bootstrap_residuals(rng::AbstractRNG, residuals::Matrix)
     T, n = size(residuals)
     # Rademacher weights: ±1 with equal probability
-    weights = rand((-1, 1), T)
+    weights = rand(rng, (-1, 1), T)
     return residuals .* weights
 end
 ```
@@ -474,9 +474,9 @@ end
 #### 2. Standard Bootstrap
 
 ```julia
-function standard_bootstrap_residuals(residuals::Matrix)
+function standard_bootstrap_residuals(rng::AbstractRNG, residuals::Matrix)
     T, n = size(residuals)
-    indices = rand(1:T, T)
+    indices = rand(rng, 1:T, T)
     return residuals[indices, :]
 end
 ```

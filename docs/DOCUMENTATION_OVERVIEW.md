@@ -8,7 +8,8 @@ This document summarizes the complete documentation for MacroEconometricTools.jl
 
 **Purpose**: Internal architecture and implementation details for developers and contributors.
 
-**Contents**:
+**Contents**
+
 - Design philosophy (type-based dispatch, parametric types, no Missing values)
 - Type system architecture and hierarchy
 - Constraint system implementation (zero, fixed, block exogeneity)
@@ -21,12 +22,12 @@ This document summarizes the complete documentation for MacroEconometricTools.jl
 **Target audience**: Package developers, contributors, advanced users who want to understand internals
 
 **Key sections**:
+
 - How constraint estimation works equation-by-equation
 - Companion form construction for stability analysis
 - Bootstrap algorithm details
 - Type stability best practices
 
----
 
 ### 2. Mathematical Theory (`docs/src/mathematical/theory.md`)
 
@@ -49,22 +50,23 @@ This document summarizes the complete documentation for MacroEconometricTools.jl
 **Target audience**: Researchers, econometricians, graduate students
 
 **Key features**:
+
 - Complete mathematical formulations with LaTeX
 - Connects theory to code implementation
 - Comprehensive references to literature
 - Rigorous treatment of identification
-
----
 
 ### 3. Getting Started Tutorial (`docs/src/tutorials/getting_started.md`)
 
 **Purpose**: Hands-on introduction to the package through a complete example.
 
 **Example**: Oil market VAR (Kilian 2009 style)
+
 - 3 variables: oil production growth, real activity, real oil price
 - 456 monthly observations (simulated)
 
-**Topics covered**:
+**Topics covered**
+
 1. **Installation and setup**
 2. **Loading and exploring data**
 3. **VAR estimation** (basic and with diagnostics)
@@ -80,13 +82,12 @@ This document summarizes the complete documentation for MacroEconometricTools.jl
 
 **Learning path**: Progressive complexity from basic to advanced
 
----
-
 ### 4. Sign Restrictions Tutorial (`docs/src/tutorials/sign_restrictions.md`)
 
 **Purpose**: Advanced identification using sign restrictions.
 
 **Contents**:
+
 - Motivation for sign restrictions vs. Cholesky
 - Sign restriction matrix specification
 - Identification algorithm (Rubio-Ramírez et al. 2010)
@@ -111,13 +112,12 @@ This document summarizes the complete documentation for MacroEconometricTools.jl
 - Magnitude restrictions
 - Bayesian sign restrictions
 
----
-
 ### 5. Example Data (`docs/src/tutorials/data/oil_data.jl`)
 
 **Purpose**: Simulated data generator for tutorials.
 
 **Features**:
+
 - Realistic oil market dynamics (calibrated DGP)
 - 3 variables matching Kilian (2009) structure
 - Flexible sample size
@@ -132,13 +132,12 @@ This document summarizes the complete documentation for MacroEconometricTools.jl
 - `dates`: Vector of date strings
 - `names`: Variable names as symbols
 
----
-
 ### 6. Documentation README (`docs/README.md`)
 
 **Purpose**: Navigation hub for all documentation.
 
 **Features**:
+
 - Quick links to all documentation
 - Examples organized by topic and application
 - Feature checklist (implemented, in development, planned)
@@ -151,13 +150,12 @@ This document summarizes the complete documentation for MacroEconometricTools.jl
 - Topic → Tutorial + Theory links
 - Application → Data + Methods links
 
----
-
 ## Documentation Structure
 
 ```
 docs/
 ├── README.md                          # Navigation hub
+
 ├── TECHNICAL.md                       # Implementation details
 ├── DOCUMENTATION_OVERVIEW.md          # This file
 └── src/
@@ -170,13 +168,12 @@ docs/
             └── oil_data.jl            # Example data generator
 ```
 
----
-
 ## Usage Guide
 
 ### For New Users
 
 **Start here**:
+
 1. Read `docs/README.md` for overview
 2. Follow `docs/src/tutorials/getting_started.md` step-by-step
 3. Refer to `docs/src/mathematical/theory.md` for theoretical background
@@ -210,13 +207,12 @@ Installation → Basic VAR → IRFs → Bootstrap → Constraints → Sign Restr
 - Constraint implementation (reference for complex logic)
 - Performance best practices
 
----
-
 ## Examples by Research Topic
 
 ### Oil Market Dynamics
 - **Tutorial**: `getting_started.md`, `sign_restrictions.md`
 - **Data**: Simulated 3-variable system
+
 - **Methods**: Cholesky, sign restrictions
 - **Reference**: Kilian (2009)
 
@@ -238,13 +234,12 @@ Installation → Basic VAR → IRFs → Bootstrap → Constraints → Sign Restr
 - **Methods**: Long-run restrictions
 - **Reference**: Galí (1999)
 
----
-
 ## Documentation Principles
 
 ### 1. Completeness
 Every major feature is documented with:
 - Theory
+
 - Implementation
 - Example
 - Reference to literature
@@ -269,13 +264,12 @@ Documentation encourages:
 - Diagnostic checking
 - Sensitivity analysis
 
----
-
 ## Future Documentation Plans
 
 ### Additional Tutorials
 
 1. **Local Projections** (`local_projections.md`)
+
    - Alternative to VAR for IRF estimation
    - Robustness to misspecification
    - Comparison with VAR
@@ -319,13 +313,12 @@ Generate from docstrings using Documenter.jl:
 - Method tables
 - Search functionality
 
----
-
 ## Documentation Quality Checklist
 
 - ✅ Mathematical notation consistent throughout
 - ✅ Code examples tested and working
 - ✅ Cross-references between documents
+
 - ✅ Literature citations complete
 - ✅ Multiple difficulty levels (beginner to advanced)
 - ✅ Theoretical and applied perspectives
@@ -334,13 +327,12 @@ Generate from docstrings using Documenter.jl:
 - ⬜ Interactive plots in examples (requires Plots.jl)
 - ⬜ Video tutorials (future consideration)
 
----
-
 ## Maintaining Documentation
 
 ### When Adding Features
 
 1. **Update TECHNICAL.md**:
+
    - Add to type hierarchy
    - Document algorithm
    - Add extension example
@@ -370,13 +362,12 @@ Before committing documentation changes:
 4. **Consistency**: Notation and style uniform
 5. **Examples**: Code runs without errors
 
----
-
 ## Contact and Contributions
 
 For documentation improvements:
 - Open issue on GitHub
 - Submit pull request with changes
+
 - Follow existing style and structure
 
 For questions about documentation:
@@ -384,13 +375,12 @@ For questions about documentation:
 - Search tutorials for examples
 - Open discussion on GitHub
 
----
-
 ## References
 
 All documentation follows conventions from:
 
 - Lütkepohl, H. (2005). *New Introduction to Multiple Time Series Analysis*
+
 - Kilian, L., & Lütkepohl, H. (2017). *Structural Vector Autoregressive Analysis*
 - Hamilton, J. D. (1994). *Time Series Analysis*
 

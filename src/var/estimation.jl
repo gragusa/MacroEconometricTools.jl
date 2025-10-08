@@ -99,6 +99,16 @@ function estimate(::Type{OLSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
 end
 
 """
+    VAR(Y, n_lags; kwargs...)
+
+Convenience wrapper for `estimate(OLSVAR, Y, n_lags; kwargs...)` to preserve the
+IRFs.jl API.
+"""
+function VAR(Y::AbstractMatrix{T}, n_lags::Int; kwargs...) where T<:AbstractFloat
+    return estimate(OLSVAR, Y, n_lags; kwargs...)
+end
+
+"""
     constrained_ols(X, Y, constraints, names, n_lags, n_vars)
 
 Estimate VAR coefficients under linear constraints.

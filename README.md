@@ -145,6 +145,19 @@ Contributions are welcome! Please:
 3. Add tests for new features
 4. Update documentation
 
+## Benchmarks
+
+- Run targeted microbenchmarks:
+  ```julia
+  julia --project=benchmark -e 'using Pkg; Pkg.instantiate(); using BenchmarkTools; include("benchmark/benchmarks.jl"); BenchmarkTools.run(MacroEconometricToolsBenchmarks.SUITE)'
+  ```
+- Compare revisions with AirspeedVelocity:
+  ```bash
+  julia --project=benchmark benchmark/run_asv.jl
+  ```
+  Configure revisions via `MET_ASV_BASELINE`, `MET_ASV_CANDIDATE`, and `MET_ASV_OUTPUT_DIR` environment variables; the script writes JSON outputs plus a Markdown summary under `benchmark/results/`.
+- Enable distributed microbenchmarks by exporting `MET_BENCH_ENABLE_DISTRIBUTED=true` (override worker count with `MET_BENCH_NWORKERS`).
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) file

@@ -18,6 +18,7 @@ Bootstrap impulse response functions for inference.
 - `block_length::Int=10`: Block length for block bootstrap
 - `normalization::AbstractNormalization=UnitStd()`: Shock normalization
 - `parallel::Symbol=:none`: Parallelization (`:none`, `:distributed`)
+- `rng::AbstractRNG=Random.default_rng()`: Random number generator for reproducible draws
 
 # Returns
 - Array of size (reps, horizon+1, n_vars, n_shocks) with bootstrap IRFs
@@ -39,7 +40,8 @@ function bootstrap_irf(model::VARModel{T}, identification::AbstractIdentificatio
                       method::Symbol=:wild,
                       block_length::Int=10,
                       normalization::AbstractNormalization=UnitStd(),
-                      parallel::Symbol=:none) where T
+                      parallel::Symbol=:none,
+                      rng::AbstractRNG=Random.default_rng()) where T
 
     method ∈ [:wild, :standard, :block] ||
         throw(ArgumentError("method must be :wild, :standard, or :block"))
@@ -51,26 +53,27 @@ function bootstrap_irf(model::VARModel{T}, identification::AbstractIdentificatio
     # Choose execution method
     if parallel == :distributed
         irf_boot = bootstrap_irf_distributed(model, identification, horizon, reps,
-                                            method, block_length, normalization)
+                                            method, block_length, normalization, rng)
     else
         # Preallocate bootstrap IRF storage
         irf_boot = zeros(T, reps, horizon + 1, n_vars_val, n_vars_val)
         bootstrap_irf_serial!(irf_boot, model, identification, horizon,
-                             method, block_length, normalization)
+                             method, block_length, normalization, rng)
     end
 
     return irf_boot
 end
 
 """
-    bootstrap_irf_serial!(irf_boot, model, identification, horizon, method, block_length, normalization)
+    bootstrap_irf_serial!(irf_boot, model, identification, horizon, method, block_length, normalization, rng)
 
 Serial bootstrap computation.
 """
 function bootstrap_irf_serial!(irf_boot::Array{T,4}, model::VARModel{T},
                                identification::AbstractIdentification, horizon::Int,
                                method::Symbol, block_length::Int,
-                               normalization::AbstractNormalization) where T
+                               normalization::AbstractNormalization,
+                               rng::AbstractRNG) where T
     reps = size(irf_boot, 1)
     residuals = model.residuals
     n_obs_val = size(residuals, 1)
@@ -82,11 +85,11 @@ function bootstrap_irf_serial!(irf_boot::Array{T,4}, model::VARModel{T},
     for r in 1:reps
         # Generate bootstrap residuals
         if method == :wild
-            u_boot = wild_bootstrap_residuals(residuals)
+            u_boot = wild_bootstrap_residuals(rng, residuals)
         elseif method == :standard
-            u_boot = standard_bootstrap_residuals(residuals)
+            u_boot = standard_bootstrap_residuals(rng, residuals)
         elseif method == :block
-            u_boot = block_bootstrap_residuals(residuals, block_length)
+            u_boot = block_bootstrap_residuals(rng, residuals, block_length)
         end
 
         # Simulate bootstrap data
@@ -94,8 +97,10 @@ function bootstrap_irf_serial!(irf_boot::Array{T,4}, model::VARModel{T},
 
         # Re-estimate VAR on bootstrap data
         try
+            constraints_arg = model.coefficients.constraints
+            constraints_arg = constraints_arg === nothing ? AbstractConstraint[] : constraints_arg
             var_boot = estimate(typeof(model.spec), Y_boot, n_lags(model);
-                              constraints=model.coefficients.constraints,
+                              constraints=constraints_arg,
                               names=model.names)
 
             # Compute IRF for bootstrap sample
@@ -112,61 +117,22 @@ function bootstrap_irf_serial!(irf_boot::Array{T,4}, model::VARModel{T},
     end
 end
 
-"""
-    bootstrap_irf_parallel!(irf_boot, model, identification, horizon, method, block_length, normalization)
-
-Parallel bootstrap computation using Threads.
-"""
-function bootstrap_irf_parallel!(irf_boot::Array{T,4}, model::VARModel{T},
-                                 identification::AbstractIdentification, horizon::Int,
-                                 method::Symbol, block_length::Int,
-                                 normalization::AbstractNormalization) where T
-    reps = size(irf_boot, 1)
-    residuals = model.residuals
-    Y_original = model.Y
-
-    Threads.@threads for r in 1:reps
-        # Generate bootstrap residuals
-        if method == :wild
-            u_boot = wild_bootstrap_residuals(residuals)
-        elseif method == :standard
-            u_boot = standard_bootstrap_residuals(residuals)
-        elseif method == :block
-            u_boot = block_bootstrap_residuals(residuals, block_length)
-        end
-
-        # Simulate and estimate
-        Y_boot = simulate_var(model, u_boot, Y_original)
-
-        try
-            var_boot = estimate(typeof(model.spec), Y_boot, n_lags(model);
-                              constraints=model.coefficients.constraints,
-                              names=model.names)
-
-            P_boot = identify(var_boot, identification)
-            P_boot = normalize(P_boot, normalization)
-            irf_boot[r, :, :, :] = compute_irf_point(var_boot, P_boot, horizon)
-        catch e
-            @warn "Bootstrap iteration $r failed: $e"
-        end
-    end
-end
 
 # ============================================================================
 # Bootstrap Residual Generation
 # ============================================================================
 
 """
-    wild_bootstrap_residuals(residuals::Matrix)
+    wild_bootstrap_residuals(rng::AbstractRNG, residuals::Matrix)
 
 Wild bootstrap: multiply residuals by random ±1.
 """
-function wild_bootstrap_residuals(residuals::Matrix{T}) where T
+function wild_bootstrap_residuals(rng::AbstractRNG, residuals::Matrix{T}) where T
     n_obs, n_vars = size(residuals)
     u_boot = similar(residuals)
 
     # Rademacher weights: ±1 with equal probability
-    weights = rand([-one(T), one(T)], n_obs)
+    weights = rand(rng, [-one(T), one(T)], n_obs)
 
     for j in 1:n_vars
         u_boot[:, j] = weights .* residuals[:, j]
@@ -176,22 +142,22 @@ function wild_bootstrap_residuals(residuals::Matrix{T}) where T
 end
 
 """
-    standard_bootstrap_residuals(residuals::Matrix)
+    standard_bootstrap_residuals(rng::AbstractRNG, residuals::Matrix)
 
 Standard bootstrap: resample residuals with replacement.
 """
-function standard_bootstrap_residuals(residuals::Matrix{T}) where T
+function standard_bootstrap_residuals(rng::AbstractRNG, residuals::Matrix{T}) where T
     n_obs = size(residuals, 1)
-    indices = rand(1:n_obs, n_obs)
+    indices = rand(rng, 1:n_obs, n_obs)
     return residuals[indices, :]
 end
 
 """
-    block_bootstrap_residuals(residuals::Matrix, block_length::Int)
+    block_bootstrap_residuals(rng::AbstractRNG, residuals::Matrix, block_length::Int)
 
 Moving block bootstrap for time series.
 """
-function block_bootstrap_residuals(residuals::Matrix{T}, block_length::Int) where T
+function block_bootstrap_residuals(rng::AbstractRNG, residuals::Matrix{T}, block_length::Int) where T
     n_obs, n_vars = size(residuals)
     u_boot = similar(residuals)
 
@@ -201,7 +167,7 @@ function block_bootstrap_residuals(residuals::Matrix{T}, block_length::Int) wher
     pos = 1
     for block in 1:n_blocks
         # Random starting point
-        start_idx = rand(1:max_start)
+        start_idx = rand(rng, 1:max_start)
         end_idx = min(start_idx + block_length - 1, n_obs)
         block_size = end_idx - start_idx + 1
 
@@ -305,9 +271,12 @@ end
 # ============================================================================
 
 """
-    bootstrap_irf_distributed(model, identification, horizon, reps, method, block_length, normalization)
+    bootstrap_irf_distributed(model, identification, horizon, reps, method, block_length, normalization, rng)
 
-Distributed bootstrap using multiple processes.
+Distributed bootstrap using multiple processes with batching for efficiency.
+
+Batches replications across workers to minimize communication overhead.
+Each worker processes batch_size replications using independent RNG streams.
 
 Requires Distributed package and worker processes to be set up:
 ```julia
@@ -319,84 +288,112 @@ addprocs(4)
 function bootstrap_irf_distributed(model::VARModel{T}, identification::AbstractIdentification,
                                    horizon::Int, reps::Int,
                                    method::Symbol, block_length::Int,
-                                   normalization::AbstractNormalization) where T
+                                   normalization::AbstractNormalization,
+                                   rng::AbstractRNG) where T
 
     # Check if Distributed is available
     if !isdefined(Main, :Distributed)
         @warn "Distributed package not loaded. Falling back to serial execution."
         irf_boot = zeros(T, reps, horizon + 1, n_vars(model), n_vars(model))
         bootstrap_irf_serial!(irf_boot, model, identification, horizon,
-                             method, block_length, normalization)
+                             method, block_length, normalization, rng)
         return irf_boot
     end
 
-    using Distributed
+    dist = Base.require(Main, :Distributed)
 
-    if nworkers() == 1
+    if dist.nworkers() == 1
         @warn "No worker processes available. Use addprocs() to add workers. Falling back to serial."
         irf_boot = zeros(T, reps, horizon + 1, n_vars(model), n_vars(model))
         bootstrap_irf_serial!(irf_boot, model, identification, horizon,
-                             method, block_length, normalization)
+                             method, block_length, normalization, rng)
         return irf_boot
     end
 
-    # Single bootstrap iteration function
-    # Takes (replication_index, base_seed) to ensure independent streams
-    function single_bootstrap_rep(rep_info::Tuple{Int,UInt64})
-        rep_idx, base_seed = rep_info
-
-        # Create worker-specific seed by combining base seed with replication index
-        # This ensures each replication has a unique, deterministic seed
-        worker_seed = base_seed + UInt64(rep_idx) * 0x9e3779b97f4a7c15
-        Random.seed!(worker_seed)
-
-        # Extract model components
-        residuals = model.residuals
-        Y_original = model.Y[1:n_lags(model), :]
+    # Batch bootstrap iterations to minimize pmap overhead
+    # Each worker processes a batch of replications
+    function batched_bootstrap_rep(batch_info::Tuple{UnitRange{Int},UInt64})
+        batch_range, base_seed = batch_info
+        n_batch = length(batch_range)
+        n_vars_val = n_vars(model)
         n_lags_val = n_lags(model)
 
-        # Resample residuals
-        u_boot = if method == :wild
-            wild_bootstrap_residuals(residuals)
-        elseif method == :standard
-            standard_bootstrap_residuals(residuals)
-        else  # :block
-            block_bootstrap_residuals(residuals, block_length)
+        # Preallocate output for this batch
+        batch_irfs = zeros(T, n_batch, horizon + 1, n_vars_val, n_vars_val)
+
+        # Extract model components (avoid repeated access)
+        residuals = model.residuals
+        Y_original = model.Y[1:n_lags_val, :]
+        constraints_arg = model.coefficients.constraints
+        constraints_arg = constraints_arg === nothing ? AbstractConstraint[] : constraints_arg
+
+        # Process each replication in the batch
+        for (batch_idx, rep_idx) in enumerate(batch_range)
+            # Create replication-specific seed
+            # This ensures deterministic, independent streams
+            worker_seed = base_seed + UInt64(rep_idx) * 0x9e3779b97f4a7c15
+            rng_local = Random.Xoshiro(worker_seed)
+
+            # Resample residuals
+            u_boot = if method == :wild
+                wild_bootstrap_residuals(rng_local, residuals)
+            elseif method == :standard
+                standard_bootstrap_residuals(rng_local, residuals)
+            else  # :block
+                block_bootstrap_residuals(rng_local, residuals, block_length)
+            end
+
+            # Simulate VAR
+            Y_boot = simulate_var(model, u_boot, Y_original)
+
+            # Re-estimate
+            try
+                var_boot = estimate(typeof(model.spec), Y_boot, n_lags_val;
+                                  constraints=constraints_arg,
+                                  names=model.names)
+
+                # Re-identify and compute IRF
+                P_boot = identify(var_boot, identification)
+                P_boot = normalize(P_boot, normalization)
+                batch_irfs[batch_idx, :, :, :] = compute_irf_point(var_boot, P_boot, horizon)
+            catch e
+                # If estimation fails, use zeros (or could use previous valid draw)
+                @warn "Bootstrap replication $rep_idx failed: $e"
+            end
         end
 
-        # Simulate VAR
-        Y_boot = simulate_var(model, u_boot, Y_original)
-
-        # Re-estimate
-        var_boot = estimate(typeof(model.spec), Y_boot, n_lags_val;
-                          constraints=model.coefficients.constraints,
-                          names=model.names)
-
-        # Re-identify
-        P_boot = identify(var_boot, identification)
-        P_boot = normalize(P_boot, normalization)
-
-        # Compute IRF
-        irf = compute_irf_point(var_boot, P_boot, horizon)
-
-        return irf
+        return batch_irfs
     end
 
-    # Create deterministic seeds for each replication
-    # Use a single base seed and derive independent streams
-    base_seed = rand(Random.RandomDevice(), UInt64)
-    rep_seeds = [(i, base_seed) for i in 1:reps]
+    # Create batches: distribute replications across workers
+    n_workers = dist.nworkers()
+    # Aim for ~10-20 batches per worker for good load balancing
+    n_batches = min(reps, max(n_workers * 10, 20))
+    batch_size = ceil(Int, reps / n_batches)
 
-    # Distributed map over bootstrap replications
-    println("Running $reps bootstrap replications on $(nworkers()) workers...")
-    irf_results = pmap(single_bootstrap_rep, rep_seeds)
+    # Generate base seed for reproducibility
+    base_seed = rand(rng, UInt64)
 
-    # Stack results
+    # Create batch ranges
+    batches = Tuple{UnitRange{Int},UInt64}[]
+    for start_idx in 1:batch_size:reps
+        end_idx = min(start_idx + batch_size - 1, reps)
+        push!(batches, (start_idx:end_idx, base_seed))
+    end
+
+    # Distributed map over batches
+    println("Running $reps bootstrap replications in $(length(batches)) batches on $n_workers workers...")
+    batch_results = dist.pmap(batched_bootstrap_rep, batches)
+
+    # Concatenate batch results
     n_vars_val = n_vars(model)
     irf_boot = zeros(T, reps, horizon + 1, n_vars_val, n_vars_val)
 
-    for (r, irf) in enumerate(irf_results)
-        irf_boot[r, :, :, :] = irf
+    current_idx = 1
+    for batch_result in batch_results
+        n_in_batch = size(batch_result, 1)
+        irf_boot[current_idx:(current_idx + n_in_batch - 1), :, :, :] = batch_result
+        current_idx += n_in_batch
     end
 
     return irf_boot

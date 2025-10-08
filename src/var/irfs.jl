@@ -19,6 +19,7 @@ Compute impulse response functions with confidence bands.
 - `bootstrap_method::Symbol=:wild`: Bootstrap method (`:wild`, `:standard`, `:block`)
 - `block_length::Int=10`: Block length for block bootstrap
 - `normalization::AbstractNormalization=UnitStd()`: Shock normalization
+- `rng::AbstractRNG=Random.default_rng()`: Random number generator used when `inference == :bootstrap`
 
 # Returns
 - `IRFResult`: Impulse response functions with confidence bands
@@ -40,7 +41,8 @@ function irf(model::VARModel{T}, identification::AbstractIdentification;
              bootstrap_reps::Int=1000,
              bootstrap_method::Symbol=:wild,
              block_length::Int=10,
-             normalization::AbstractNormalization=UnitStd()) where T
+             normalization::AbstractNormalization=UnitStd(),
+             rng::AbstractRNG=Random.default_rng()) where T
 
     horizon > 0 || throw(ArgumentError("horizon must be positive"))
     inference ∈ [:bootstrap, :delta, :none] ||
@@ -68,7 +70,7 @@ function irf(model::VARModel{T}, identification::AbstractIdentification;
     elseif inference == :bootstrap
         irf_boot = bootstrap_irf(model, identification, horizon, bootstrap_reps;
                                  method=bootstrap_method, block_length=block_length,
-                                 normalization=normalization)
+                                 normalization=normalization, rng=rng)
         stderr = std(irf_boot; dims=1)[1, :, :, :]
         lower, upper = compute_bands_bootstrap(irf_point, irf_boot, coverage)
     end
@@ -80,6 +82,7 @@ function irf(model::VARModel{T}, identification::AbstractIdentification;
         bootstrap_reps = inference == :bootstrap ? bootstrap_reps : 0,
         bootstrap_method = bootstrap_method,
         normalization = typeof(normalization),
+        names = model.names,
         timestamp = now()
     )
 
@@ -129,64 +132,32 @@ end
 
 Compute asymptotic standard errors using delta method.
 
+**Note**: Only valid for Cholesky (triangular) identification schemes.
+
 Based on Lütkepohl (2005), Section 3.7.
+
+# Arguments
+- `model::VARModel`: Estimated VAR model
+- `P::Matrix`: Identification matrix
+- `irf::Array{T,3}`: Point estimate of IRF
+- `identification::AbstractIdentification`: Identification scheme
+
+# Returns
+- Standard error array of size (horizon+1, n_vars, n_vars)
 """
 function compute_irf_stderr_delta(model::VARModel{T}, P::Matrix{T},
                                  irf::Array{T,3}, identification::AbstractIdentification) where T
-    # This is a simplified implementation
-    # Full implementation would compute exact Jacobian
-
-    n_obs_val = n_obs(model)
-    n_vars_val = n_vars(model)
-    horizon = size(irf, 1) - 1
-
-    # Placeholder: use bootstrap for complex identification schemes
+    # Delta method is only valid for Cholesky identification
     if !(identification isa CholeskyID)
-        @warn "Delta method standard errors not fully implemented for $(typeof(identification)). Using bootstrap."
+        @warn "Delta method standard errors only implemented for Cholesky identification. " *
+              "Falling back to bootstrap for $(typeof(identification))."
+        horizon = size(irf, 1) - 1
         irf_boot = bootstrap_irf(model, identification, horizon, 500; method=:wild)
         return std(irf_boot; dims=1)[1, :, :, :]
     end
 
-    # For Cholesky: use analytical formula
-    Σ = vcov(model)
-    F = model.companion
-
-    stderr = zeros(T, size(irf))
-
-    # Variance of vec(Σ)
-    Σ_vec_var = variance_of_sigma(model)
-
-    # Compute variance of each IRF element
-    # This requires the Jacobian ∂IRF/∂vec(Σ)
-    # Simplified: use numerical differentiation or bootstrap
-
-    # For now, return approximate stderr based on residual variance
-    for h in 0:horizon
-        # Approximation: stderr grows with horizon
-        stderr[h + 1, :, :] = sqrt.(diag(Σ)) * (1 + h / 10) / sqrt(n_obs_val)
-    end
-
-    return stderr
-end
-
-"""
-    variance_of_sigma(model::VARModel)
-
-Compute asymptotic variance of residual covariance matrix.
-"""
-function variance_of_sigma(model::VARModel{T}) where T
-    n_obs_val = n_obs(model)
-    n_vars_val = n_vars(model)
-    Σ = vcov(model)
-
-    # Using Magnus-Neudecker formula: 2 * D⁺ * (Σ ⊗ Σ) * (D⁺)'
-    D = duplication_matrix(n_vars_val)
-    D_plus = pinv(D)
-
-    Σ_kron = kron(Σ, Σ)
-    Var_vech_Σ = 2 * D_plus * Σ_kron * D_plus' / n_obs_val
-
-    return Var_vech_Σ
+    # Use analytical delta method formulas
+    return irf_asymptotic_stderr(model, P, irf)
 end
 
 """

@@ -94,6 +94,7 @@ Uses algorithm of Rubio-Ramírez, Waggoner, and Zha (2010).
 - `max_draws::Int=10000`: Maximum number of rotation draws
 - `parallel::Symbol=:none`: Parallelization (`:none`, `:distributed`)
 - `verbose::Bool=false`: Print progress information
+- `rng::AbstractRNG=Random.default_rng()`: Random number generator for reproducible draws
 
 # Returns
 - Impact matrix satisfying sign restrictions
@@ -113,15 +114,16 @@ P = identify_sign(model, id; max_draws=50000, parallel=:distributed)
 function identify_sign(model::VARModel{T}, id::SignRestriction;
                       max_draws::Int=10000,
                       parallel::Symbol=:none,
-                      verbose::Bool=false) where T
+                      verbose::Bool=false,
+                      rng::AbstractRNG=Random.default_rng()) where T
 
     parallel ∈ [:none, :distributed] ||
         throw(ArgumentError("parallel must be :none or :distributed"))
 
     if parallel == :distributed
-        return identify_sign_distributed(model, id, max_draws, verbose)
+        return identify_sign_distributed(model, id, max_draws, verbose, rng)
     else
-        return identify_sign_serial(model, id, max_draws, verbose)
+        return identify_sign_serial(model, id, max_draws, verbose, rng)
     end
 end
 
@@ -131,7 +133,8 @@ end
 Serial sign restriction search.
 """
 function identify_sign_serial(model::VARModel{T}, id::SignRestriction,
-                              max_draws::Int, verbose::Bool) where T
+                              max_draws::Int, verbose::Bool,
+                              rng::AbstractRNG) where T
     n_vars_val = n_vars(model)
     Σ = vcov(model)
 
@@ -141,7 +144,7 @@ function identify_sign_serial(model::VARModel{T}, id::SignRestriction,
     # Search for valid rotation
     for iter in 1:max_draws
         # Random orthogonal matrix via QR decomposition
-        Q = generate_random_orthogonal(n_vars_val)
+        Q = generate_random_orthogonal(n_vars_val, rng)
 
         # Candidate impact matrix
         P_candidate = P_chol * Q
@@ -170,19 +173,20 @@ Distributed sign restriction search using multiple processes.
 Divides search across workers and stops when first valid rotation is found.
 """
 function identify_sign_distributed(model::VARModel{T}, id::SignRestriction,
-                                   max_draws::Int, verbose::Bool) where T
+                                   max_draws::Int, verbose::Bool,
+                                   rng::AbstractRNG) where T
 
     # Check if Distributed is available
-    if !isdefined(Main, :Distributed)
-        @warn "Distributed package not loaded. Falling back to serial execution."
-        return identify_sign_serial(model, id, max_draws, verbose)
-    end
+    # if !isdefined(Main, :Distributed)
+    #     @warn "Distributed package not loaded. Falling back to serial execution."
+    #     return identify_sign_serial(model, id, max_draws, verbose, rng)
+    # end
 
-    using Distributed
+    #dist = Base.require(Main, :Distributed)
 
-    if nworkers() == 1
+    if Distributed.nworkers() == 1
         @warn "No worker processes available. Falling back to serial execution."
-        return identify_sign_serial(model, id, max_draws, verbose)
+        return identify_sign_serial(model, id, max_draws, verbose, rng)
     end
 
     n_vars_val = n_vars(model)
@@ -195,12 +199,11 @@ function identify_sign_distributed(model::VARModel{T}, id::SignRestriction,
         n_attempts, worker_id, base_seed = work_info
 
         # Create worker-specific seed using base seed and worker ID
-        # The golden ratio constant ensures good mixing
         worker_seed = base_seed + UInt64(worker_id) * 0x9e3779b97f4a7c15
-        Random.seed!(worker_seed)
+        rng_local = Random.Xoshiro(worker_seed)
 
         for attempt in 1:n_attempts
-            Q = generate_random_orthogonal(n_vars_val)
+            Q = generate_random_orthogonal(n_vars_val, rng_local)
             P_candidate = P_chol * Q
 
             if check_sign_restrictions(P_candidate, id.restrictions, model, id.horizon)
@@ -212,22 +215,27 @@ function identify_sign_distributed(model::VARModel{T}, id::SignRestriction,
     end
 
     # Divide work across workers
-    n_w = nworkers()
-    draws_per_worker = div(max_draws, n_w)
+    n_w = Distributed.nworkers()
+    draws_per_worker = fill(div(max_draws, n_w), n_w)
+    remainder = rem(max_draws, n_w)
+    for i in 1:remainder
+        draws_per_worker[i] += 1
+    end
 
-    # Generate base seed from hardware RNG for true randomness
-    base_seed = rand(Random.RandomDevice(), UInt64)
-    work_specs = [(draws_per_worker, i, base_seed) for i in 1:n_w]
+    base_seed = rand(rng, UInt64)
+    work_specs = [(draws_per_worker[i], i, base_seed) for i in 1:n_w if draws_per_worker[i] > 0]
+    active_workers = length(work_specs)
 
     if verbose
-        println("Searching for valid rotation using $n_w workers ($draws_per_worker draws each)...")
+        println("Searching for valid rotation using $active_workers workers (draw allocations: $(join(draws_per_worker, ", ")))...")
     end
 
     # Parallel search - returns as soon as first worker finds valid rotation
-    results = pmap(search_rotations, work_specs)
+    results = Distributed.pmap(search_rotations, work_specs)
 
     # Find first successful result
-    for (worker_id, result) in enumerate(results)
+    for (idx, result) in enumerate(results)
+        worker_id = work_specs[idx][2]
         if result.found
             if verbose
                 println("Worker $worker_id found valid rotation at attempt $(result.attempt)")
@@ -237,22 +245,24 @@ function identify_sign_distributed(model::VARModel{T}, id::SignRestriction,
     end
 
     # If no worker found valid rotation
-    total_attempts = n_w * draws_per_worker
-    throw(ErrorException("Could not find impact matrix satisfying sign restrictions after $total_attempts attempts across $n_w workers"))
+    total_attempts = sum(draws_per_worker)
+    throw(ErrorException("Could not find impact matrix satisfying sign restrictions after $total_attempts attempts across $active_workers workers"))
 end
 
 """
-    generate_random_orthogonal(n::Int)
+    generate_random_orthogonal(n::Int, rng::AbstractRNG)
 
 Generate random orthogonal matrix via QR decomposition of random normal matrix.
 """
-function generate_random_orthogonal(n::Int)
-    X = randn(n, n)
+function generate_random_orthogonal(n::Int, rng::AbstractRNG)
+    X = randn(rng, n, n)
     Q, R = qr(X)
     # Normalize to ensure det(Q) = 1
     D = Diagonal(sign.(diag(R)))
     return Matrix(Q * D)
 end
+
+generate_random_orthogonal(n::Int) = generate_random_orthogonal(n, Random.default_rng())
 
 """
     check_sign_restrictions(P, restrictions, model, horizon)

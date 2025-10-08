@@ -2,6 +2,8 @@
 # Parallel Computing Utilities
 # ============================================================================
 
+using Distributed
+
 """
     setup_workers(n_workers::Int)
 
@@ -19,18 +21,21 @@ using Distributed
 workers = setup_workers(4)  # Add 4 worker processes
 ```
 """
-function setup_workers(n_workers::Int)
-    using Distributed
 
-    current_workers = nworkers()
+function setup_workers(n_workers::Int)
+    dist = Base.require(Main, :Distributed)
+
+    current_workers = dist.nworkers()
     if current_workers < n_workers
-        addprocs(n_workers - current_workers)
+        dist.addprocs(n_workers - current_workers)
     end
 
     # Load package on all workers
-    @everywhere using MacroEconometricTools
+    for pid in dist.workers()
+        dist.remotecall_eval(pid, Main, :(using MacroEconometricTools))
+    end
 
-    return workers()
+    return dist.workers()
 end
 
 """
@@ -43,8 +48,8 @@ Check if Distributed package is loaded and workers are available.
 """
 function check_parallel_available()
     if isdefined(Main, :Distributed)
-        using Distributed
-        return (true, nworkers())
+        dist = Base.require(Main, :Distributed)
+        return (true, dist.nworkers())
     else
         return (false, 1)
     end
@@ -64,10 +69,9 @@ Parallel map with batching for better load balancing.
 - Vector of results
 """
 function pmap_batched(f, collection; batch_size=nothing)
-    using Distributed
-
+    dist = Base.require(Main, :Distributed)
     n = length(collection)
-    n_w = nworkers()
+    n_w = dist.nworkers()
 
     if isnothing(batch_size)
         # Auto batch size: aim for ~10 batches per worker
@@ -79,7 +83,7 @@ function pmap_batched(f, collection; batch_size=nothing)
                for i in 1:batch_size:n]
 
     # Process batches in parallel
-    results = pmap(batches) do batch
+    results = dist.pmap(batches) do batch
         [f(item) for item in batch]
     end
 

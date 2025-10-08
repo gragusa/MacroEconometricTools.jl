@@ -3,6 +3,7 @@ using MacroEconometricTools
 using Test
 using LinearAlgebra
 using Random
+using StableRNGs: StableRNG
 
 @testset "Basic Package Functionality" begin
 
@@ -64,6 +65,15 @@ using Random
         # Check that P*P' ≈ Σ
         Σ = vcov(var)
         @test P * P' ≈ Matrix(Σ) rtol=1e-10
+    end
+
+    @testset "Resampling reproducibility" begin
+        var = estimate(OLSVAR, Y, n_l)
+        id = CholeskyID()
+
+        boot1 = bootstrap_irf(var, id, 5, 20; rng=StableRNG(20240612))
+        boot2 = bootstrap_irf(var, id, 5, 20; rng=StableRNG(20240612))
+        @test boot1 == boot2
     end
 
     @testset "Utility Functions" begin

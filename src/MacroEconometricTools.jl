@@ -15,6 +15,7 @@ using LinearAlgebra
 using Statistics
 using Random
 using Dates
+using Distributed
 using StatsBase
 using StatsFuns
 using Distributions
@@ -48,15 +49,19 @@ include("bootstrap.jl")
 # Parallel computing utilities
 include("parallel.jl")
 
+# Plotting recipes (will work when Plots.jl is loaded)
+include("plots_recipes.jl")
+
 # Export main types
 export AbstractVARSpec, OLSVAR, BayesianVAR, IVSVAR, LocalProjection
 export VARModel, VARCoefficients
+export VAR
 export AbstractConstraint, ZeroConstraint, FixedConstraint, BlockExogeneity
 export AbstractIdentification, CholeskyID, SignRestriction, IVIdentification
 export AbstractInstrument, ExternalInstrument, ProxyIV
 
 # Export main functions
-export estimate, estimate!
+export estimate
 export irf, impulse_response
 export coef, vcov, residuals, fitted
 export n_vars, n_lags, n_obs
