@@ -39,12 +39,13 @@ using MacroEconometricTools
 # Estimate VAR
 var = estimate(OLSVAR, Y, 4)  # 4 lags
 
-# Cholesky identification
-P = identify(var, CholeskyID())
+# Cholesky identification - compute rotation matrix
+P = rotation_matrix(var, CholeskyID())
 
-# Impulse responses with bootstrap
+# Impulse responses with bootstrap inference
 irf_result = irf(var, CholeskyID();
                  horizon=24,
+                 inference=:bootstrap,
                  bootstrap_reps=1000)
 ```
 
@@ -60,13 +61,14 @@ addprocs(4)
 # Parallel bootstrap (4× faster)
 irf_result = irf(var, id;
                 horizon=24,
+                inference=:bootstrap,
                 bootstrap_reps=2000,
                 parallel=:distributed)
 
 # Parallel sign restriction search
-P = identify(var, id_sign;
-            max_draws=50000,
-            parallel=:distributed)
+P = rotation_matrix(var, id_sign;
+                   max_draws=50000,
+                   parallel=:distributed)
 ```
 
 ## Documentation
@@ -97,11 +99,34 @@ irf_result = irf(var, CholeskyID();
                 bootstrap_reps=1000,
                 coverage=[0.68, 0.90, 0.95])
 
+# Access model properties
+varnames(var)  # [:oil_prod, :activity, :price]
+n_vars(var)    # 3
+raw_nobs(var)  # Total observations before lags
+
 # Variance decomposition
 fevd = variance_decomposition(irf_result)
 
 # Historical decomposition
 hd = historical_decomposition(var, CholeskyID())
+
+# Sign restriction identification (set-identified)
+restrictions = [
+    -1   1   0;   # oil production: supply -, demand +
+     0   1   0;   # activity: demand +
+     1   1   1    # price: all shocks +
+]
+id_sign = SignRestriction(restrictions, 12)  # Restrictions hold for 12 months
+
+# Compute multiple draws (set identification)
+irf_sign = irf(var, id_sign;
+              n_draws=1000,    # Number of valid rotations
+              horizon=48)      # Returns SignRestrictedIRFResult
+
+# Plot with different visualizations
+plot(irf_sign; plot_type=:quantiles)  # Median + bands
+plot(irf_sign; plot_type=:paths)      # All IRF draws
+plot(irf_sign; plot_type=:both)       # Combined
 ```
 
 ## Key Advantages

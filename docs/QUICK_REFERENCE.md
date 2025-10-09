@@ -17,11 +17,14 @@ using MacroEconometricTools
 # 1. Estimate VAR
 var = estimate(OLSVAR, Y, p; names=varnames)
 
-# 2. Identify structural shocks
-P = identify(var, CholeskyID())
+# 2. Identify structural shocks (compute rotation matrix)
+P = rotation_matrix(var, CholeskyID())
 
 # 3. Compute IRFs
-irf_result = irf(var, CholeskyID(); horizon=24, bootstrap_reps=1000)
+irf_result = irf(var, CholeskyID();
+                horizon=24,
+                inference=:bootstrap,
+                bootstrap_reps=1000)
 ```
 
 ---
@@ -47,6 +50,23 @@ var = estimate(OLSVAR, Y, p; names=names)
 
 ```julia
 var = estimate(OLSVAR, Y, p; demean=true)
+```
+
+### Model properties
+
+```julia
+# Accessor methods
+varnames(var)   # Get variable names
+n_vars(var)     # Number of variables
+n_lags(var)     # Number of lags
+n_obs(var)      # Observations used (after lags)
+raw_nobs(var)   # Total observations before lags
+
+# Get coefficients and statistics
+coef(var)       # VARCoefficients struct
+vcov(var)       # Residual covariance matrix
+residuals(var)  # Residual matrix
+fitted(var)     # Fitted values
 ```
 
 ---
@@ -104,14 +124,14 @@ var = estimate(OLSVAR, Y, p; constraints=constraints)
 
 ```julia
 id = CholeskyID()
-P = identify(var, id)
+P = rotation_matrix(var, id)
 ```
 
 ### Cholesky (custom ordering)
 
 ```julia
 id = CholeskyID(ordering=[:oil_price, :production, :activity])
-P = identify(var, id)
+P = rotation_matrix(var, id)
 ```
 
 ### Sign restrictions
@@ -126,7 +146,7 @@ restrictions = [
 ]
 
 id = SignRestriction(restrictions, 12)  # apply for horizons 0-12
-P = identify(var, id; max_draws=10000)
+P = rotation_matrix(var, id; max_draws=10000)
 ```
 
 ---
@@ -176,6 +196,26 @@ irf_result = irf(var, id; bootstrap_method=:block, block_length=4)
 
 ```julia
 cirf = cumulative_irf(irf_result)
+```
+
+### Sign restriction IRFs (set-identified)
+
+```julia
+# For sign restrictions, use specialized method
+irf_result = irf(var, SignRestriction(...);
+                n_draws=1000,      # Number of rotation matrices
+                horizon=24)        # Returns SignRestrictedIRFResult
+
+# Access draws
+irf_result.irf_median          # Median IRF: (horizon+1, n_vars, n_shocks)
+irf_result.irf_draws           # All draws: (n_draws, horizon+1, n_vars, n_shocks)
+irf_result.rotation_matrices   # All P matrices: Vector{Matrix}
+
+# Plot different visualizations
+using Plots
+plot(irf_result; plot_type=:quantiles)  # Median + quantile bands
+plot(irf_result; plot_type=:paths)      # All IRF paths
+plot(irf_result; plot_type=:both)       # Combined
 ```
 
 ---
@@ -446,7 +486,7 @@ Sign restrictions too strict:
 ```julia
 # Solutions:
 # 1. Increase max_draws
-identify(var, id; max_draws=50000)
+rotation_matrix(var, id; max_draws=50000)
 
 # 2. Relax restrictions (fewer sign constraints)
 # 3. Shorten restriction horizon
