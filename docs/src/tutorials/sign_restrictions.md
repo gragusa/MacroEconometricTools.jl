@@ -54,9 +54,9 @@ id_sign = SignRestriction(restrictions, horizon_restrict)
 ### Identification Algorithm
 
 ```julia
-# Identify structural shocks
+# Identify structural shocks - find ONE rotation matrix
 # This may take a while - trying many rotations
-P_sign = identify(var_model, id_sign; max_draws=10000, verbose=true)
+P_sign = rotation_matrix(var_model, id_sign; max_draws=10000, verbose=true)
 
 println("Found rotation satisfying sign restrictions")
 println("Impact matrix:")
@@ -73,6 +73,26 @@ Impact matrix:
 ```
 
 **Interpretation**: Columns are structural shocks (supply, demand, spec. demand).
+
+### Set Identification: Multiple Valid Rotations
+
+Sign restrictions are **set-identified** - many rotation matrices satisfy the restrictions.
+To account for this, compute IRFs for multiple draws:
+
+```julia
+# Compute IRFs with multiple rotation draws
+irf_result = irf(var_model, id_sign;
+                n_draws=1000,       # Number of valid rotations to find
+                max_attempts=10000, # Max attempts per draw
+                horizon=48)         # Returns SignRestrictedIRFResult
+
+# Access the results
+irf_result.irf_median          # Median IRF across draws
+irf_result.irf_draws           # All IRF draws: (1000, 49, 3, 3)
+irf_result.rotation_matrices   # All 1000 rotation matrices
+irf_result.lower               # Pointwise quantile bands
+irf_result.upper
+```
 
 ### Understanding the Algorithm
 
@@ -103,25 +123,46 @@ The algorithm works as follows:
 
 6. **Accept or reject**: If all restrictions satisfied, accept $P$; otherwise, draw new $Q$
 
-### Sensitivity to Restrictions
+### Plotting Sign-Restricted IRFs
+
+The package provides three visualization modes for set-identified IRFs:
 
 ```julia
-# Try stricter restrictions (longer horizon)
-id_sign_strict = SignRestriction(restrictions, 24)
-P_sign_strict = identify(var_model, id_sign_strict; max_draws=20000)
+using Plots
 
-# Compare impact matrices
-println("Difference in impact matrices:")
-display(round.(P_sign - P_sign_strict, digits=3))
+# 1. Quantiles only (median + bands) - DEFAULT
+plot(irf_result; plot_type=:quantiles,
+                vars=:all,
+                shocks=:all)
+
+# 2. All IRF paths (shows set identification uncertainty)
+plot(irf_result; plot_type=:paths,
+                path_alpha=0.02,    # Transparency for paths
+                path_color=:gray)
+
+# 3. Both paths and quantiles
+plot(irf_result; plot_type=:both,
+                path_alpha=0.015,
+                median_color=:black)
 ```
 
+**Interpretation**:
+- `:quantiles` mode: Shows median IRF and pointwise confidence bands
+- `:paths` mode: Each gray line is one valid IRF (shows full set identification)
+- `:both` mode: Combines both visualizations
 
 ## Computing IRFs with Sign Restrictions
 
-### Point IRFs
+### Single Rotation (Point Estimate)
 
 ```julia
-# Compute IRFs
+# Get one rotation matrix, then compute IRFs
+P = rotation_matrix(var_model, id_sign; max_draws=10000)
+irf_point = irf(var_model, CholeskyID(); horizon=48, inference=:none)
+# Note: This uses only ONE rotation, ignoring set identification
+```
+
+### Multiple Rotations (Set Identification)
 irf_sign = irf(var_model, id_sign;
                horizon=48,
                inference=:none)  # No inference for now
