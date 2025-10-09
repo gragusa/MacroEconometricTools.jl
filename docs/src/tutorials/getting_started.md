@@ -102,6 +102,17 @@ VARModel{Float64,OLSVAR}
   Lags: 24
 ```
 
+### Model Properties
+
+```julia
+# Access model properties
+println("Variable names: ", varnames(var_model))
+println("Number of variables: ", n_vars(var_model))
+println("Number of lags: ", n_lags(var_model))
+println("Effective observations: ", n_obs(var_model))
+println("Total observations: ", raw_nobs(var_model))
+```
+
 ### Examining Coefficients
 
 ```julia
@@ -165,8 +176,8 @@ The Cholesky decomposition imposes a recursive structure:
 # Ordering: production → activity → price
 id = CholeskyID()
 
-# Compute structural impact matrix
-P = identify(var_model, id)
+# Compute rotation matrix (structural impact matrix)
+P = rotation_matrix(var_model, id)
 
 println("Structural impact matrix (P):")
 display(round.(P, digits=3))
@@ -186,7 +197,7 @@ println("\nVerification: ||P*P' - Σ|| = ",
 ```julia
 # Try different ordering: price → production → activity
 id_alt = CholeskyID(ordering=[:log_oil_price, :oil_prod_growth, :real_activity])
-P_alt = identify(var_model, id_alt)
+P_alt = rotation_matrix(var_model, id_alt)
 
 println("Alternative structural impact matrix:")
 display(round.(P_alt, digits=3))
