@@ -4,14 +4,31 @@ This document summarizes the complete documentation for MacroEconometricTools.jl
 
 ## Documentation Files Created
 
-### 1. Technical Documentation (`docs/TECHNICAL.md`)
+### 1. Implementation Philosophy (`docs/IMPLEMENTATION_PHILOSOPHY.md`) ⭐ NEW
+
+**Purpose**: Design principles and implementation patterns for AI assistants and developers to quickly understand the codebase.
+
+**Contents**:
+- Core design principles (type-based dispatch, parametric types, NaN over Missing, separate types for different structures)
+- Key API patterns (estimation workflow, sign restrictions, accessor functions)
+- Architecture patterns (type hierarchy, constraint system, module organization)
+- Performance patterns (type stability, allocation strategies, broadcasting)
+- Extension guide (adding identification schemes, result types, constraints)
+- Common pitfalls and solutions
+- Testing and documentation philosophy
+
+**Target audience**: AI assistants (Claude), new contributors, developers extending the package
+
+**Key feature**: Designed to be read back by AI to "understand how the code works and be ready to work with it in little time"
+
+### 2. Technical Documentation (`docs/TECHNICAL.md`)
 
 **Purpose**: Internal architecture and implementation details for developers and contributors.
 
-**Contents**
-
+**Contents**:
 - Design philosophy (type-based dispatch, parametric types, no Missing values)
-- Type system architecture and hierarchy
+- Type system architecture and hierarchy (including AbstractIRFResult)
+- IRF result types (IRFResult vs SignRestrictedIRFResult)
 - Constraint system implementation (zero, fixed, block exogeneity)
 - VAR estimation algorithms (unconstrained and constrained)
 - Identification schemes (Cholesky, sign restrictions, IV)
@@ -22,14 +39,41 @@ This document summarizes the complete documentation for MacroEconometricTools.jl
 **Target audience**: Package developers, contributors, advanced users who want to understand internals
 
 **Key sections**:
-
+- IRF Result Types hierarchy and design rationale
 - How constraint estimation works equation-by-equation
 - Companion form construction for stability analysis
 - Bootstrap algorithm details
 - Type stability best practices
 
 
-### 2. Mathematical Theory (`docs/src/mathematical/theory.md`)
+### 3. Quick Reference Guide (`docs/QUICK_REFERENCE.md`) ⭐ UPDATED
+
+**Purpose**: Fast lookup for common tasks and syntax.
+
+**Contents**:
+- Installation and basic workflow
+- VAR estimation (basic, with names, constraints, model properties)
+- Model properties accessors (`varnames()`, `n_vars()`, `raw_nobs()`, etc.)
+- Constraints (zero, fixed, block exogeneity)
+- Identification (Cholesky, sign restrictions)
+- Impulse response functions (basic, with bootstrap, sign-restricted)
+- Sign restriction IRFs with multiple draws
+- Variance decomposition, historical decomposition, forecasting
+- Model diagnostics and lag selection
+- Utility functions and advanced features
+- Common patterns and workflows
+- Type reference
+- Error troubleshooting
+
+**Target audience**: Users who know what they want to do, need syntax reminder
+
+**Recent updates**:
+- All `identify()` calls updated to `rotation_matrix()`
+- Added model properties accessor section
+- Added sign restriction IRFs (set-identified) section with plot types
+- Updated error troubleshooting for new API
+
+### 4. Mathematical Theory (`docs/src/mathematical/theory.md`)
 
 **Purpose**: Mathematical foundation and statistical theory underlying the methods.
 
@@ -56,7 +100,7 @@ This document summarizes the complete documentation for MacroEconometricTools.jl
 - Comprehensive references to literature
 - Rigorous treatment of identification
 
-### 3. Getting Started Tutorial (`docs/src/tutorials/getting_started.md`)
+### 5. Getting Started Tutorial (`docs/src/tutorials/getting_started.md`) ⭐ UPDATED
 
 **Purpose**: Hands-on introduction to the package through a complete example.
 
@@ -65,24 +109,31 @@ This document summarizes the complete documentation for MacroEconometricTools.jl
 - 3 variables: oil production growth, real activity, real oil price
 - 456 monthly observations (simulated)
 
-**Topics covered**
+**Topics covered**:
 
 1. **Installation and setup**
 2. **Loading and exploring data**
 3. **VAR estimation** (basic and with diagnostics)
-4. **Stability checking**
-5. **Cholesky identification**
-6. **Computing IRFs** with bootstrap confidence intervals
-7. **Variance decomposition**
-8. **Constrained estimation** (block exogeneity)
-9. **Historical decomposition**
-10. **Forecasting**
+4. **Model properties** (varnames, n_vars, n_lags, n_obs, raw_nobs)
+5. **Examining coefficients**
+6. **Model diagnostics** and **stability checking**
+7. **Cholesky identification** (using `rotation_matrix()`)
+8. **Computing IRFs** with bootstrap confidence intervals
+9. **Variance decomposition**
+10. **Constrained estimation** (block exogeneity)
+11. **Historical decomposition**
+12. **Forecasting**
 
 **Code examples**: Complete, runnable Julia code throughout
 
 **Learning path**: Progressive complexity from basic to advanced
 
-### 4. Sign Restrictions Tutorial (`docs/src/tutorials/sign_restrictions.md`)
+**Recent updates**:
+- All `identify()` calls updated to `rotation_matrix()`
+- Added "Model Properties" section demonstrating accessor functions
+- Updated alternative ordering example
+
+### 6. Sign Restrictions Tutorial (`docs/src/tutorials/sign_restrictions.md`) ⭐ UPDATED
 
 **Purpose**: Advanced identification using sign restrictions.
 
@@ -91,8 +142,12 @@ This document summarizes the complete documentation for MacroEconometricTools.jl
 - Motivation for sign restrictions vs. Cholesky
 - Sign restriction matrix specification
 - Identification algorithm (Rubio-Ramírez et al. 2010)
-- Computing IRFs with sign restrictions
-- Set identification (multiple valid rotations)
+- Computing rotation matrix (single draw)
+- **Set identification with multiple draws** (new section)
+- **Plotting sign-restricted IRFs** (comprehensive new section)
+  - `:quantiles` mode (median + bands)
+  - `:paths` mode (all IRF draws)
+  - `:both` mode (combined visualization)
 - Bootstrap inference with sign restrictions
 - Comparison with Cholesky identification
 - Narrative sign restrictions
@@ -111,6 +166,13 @@ This document summarizes the complete documentation for MacroEconometricTools.jl
 - Combining with zero restrictions
 - Magnitude restrictions
 - Bayesian sign restrictions
+
+**Recent updates**:
+- Changed `identify()` → `rotation_matrix()`
+- Added comprehensive section on set identification (lines 77-95)
+- Added detailed plotting guide with three visualization modes (lines 126-152)
+- Clarified single vs multiple rotation approaches
+- Updated all code examples to use `rotation_matrix()`
 
 ### 5. Example Data (`docs/src/tutorials/data/oil_data.jl`)
 
@@ -154,9 +216,11 @@ This document summarizes the complete documentation for MacroEconometricTools.jl
 
 ```
 docs/
-├── README.md                          # Navigation hub
-
+├── README.md                          # Navigation hub (main README)
+├── IMPLEMENTATION_PHILOSOPHY.md       # ⭐ Design principles for AI/developers
 ├── TECHNICAL.md                       # Implementation details
+├── QUICK_REFERENCE.md                 # Fast syntax lookup
+├── RECENT_CHANGES.md                  # Changelog of recent API changes
 ├── DOCUMENTATION_OVERVIEW.md          # This file
 └── src/
     ├── mathematical/
@@ -195,15 +259,18 @@ Installation → Basic VAR → IRFs → Bootstrap → Constraints → Sign Restr
 - Inference methods (bootstrap vs. asymptotic)
 - Model diagnostics (stability, information criteria)
 
-### For Developers
+### For Developers and AI Assistants
 
 **Getting started**:
-1. Read `docs/TECHNICAL.md` for architecture
-2. Study type hierarchy and dispatch system
-3. Follow extension guide for adding features
+1. **Start here**: Read `docs/IMPLEMENTATION_PHILOSOPHY.md` for design principles
+2. Read `docs/TECHNICAL.md` for detailed architecture
+3. Study type hierarchy and dispatch system
+4. Follow extension guide for adding features
 
 **Key resources**:
-- Type system architecture
+- **IMPLEMENTATION_PHILOSOPHY.md**: Core design principles, patterns, and extension guide
+- **TECHNICAL.md**: Type system architecture, algorithms, implementation details
+- **RECENT_CHANGES.md**: Recent API changes (e.g., `identify()` → `rotation_matrix()`)
 - Constraint implementation (reference for complex logic)
 - Performance best practices
 
