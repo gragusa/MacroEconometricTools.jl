@@ -340,7 +340,7 @@ end
 Compute log-likelihood for OLS-VAR.
 """
 function log_likelihood(model::VARModel{T,OLSVAR}) where T
-    n_obs_val, n_vars_val = n_obs(model), n_vars(model)
+    n_obs_val, n_vars_val = effective_obs(model), n_vars(model)
     Σ = vcov(model)
 
     # Log-likelihood: -0.5 * T * (n*log(2π) + log|Σ| + n)

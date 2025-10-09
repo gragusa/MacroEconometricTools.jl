@@ -288,11 +288,24 @@ Number of variables in the model.
 n_vars(model::VARModel) = size(model.Y, 2)
 
 """
-    n_obs(model)
+    effective_obs(model)
 
 Number of observations used in estimation (after accounting for lags).
+
+This is a custom accessor specific to MacroEconometricTools.jl.
+For StatsBase compatibility, use `nobs(model)` which returns the total observations.
 """
-n_obs(model::VARModel) = size(model.residuals, 1)
+effective_obs(model::VARModel) = size(model.residuals, 1)
+
+"""
+    StatsBase.nobs(model::VARModel)
+
+Total number of observations in the original data (before lag adjustment).
+
+This follows the StatsBase.jl convention where `nobs` returns the total sample size.
+For the effective observations used in estimation, use `effective_obs(model)`.
+"""
+StatsBase.nobs(model::VARModel) = size(model.Y, 1)
 
 """
     n_lags(model)
@@ -309,18 +322,59 @@ Variable names in the model.
 varnames(model::VARModel) = model.names
 
 """
-    raw_nobs(model)
+    intercept(model)
 
-Total number of observations in data (before lag adjustment).
+Intercept coefficients from the model.
+
+Returns a vector of length `n_vars(model)`.
 """
-raw_nobs(model::VARModel) = size(model.Y, 1)
+intercept(model::VARModel) = model.coefficients.intercept
+
+"""
+    StatsBase.dof(model::VARModel)
+
+Degrees of freedom in the model (number of estimated parameters).
+
+For a VAR(p) model with n variables:
+- Each equation has: 1 intercept + n × p lag coefficients
+- Total: n × (1 + n × p) parameters
+"""
+StatsBase.dof(model::VARModel) = n_vars(model) * (1 + n_vars(model) * n_lags(model))
+
+"""
+    StatsBase.dof_residual(model::VARModel)
+
+Residual degrees of freedom.
+
+Calculated as: effective_obs - dof
+"""
+StatsBase.dof_residual(model::VARModel) = effective_obs(model) - dof(model)
+
+"""
+    StatsBase.modelmatrix(model::VARModel)
+
+Design matrix used in VAR estimation.
+
+Returns the matrix X (with intercept and lags) used in the regression Y = XB + ε.
+Size: (T × (1 + n_vars × n_lags))
+"""
+StatsBase.modelmatrix(model::VARModel) = model.X
+
+"""
+    StatsBase.rss(model::VARModel)
+
+Residual sum of squares.
+
+Sum of squared residuals across all equations.
+"""
+StatsBase.rss(model::VARModel) = sum(abs2, model.residuals)
 
 """
     Base.size(model::VARModel)
 
-Return (n_obs, n_lags, n_vars).
+Return (effective_obs, n_lags, n_vars).
 """
-Base.size(model::VARModel) = (n_obs(model), n_lags(model), n_vars(model))
+Base.size(model::VARModel) = (effective_obs(model), n_lags(model), n_vars(model))
 
 # ============================================================================
 # Pretty printing
@@ -329,7 +383,7 @@ Base.size(model::VARModel) = (n_obs(model), n_lags(model), n_vars(model))
 function Base.show(io::IO, model::VARModel{T,S}) where {T,S}
     println(io, "VARModel{$T,$S}")
     println(io, "  Variables: ", join(model.names, ", "))
-    println(io, "  Observations: ", n_obs(model), " (", size(model.Y, 1), " total)")
+    println(io, "  Observations: ", effective_obs(model), " (", nobs(model), " total)")
     println(io, "  Lags: ", n_lags(model))
     if !isnothing(model.coefficients.constraints)
         println(io, "  Constraints: ", length(model.coefficients.constraints), " applied")

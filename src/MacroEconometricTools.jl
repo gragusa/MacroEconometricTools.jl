@@ -65,7 +65,8 @@ export AbstractIRFResult, IRFResult, SignRestrictedIRFResult
 export estimate
 export irf, impulse_response
 export coef, vcov, residuals, fitted
-export n_vars, n_lags, n_obs, varnames, raw_nobs
+export n_vars, n_lags, effective_obs, varnames, intercept
+# StatsBase methods (not exported, use via StatsBase): nobs, dof, dof_residual, modelmatrix, rss
 export log_likelihood, aic, bic, hqic
 export bootstrap_irf
 export forecast

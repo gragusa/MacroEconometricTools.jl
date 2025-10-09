@@ -4,8 +4,6 @@
 
 **For comprehensive design philosophy**: Read `docs/IMPLEMENTATION_PHILOSOPHY.md` first.
 
----
-
 ## Quick Start for New Sessions
 
 ### First Steps
@@ -18,8 +16,6 @@
 - **Type hierarchy**: See `src/types.jl` for all struct definitions
 - **Examples**: Check existing code in `src/var/` for patterns
 - **Tests**: Run `julia --project=. -e 'using Pkg; Pkg.test()'` after changes
-
----
 
 ## Core Package Design Principles
 
@@ -69,6 +65,7 @@ end
 **Principle**: When different use cases require fundamentally different data structures, use separate concrete types with a shared abstract parent. Don't force different structures into one type with `Union{T, Nothing}` fields.
 
 **Example - IRF Results**:
+
 ```julia
 # ✓ CORRECT: Separate types for different structures
 abstract type AbstractIRFResult{T<:AbstractFloat} end
@@ -100,11 +97,13 @@ end
 ```
 
 **When to use this pattern**:
+
 - Different fields needed for different use cases
 - Would require `Union{T, Nothing}` in unified type
 - Each variant has distinct semantic meaning
 
 **When to use parameterization instead**:
+
 - Same fields for all variants
 - Type parameter affects computation, not storage
 - Example: `VARModel{T, S}` where T is Float64 vs Float32
@@ -126,11 +125,13 @@ names = model.names
 ```
 
 **Rationale**:
+
 - Allows internal structure changes without breaking user code
 - Enables dispatch (works polymorphically on abstract types)
 - Provides consistent interface
 
 **Standard accessor names in this package**:
+
 - `n_vars(x)` - Number of variables
 - `n_lags(x)` - Number of lags
 - `n_obs(x)` - Effective observations (after losing lags)
@@ -187,13 +188,12 @@ end
 
 **When integrating new code**: Add type parameters, propagate them through call stack.
 
----
-
 ## Package-Specific API Conventions
 
 ### Naming Conventions
 
 #### Functions
+
 - **Estimation**: `estimate(spec::AbstractVARSpec, Y, p; kwargs...)`
 - **Identification**: `rotation_matrix(model, id::AbstractIdentification)`
   - **Note**: We use `rotation_matrix`, NOT `identify` (breaking change from earlier versions)
@@ -202,6 +202,7 @@ end
 - **Accessors**: Lowercase with underscores (e.g., `n_vars`, `raw_nobs`, `varnames`)
 
 #### Types
+
 - **Specifications**: `OLSVAR`, `BayesianVAR`, `LocalProjection` (concrete types)
 - **Abstract types**: `AbstractVARSpec`, `AbstractIdentification`, `AbstractIRFResult`
 - **Results**: `IRFResult`, `SignRestrictedIRFResult`, `ForecastResult`
@@ -210,6 +211,7 @@ end
 ### Function Signature Patterns
 
 #### Estimation
+
 ```julia
 function estimate(spec::ConcreteVARSpec, Y::Matrix{T}, p::Int;
                  names::Union{Vector{Symbol}, Nothing}=nothing,
@@ -220,6 +222,7 @@ end
 ```
 
 #### Identification
+
 ```julia
 function rotation_matrix(model::VARModel{T}, id::AbstractIdentification;
                         kwargs...) where T
@@ -228,6 +231,7 @@ end
 ```
 
 #### IRF Computation
+
 ```julia
 # Point-identified (Cholesky, IV)
 function irf(model::VARModel{T}, id::PointIdentified;
@@ -252,7 +256,6 @@ end
 
 **Note**: Always accept `rng` parameter for reproducibility.
 
----
 
 ## Translation Checklist for Integrating New Code
 

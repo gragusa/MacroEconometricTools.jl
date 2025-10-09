@@ -10,7 +10,7 @@ Compute standard errors for VAR coefficients.
 Returns standard errors in same shape as coefficients.
 """
 function StatsBase.stderror(model::VARModel{T,OLSVAR}) where T
-    n_obs_val = n_obs(model)
+    n_obs_val = effective_obs(model)
     n_vars_val = n_vars(model)
     n_lags_val = n_lags(model)
 
@@ -115,7 +115,7 @@ where D is the duplication matrix and D⁺ is its Moore-Penrose pseudoinverse.
 - Covariance matrix of vech(Σ) elements
 """
 function sigma_covariance(model::VARModel{T,OLSVAR}) where T
-    n_obs_val = n_obs(model)
+    n_obs_val = effective_obs(model)
     n_vars_val = n_vars(model)
     Σ = Matrix(vcov(model))
 
