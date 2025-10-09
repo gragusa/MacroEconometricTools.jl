@@ -667,41 +667,187 @@ P = rotation_matrix(var, CholeskyID())
 
 ## Testing Guidelines
 
-### Test Structure
+### Test Organization Principles
+
+**Critical**: Follow these principles to maintain test quality and isolation.
+
+#### 1. Top-Level runtests.jl
+
+The high-level `test/runtests.jl` should **only shuttle to other test files**. Do not write tests directly in this file.
 
 ```julia
+# test/runtests.jl
+using Test
+using SafeTestsets
+
+@time @safetestset "VAR Estimation" include("test_estimation.jl")
+@time @safetestset "Identification Schemes" include("test_identification.jl")
+@time @safetestset "IRF Computation" include("test_irfs.jl")
+@time @safetestset "Bootstrap Inference" include("test_bootstrap.jl")
+@time @safetestset "Constraints" include("test_constraints.jl")
+@time @safetestset "Sign Restrictions" include("test_sign_restrictions.jl")
+```
+
+#### 2. Use @safetestset, Not @testset
+
+**Always use `@safetestset`** to avoid leaking variables (especially functions) between test blocks.
+
+```julia
+# ✓ CORRECT: Use @safetestset for full isolation
+@safetestset "Feature Tests" begin
+    using MacroEconometricTools
+    using Test
+    using StableRNGs
+
+    # Test code here - fully isolated
+end
+
+# ✗ WRONG: @testset can leak function definitions
+@testset "Feature Tests" begin
+    # Functions defined here can leak to other testsets!
+end
+```
+
+**Why**: Standard `@testset` does not fully enclose all defined values. Functions defined in a `@testset` can "leak" to other testsets, causing hard-to-debug interactions.
+
+#### 3. One-Line Test Includes
+
+Test includes should be written in **one line** with `@time` and `@safetestset`:
+
+```julia
+# ✓ CORRECT: One-line include with timing
+@time @safetestset "Jacobian Tests" include("interface/jacobian_tests.jl")
+@time @safetestset "IRF Tests" include("test_irfs.jl")
+
+# ✗ WRONG: Multi-line or without @safetestset
+@testset "IRF Tests" begin
+    include("test_irfs.jl")
+end
+```
+
+#### 4. Every Test Script is Fully Reproducible in Isolation
+
+**Each test file must be independently runnable**. You should be able to copy-paste any test script and run it standalone.
+
+```julia
+# test/test_estimation.jl
+# This file can be run standalone: julia test/test_estimation.jl
+
+using MacroEconometricTools
+using Test
+using StableRNGs
+using LinearAlgebra
+
+@testset "VAR Estimation" begin
+    # All dependencies loaded above
+    # All setup code is self-contained
+
+    @testset "Basic OLS estimation" begin
+        rng = StableRNG(123)
+        Y = randn(rng, 100, 3)
+        var = estimate(OLSVAR, Y, 4)
+
+        @test n_vars(var) == 3
+        @test n_lags(var) == 4
+    end
+
+    @testset "Estimation with constraints" begin
+        # Fully reproducible test code
+    end
+end
+```
+
+**Test**: Can you run `julia test/test_estimation.jl` directly? If not, the test script needs fixing.
+
+#### 5. Group Test Scripts by Category
+
+Organize tests into logical categories:
+
+```
+test/
+├── runtests.jl                 # Top-level shuttle
+├── test_basic.jl               # Smoke tests (fast, essential)
+├── test_estimation.jl          # VAR estimation tests
+├── test_identification.jl      # Identification schemes
+├── test_irfs.jl                # IRF computation
+├── test_bootstrap.jl           # Bootstrap inference
+├── test_constraints.jl         # Constraint system
+├── test_sign_restrictions.jl   # Sign restrictions
+├── test_forecasting.jl         # Forecasting
+└── test_utils.jl               # Utility functions
+```
+
+**Categories**:
+- **Core functionality**: Estimation, identification, IRFs
+- **Inference**: Bootstrap, delta method
+- **Advanced features**: Constraints, sign restrictions, forecasting
+- **Utilities**: Helper functions, data handling
+
+### Test Structure Pattern
+
+Each test file should follow this structure:
+
+```julia
+# test/test_feature.jl
+using MacroEconometricTools
+using Test
+using StableRNGs
+using LinearAlgebra  # Add all dependencies
+
 @testset "Feature Name" begin
-    # Setup
-    Y = randn(StableRNG(123), 100, 3)  # Use StableRNG for reproducibility
+    # Setup (if needed)
+    rng = StableRNG(123)
+    Y = randn(rng, 100, 3)
 
     @testset "Basic functionality" begin
-        # Test it works
+        # Test that it works
+        result = some_function(input)
+        @test result isa ExpectedType
     end
 
     @testset "Mathematical properties" begin
         # Test correctness (e.g., P*P' ≈ Σ)
+        var = estimate(OLSVAR, Y, 4)
+        P = rotation_matrix(var, CholeskyID())
+        @test P * P' ≈ var.Σ
     end
 
     @testset "Type stability" begin
         # Test with @inferred
+        @inferred estimate(OLSVAR, Y, 4)
     end
 
     @testset "Edge cases" begin
         # Test boundary conditions
+        @test_throws ArgumentError estimate(OLSVAR, Y, 0)
+    end
+
+    @testset "Reproducibility" begin
+        # Test RNG reproducibility
+        rng1 = StableRNG(456)
+        result1 = random_function(input; rng=rng1)
+
+        rng2 = StableRNG(456)
+        result2 = random_function(input; rng=rng2)
+
+        @test result1 ≈ result2
     end
 end
 ```
 
 ### Test Reproducibility
 
-Always use stable RNGs in tests:
+**Always use StableRNGs** for any random number generation in tests:
 
 ```julia
 using StableRNGs
 
 @testset "Bootstrap reproducibility" begin
+    rng = StableRNG(123)
+    Y = randn(rng, 100, 3)  # Use rng for data generation
     var = estimate(OLSVAR, Y, 4)
 
+    # Test that same seed gives same results
     rng1 = StableRNG(123)
     irf1 = irf(var, CholeskyID(); bootstrap_reps=100, rng=rng1)
 
@@ -711,6 +857,101 @@ using StableRNGs
     @test irf1.irf ≈ irf2.irf  # Should be exactly equal
 end
 ```
+
+### Example: Complete Test File
+
+```julia
+# test/test_estimation.jl
+# Fully reproducible standalone test file
+
+using MacroEconometricTools
+using Test
+using StableRNGs
+using LinearAlgebra
+
+@testset "VAR Estimation" begin
+    # Setup
+    rng = StableRNG(123)
+    Y = randn(rng, 100, 3)
+    p = 4
+
+    @testset "Basic OLS estimation" begin
+        var = estimate(OLSVAR, Y, p)
+
+        @test n_vars(var) == 3
+        @test n_lags(var) == 4
+        @test n_obs(var) == size(Y, 1) - p
+        @test raw_nobs(var) == size(Y, 1)
+    end
+
+    @testset "Estimation with variable names" begin
+        names = [:GDP, :Inflation, :Rate]
+        var = estimate(OLSVAR, Y, p; names=names)
+
+        @test varnames(var) == names
+    end
+
+    @testset "Coefficient structure" begin
+        var = estimate(OLSVAR, Y, p)
+        coefs = coef(var)
+
+        @test size(coefs.intercept) == (3,)
+        @test size(coefs.lags) == (3, 3, 4)
+    end
+
+    @testset "Type stability" begin
+        @inferred estimate(OLSVAR, Y, p)
+        @inferred coef(estimate(OLSVAR, Y, p))
+    end
+
+    @testset "Mathematical properties" begin
+        var = estimate(OLSVAR, Y, p)
+        Σ = vcov(var)
+
+        # Covariance matrix is symmetric
+        @test Σ ≈ Σ'
+
+        # Covariance matrix is positive semi-definite
+        @test all(eigvals(Σ) .>= -1e-10)
+    end
+
+    @testset "Edge cases" begin
+        # Zero lags
+        @test_throws ArgumentError estimate(OLSVAR, Y, 0)
+
+        # Negative lags
+        @test_throws ArgumentError estimate(OLSVAR, Y, -1)
+
+        # More lags than observations
+        @test_throws ArgumentError estimate(OLSVAR, Y, 200)
+    end
+end
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+julia --project=. -e 'using Pkg; Pkg.test()'
+
+# Run specific test file in isolation
+julia --project=. test/test_estimation.jl
+
+# Run with coverage
+julia --project=. --code-coverage=user -e 'using Pkg; Pkg.test()'
+```
+
+### Test Performance Expectations
+
+- **Smoke tests** (`test_basic.jl`): < 5 seconds
+- **Unit tests**: < 30 seconds per file
+- **Integration tests**: < 2 minutes per file
+- **Full test suite**: < 5 minutes
+
+If tests are slower, consider:
+- Reducing bootstrap replications in tests
+- Using smaller datasets
+- Splitting slow tests into separate optional file
 
 ---
 
@@ -790,7 +1031,10 @@ docs: Update QUICK_REFERENCE with Bayesian VAR examples
 ### Before Committing
 
 - [ ] Run tests: `julia --project=. -e 'using Pkg; Pkg.test()'`
-- [ ] Check type stability on new critical paths
+- [ ] Verify test files are independently runnable
+- [ ] Ensure new tests use `@safetestset` in runtests.jl
+- [ ] Check type stability on new critical paths with `@inferred`
+- [ ] Verify StableRNG usage for all randomness in tests
 - [ ] Update docstrings for any changed functions
 - [ ] Update RECENT_CHANGES.md if API changes
 - [ ] Update QUICK_REFERENCE.md if adding user-facing features
