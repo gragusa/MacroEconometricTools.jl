@@ -273,9 +273,20 @@ struct IVIdentification <: AbstractIdentification end
 # ============================================================================
 
 """
+    AbstractIRFResult{T}
+
+Abstract supertype for all impulse response function result types.
+
+Concrete subtypes:
+- `IRFResult{T}`: Point-identified IRF results (Cholesky, IV, etc.)
+- `SignRestrictedIRFResult{T}`: Set-identified IRF results (sign restrictions)
+"""
+abstract type AbstractIRFResult{T<:AbstractFloat} end
+
+"""
     IRFResult{T}
 
-Impulse response function results.
+Impulse response function results for point-identified systems.
 
 # Fields
 - `irf::Array{T,3}`: IRF array (horizon, n_vars, n_shocks)
@@ -287,7 +298,7 @@ Impulse response function results.
 - `inference::Symbol`: Inference method (`:bootstrap`, `:delta`, etc.)
 - `metadata::NamedTuple`: Additional information
 """
-struct IRFResult{T<:AbstractFloat}
+struct IRFResult{T<:AbstractFloat} <: AbstractIRFResult{T}
     irf::Array{T,3}
     stderr::Array{T,3}
     lower::Vector{Array{T,3}}
@@ -313,7 +324,7 @@ Impulse response function results for sign restriction identification (set-ident
 - `identification::SignRestriction`: Identification scheme used
 - `metadata::NamedTuple`: Additional information (n_draws, etc.)
 """
-struct SignRestrictedIRFResult{T<:AbstractFloat}
+struct SignRestrictedIRFResult{T<:AbstractFloat} <: AbstractIRFResult{T}
     irf_median::Array{T,3}
     irf_draws::Array{T,4}
     lower::Vector{Array{T,3}}

@@ -8,12 +8,11 @@
 
 using RecipesBase
 
-const _IRFResult = IRFResult
+# Helper functions that work on any AbstractIRFResult
+lowerbounds(irf::AbstractIRFResult) = irf.lower
+upperbounds(irf::AbstractIRFResult) = irf.upper
 
-lowerbounds(irf::_IRFResult) = irf.lower
-upperbounds(irf::_IRFResult) = irf.upper
-
-function _var_names(irf::_IRFResult)
+function _var_names(irf::AbstractIRFResult)
     if haskey(irf.metadata, :names)
         names = irf.metadata.names
         return Symbol.(names)
@@ -46,7 +45,7 @@ function _resolve_labels(labels, nms::Vector{Symbol}, suffix::AbstractString)
     end
 end
 
-function _prepare_irf_plot(irf::_IRFResult; vars=:all, shocks=:all,
+function _prepare_irf_plot(irf::AbstractIRFResult; vars=:all, shocks=:all,
     pretty_vars=nothing, pretty_shocks=nothing)
     nms = _var_names(irf)
     idxvars = _resolve_indices(nms, vars, :vars)
@@ -61,7 +60,7 @@ function _prepare_irf_plot(irf::_IRFResult; vars=:all, shocks=:all,
     )
 end
 
-RecipesBase.@recipe function f(irf::_IRFResult;
+RecipesBase.@recipe function f(irf::IRFResult;
     vars=:all,
     shocks=:all,
     pretty_shocks=nothing,
@@ -134,17 +133,6 @@ end
 # Recipe for SignRestrictedIRFResult
 # ============================================================================
 
-const _SignRestrictedIRFResult = SignRestrictedIRFResult
-
-function _var_names_sign(irf::_SignRestrictedIRFResult)
-    if haskey(irf.metadata, :names)
-        return Symbol.(irf.metadata.names)
-    else
-        n_vars = size(irf.irf_median, 2)
-        return [Symbol("Y_$i") for i in 1:n_vars]
-    end
-end
-
 """
 Plot recipe for sign-restricted IRFs.
 
@@ -153,7 +141,7 @@ Supports three plot types:
 - `:quantiles` - Show pointwise quantile bands
 - `:both` - Show both paths and quantiles
 """
-RecipesBase.@recipe function f(irf::_SignRestrictedIRFResult;
+RecipesBase.@recipe function f(irf::SignRestrictedIRFResult;
     vars=:all,
     shocks=:all,
     pretty_shocks=nothing,
@@ -165,11 +153,18 @@ RecipesBase.@recipe function f(irf::_SignRestrictedIRFResult;
     drawzero=true,
     zerolinecol=:lightgray)
 
-    nms = _var_names_sign(irf)
-    idxvars = _resolve_indices(nms, vars, :vars)
-    idxshocks = _resolve_indices(nms, shocks, :shocks)
-    var_labels_full = _resolve_labels(pretty_vars, nms, "")
-    shock_labels_full = _resolve_labels(pretty_shocks, nms, " shock")
+    # Use unified _prepare_irf_plot helper
+    info = _prepare_irf_plot(irf;
+        vars=vars,
+        shocks=shocks,
+        pretty_vars=pretty_vars,
+        pretty_shocks=pretty_shocks
+    )
+
+    idxvars = info.idxvars
+    idxshocks = info.idxshocks
+    var_labels_full = info.var_labels
+    shock_labels_full = info.shock_labels
 
     layout --> (length(idxvars), length(idxshocks))
     titlefontsize --> 5
@@ -188,7 +183,7 @@ RecipesBase.@recipe function f(irf::_SignRestrictedIRFResult;
         for (col_idx, shock_idx) in enumerate(idxshocks)
             y_median = irf.irf_median[:, var_idx, shock_idx]
             x = 0:(length(y_median)-1)
-            title := shock_labels_full[shock_idx]
+            title := shock_labels_full[col_idx]
             yguide := col_idx == 1 ? var_labels_full[row_idx] : ""
             xticks := (0:6:length(y_median), 0:6:length(y_median))
             xlims := (-0.2, length(y_median))

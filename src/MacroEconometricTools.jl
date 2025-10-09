@@ -59,7 +59,7 @@ export VAR
 export AbstractConstraint, ZeroConstraint, FixedConstraint, BlockExogeneity
 export AbstractIdentification, CholeskyID, SignRestriction, IVIdentification
 export AbstractInstrument, ExternalInstrument, ProxyIV
-export IRFResult, SignRestrictedIRFResult
+export AbstractIRFResult, IRFResult, SignRestrictedIRFResult
 
 # Export main functions
 export estimate

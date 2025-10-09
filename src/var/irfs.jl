@@ -255,32 +255,36 @@ end
 # ============================================================================
 
 """
-    Base.size(irf::IRFResult)
+    Base.size(irf::AbstractIRFResult)
 
 Size of IRF array (horizon+1, n_vars, n_shocks).
 """
 Base.size(irf::IRFResult) = size(irf.irf)
+Base.size(irf::SignRestrictedIRFResult) = size(irf.irf_median)
 
 """
-    horizon(irf::IRFResult)
+    horizon(irf::AbstractIRFResult)
 
 IRF horizon.
 """
 horizon(irf::IRFResult) = size(irf.irf, 1) - 1
+horizon(irf::SignRestrictedIRFResult) = size(irf.irf_median, 1) - 1
 
 """
-    n_vars(irf::IRFResult)
+    n_vars(irf::AbstractIRFResult)
 
 Number of variables.
 """
 n_vars(irf::IRFResult) = size(irf.irf, 2)
+n_vars(irf::SignRestrictedIRFResult) = size(irf.irf_median, 2)
 
 """
-    n_shocks(irf::IRFResult)
+    n_shocks(irf::AbstractIRFResult)
 
 Number of shocks.
 """
 n_shocks(irf::IRFResult) = size(irf.irf, 3)
+n_shocks(irf::SignRestrictedIRFResult) = size(irf.irf_median, 3)
 
 # ============================================================================
 # Pretty Printing
@@ -303,6 +307,27 @@ function Base.show(io::IO, irf::IRFResult{T}) where T
 end
 
 function Base.show(io::IO, ::MIME"text/plain", irf::IRFResult)
+    show(io, irf)
+end
+
+function Base.show(io::IO, irf::SignRestrictedIRFResult{T}) where T
+    n_v = n_vars(irf)
+    n_s = n_shocks(irf)
+    h = horizon(irf)
+    n_draws = size(irf.irf_draws, 1)
+
+    println(io, "SignRestrictedIRFResult{$T}")
+    println(io, "  Identification: ", typeof(irf.identification))
+    println(io, "  Horizon: ", h)
+    println(io, "  Variables: ", n_v, " × Shocks: ", n_s)
+    println(io, "  Draws: ", n_draws, " rotation matrices")
+
+    if !isempty(irf.coverage)
+        println(io, "  Coverage: ", join(irf.coverage .* 100, "%, "), "%")
+    end
+end
+
+function Base.show(io::IO, ::MIME"text/plain", irf::SignRestrictedIRFResult)
     show(io, irf)
 end
 
@@ -331,4 +356,25 @@ function cumulative_irf(irf::IRFResult{T}) where T
 
     return IRFResult(cum_irf, cum_stderr, cum_lower, cum_upper, irf.coverage,
                     irf.identification, irf.inference, metadata)
+end
+
+"""
+    cumulative_irf(irf::SignRestrictedIRFResult)
+
+Compute cumulative impulse response functions for sign-restricted IRFs.
+
+# Returns
+- New `SignRestrictedIRFResult` with cumulative IRFs
+"""
+function cumulative_irf(irf::SignRestrictedIRFResult{T}) where T
+    cum_median = cumsum(irf.irf_median; dims=1)
+    cum_draws = cumsum(irf.irf_draws; dims=2)
+    cum_lower = [cumsum(lb; dims=1) for lb in irf.lower]
+    cum_upper = [cumsum(ub; dims=1) for ub in irf.upper]
+
+    metadata = merge(irf.metadata, (cumulative = true,))
+
+    return SignRestrictedIRFResult(cum_median, cum_draws, cum_lower, cum_upper,
+                                   irf.coverage, irf.rotation_matrices,
+                                   irf.identification, metadata)
 end
