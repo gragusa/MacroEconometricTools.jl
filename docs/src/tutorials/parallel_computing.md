@@ -67,7 +67,7 @@ names = data.names
 
 # Estimate VAR
 p = 24
-var_model = estimate(OLSVAR, Y, p; names=names)
+var_model = fit(OLSVAR, Y, p; names=names)
 
 # Identification
 id = CholeskyID()
@@ -110,10 +110,10 @@ bootstrap_irf(var_model, id, 24, 2000; parallel=:distributed)  # Good
 
 ```julia
 # Simple model: may not benefit much
-var_small = estimate(OLSVAR, Y[:,1:2], 4)  # 2 vars, 4 lags
+var_small = fit(OLSVAR, Y[:,1:2], 4)  # 2 vars, 4 lags
 
 # Complex model: benefits more
-var_large = estimate(OLSVAR, Y, 24)  # 3 vars, 24 lags
+var_large = fit(OLSVAR, Y, 24)  # 3 vars, 24 lags
 ```
 
 Larger models have longer estimation time per replication → more benefit from parallelization.
@@ -239,7 +239,7 @@ println("Using ", nworkers(), " workers")
 
 ```julia
 # Estimate VAR
-var_model = estimate(OLSVAR, Y, 24; names=names)
+var_model = fit(OLSVAR, Y, 24; names=names)
 
 # Sign restrictions
 id_sign = SignRestriction(restrictions, 12)
@@ -378,7 +378,7 @@ Compare serial vs. parallel for your specific problem:
 using BenchmarkTools
 
 # Your VAR model
-var = estimate(OLSVAR, Y, 12)
+var = fit(OLSVAR, Y, 12)
 id = CholeskyID()
 
 # Benchmark serial
@@ -462,7 +462,7 @@ names = data.names
 
 # Estimate VAR
 println("Estimating VAR...")
-var_model = estimate(OLSVAR, Y, 24; names=names)
+var_model = fit(OLSVAR, Y, 24; names=names)
 
 # Identification
 id = CholeskyID()
@@ -496,7 +496,7 @@ addprocs(8)  # Use more workers for sign restrictions
 # Load data and estimate VAR
 include("data/oil_data.jl")
 data = load_oil_data()
-var_model = estimate(OLSVAR, data.data, 24; names=data.names)
+var_model = fit(OLSVAR, data.data, 24; names=data.names)
 
 # Define sign restrictions
 restrictions = [

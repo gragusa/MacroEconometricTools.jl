@@ -22,7 +22,7 @@ const IRFResult = MacroEconometricTools.IRFResult
     end
 
     # Estimate VAR
-    var = estimate(OLSVAR, Y, n_l; names=[:Y1, :Y2, :Y3])
+    var = fit(OLSVAR, Y, n_l; names=[:Y1, :Y2, :Y3])
 
     @testset "Matrix Utilities" begin
         # Test duplication matrix

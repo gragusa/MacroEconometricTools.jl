@@ -23,15 +23,15 @@ This document describes the internal architecture, design decisions, and impleme
 
 ### Type-Based Dispatch
 
-The package uses Julia's multiple dispatch system extensively. Instead of a unified interface with method flags (e.g., `estimate(..., method=:ols)`), we use type-based dispatch:
+The package uses Julia's multiple dispatch system extensively. Instead of a unified interface with method flags (e.g., `fit(..., method=:ols)`), we use type-based dispatch:
 
 ```julia
 # Good: Type-based dispatch
-var_ols = estimate(OLSVAR, Y, lags)
-var_bay = estimate(BayesianVAR(MinnesotaPrior()), Y, lags)
+var_ols = fit(OLSVAR, Y, lags)
+var_bay = fit(BayesianVAR(MinnesotaPrior()), Y, lags)
 
 # Avoided: Method flags
-var = estimate(Y, lags; method=:ols)  # NOT used
+var = fit(Y, lags; method=:ols)  # NOT used
 ```
 
 **Rationale**:
@@ -339,7 +339,7 @@ end
 ### OLS Estimation
 
 ```julia
-function estimate(::Type{OLSVAR}, Y, n_lags; constraints=[], demean=false)
+function fit(::Type{OLSVAR}, Y, n_lags; constraints=[], demean=false)
     # Create lagged matrix
     X = create_lags(Y, n_lags)
 
@@ -553,7 +553,7 @@ function bootstrap_irf(model, identification, horizon, reps; method=:wild)
         Y_boot = simulate_var(model, ε_boot, Y_init)
 
         # 3. Re-estimate VAR
-        model_boot = estimate(typeof(model.spec), Y_boot, n_lags)
+        model_boot = fit(typeof(model.spec), Y_boot, n_lags)
 
         # 4. Compute rotation matrix
         P_boot = rotation_matrix(model_boot, identification)
@@ -639,7 +639,7 @@ end
 2. **Implement estimation method**:
 
 ```julia
-function estimate(::Type{MyEstimator}, Y::AbstractMatrix{T}, n_lags::Int;
+function fit(::Type{MyEstimator}, Y::AbstractMatrix{T}, n_lags::Int;
                   kwargs...) where T<:AbstractFloat
     # Estimation logic
     # ...

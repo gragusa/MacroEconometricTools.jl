@@ -31,7 +31,7 @@ using Distributed
     end
 
     # Estimate VAR
-    var = estimate(OLSVAR, Y, n_l)
+    var = fit(OLSVAR, Y, n_l)
 
     @testset "Serial Sign Restriction Reproducibility" begin
         # Simple sign restriction: first shock has positive impact on first variable

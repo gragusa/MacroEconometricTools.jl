@@ -27,7 +27,7 @@ names = data.names  # [:oil_prod_growth, :real_activity, :log_oil_price]
 
 # Estimate VAR
 p = 24
-var_model = estimate(OLSVAR, Y, p; names=names)
+var_model = fit(OLSVAR, Y, p; names=names)
 ```
 
 Define sign restrictions (rows = variables, columns = shocks):
@@ -266,7 +266,7 @@ function bootstrap_sign_restrictions(model, id::SignRestriction;
         # 1. Bootstrap VAR parameters
         ε_boot = resample_residuals(model.residuals, method)
         Y_boot = simulate_var(model, ε_boot, Y[1:p,:])
-        model_boot = estimate(typeof(model.spec), Y_boot, n_lags(model))
+        model_boot = fit(typeof(model.spec), Y_boot, n_lags(model))
 
         # 2. Find valid rotations for bootstrap model
         Σ_boot = vcov(model_boot)
@@ -377,7 +377,7 @@ Some coefficients known to be zero:
 # Example: Oil production weakly exogenous
 constraints = [ZeroConstraint(:oil_prod_growth, [:real_activity, :log_oil_price])]
 
-var_constrained = estimate(OLSVAR, Y, p; names=names, constraints=constraints)
+var_constrained = fit(OLSVAR, Y, p; names=names, constraints=constraints)
 
 # Then apply sign restrictions
 id_combined = SignRestriction(restrictions, 12)

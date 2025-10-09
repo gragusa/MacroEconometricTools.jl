@@ -21,12 +21,12 @@ using StableRNGs: StableRNG
 
     @testset "VAR Estimation" begin
         # Basic OLS VAR
-        var = estimate(OLSVAR, Y, n_l)
+        var = fit(OLSVAR, Y, n_l)
 
         @test var isa VARModel{Float64, OLSVAR}
         @test n_vars(var) == n_v
         @test n_lags(var) == n_l
-        @test n_obs(var) == T - n_l
+        @test effective_obs(var) == T - n_l
 
         # Check coefficients
         coefs = coef(var)
@@ -46,14 +46,14 @@ using StableRNGs: StableRNG
     @testset "VAR with Constraints" begin
         # Test zero constraint
         constraints = [ZeroConstraint(:Y_1, [:Y_2], [1])]
-        var_constrained = estimate(OLSVAR, Y, n_l; constraints=constraints)
+        var_constrained = fit(OLSVAR, Y, n_l; constraints=constraints)
 
         @test var_constrained isa VARModel
         @test !isnothing(var_constrained.coefficients.constraints)
     end
 
     @testset "Identification" begin
-        var = estimate(OLSVAR, Y, n_l)
+        var = fit(OLSVAR, Y, n_l)
 
         # Cholesky identification
         id = CholeskyID()
@@ -68,7 +68,7 @@ using StableRNGs: StableRNG
     end
 
     @testset "Resampling reproducibility" begin
-        var = estimate(OLSVAR, Y, n_l)
+        var = fit(OLSVAR, Y, n_l)
         id = CholeskyID()
 
         boot1 = bootstrap_irf(var, id, 5, 20; rng=StableRNG(20240612))

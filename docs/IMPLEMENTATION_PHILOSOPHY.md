@@ -15,11 +15,11 @@ This document explains the **design philosophy** and **implementation patterns**
 **Example**:
 ```julia
 # ✓ GOOD: Type-based dispatch
-var = estimate(OLSVAR, Y, p)
-bayesian_var = estimate(BayesianVAR(prior), Y, p)
+var = fit(OLSVAR, Y, p)
+bayesian_var = fit(BayesianVAR(prior), Y, p)
 
 # ✗ AVOID: Method flags
-var = estimate(Y, p; method=:ols)  # Type-unstable, harder to extend
+var = fit(Y, p; method=:ols)  # Type-unstable, harder to extend
 ```
 
 **Rationale**:
@@ -29,7 +29,7 @@ var = estimate(Y, p; method=:ols)  # Type-unstable, harder to extend
 - **Performance**: Specialized code generation per concrete type
 
 **Application throughout package**:
-- Estimation: `estimate(::AbstractVARSpec, ...)`
+- Estimation: `fit(::AbstractVARSpec, ...)`
 - Identification: `rotation_matrix(::VARModel, ::AbstractIdentification)`
 - Constraints: `apply_constraint!(::AbstractConstraint, ...)`
 
@@ -213,7 +213,7 @@ end
 **Standard sequence**:
 ```julia
 # 1. Estimate VAR
-var = estimate(OLSVAR, Y, p; names=names)
+var = fit(OLSVAR, Y, p; names=names)
 
 # 2. Compute rotation matrix (identification)
 P = rotation_matrix(var, CholeskyID())
@@ -379,7 +379,7 @@ end
 
 **Methods dispatch on concrete types**:
 ```julia
-function estimate(spec::OLSVAR, Y::Matrix{T}, p::Int; ...) where T
+function fit(spec::OLSVAR, Y::Matrix{T}, p::Int; ...) where T
     # OLS-specific estimation
 end
 
@@ -423,7 +423,7 @@ end
 
 **Application in estimation**:
 ```julia
-function estimate(spec::OLSVAR, Y, p; constraints=nothing, ...)
+function fit(spec::OLSVAR, Y, p; constraints=nothing, ...)
     if constraints === nothing
         # Standard OLS: equation-by-equation
         A = unconstrained_ols(X, Y)
@@ -601,7 +601,7 @@ end
 4. **Add tests**:
 ```julia
 @testset "MyIdentification" begin
-    var = estimate(OLSVAR, Y, 4)
+    var = fit(OLSVAR, Y, 4)
     P = rotation_matrix(var, MyIdentification(param=0.5))
     @test P * P' ≈ var.Σ
 end
@@ -751,13 +751,13 @@ end
 **Example**:
 ```julia
 # ✓ Start with this (clear)
-function estimate(spec::OLSVAR, Y, p; ...)
+function fit(spec::OLSVAR, Y, p; ...)
     X = create_lags(Y, p)  # Allocates
     # ... rest of estimation
 end
 
 # Only if profiling shows create_lags is a bottleneck:
-function estimate(spec::OLSVAR, Y, p; ...)
+function fit(spec::OLSVAR, Y, p; ...)
     X = Matrix{eltype(Y)}(undef, size(Y, 1), 1 + size(Y, 2) * p)
     create_lags!(X, Y, p)  # In-place version
 end
@@ -812,7 +812,7 @@ end
 2. **Integration tests**: Test workflows
 ```julia
 @testset "VAR estimation workflow" begin
-    var = estimate(OLSVAR, Y, 4)
+    var = fit(OLSVAR, Y, 4)
     @test n_vars(var) == 3
     @test n_lags(var) == 4
     P = rotation_matrix(var, CholeskyID())
@@ -861,7 +861,7 @@ Compute the structural impact matrix P that relates reduced-form shocks to struc
 
 # Examples
 ```julia
-var = estimate(OLSVAR, Y, 4)
+var = fit(OLSVAR, Y, 4)
 P = rotation_matrix(var, CholeskyID())
 ```
 """

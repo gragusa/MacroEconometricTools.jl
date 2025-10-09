@@ -30,7 +30,7 @@ using Distributed
     end
 
     # Estimate VAR
-    var = estimate(OLSVAR, Y, n_l)
+    var = fit(OLSVAR, Y, n_l)
     id = CholeskyID()
     horizon = 5
     reps = 50  # Small number for fast testing

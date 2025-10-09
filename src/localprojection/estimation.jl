@@ -4,11 +4,13 @@
 # Placeholder for local projection methods
 
 """
-    estimate(::Type{LocalProjection}, Y, n_lags; kwargs...)
+    StatsBase.fit(::Type{LocalProjection}, Y, n_lags; kwargs...)
 
-Estimate local projection model (to be implemented).
+Fit local projection model (to be implemented).
+
+This follows the StatsBase.jl convention for model fitting.
 """
-function estimate(spec::Type{LocalProjection}, Y::AbstractMatrix{T}, n_lags::Union{Int,Symbol};
-                  kwargs...) where T<:AbstractFloat
+function StatsBase.fit(spec::Type{LocalProjection}, Y::AbstractMatrix{T}, n_lags::Union{Int,Symbol};
+                       kwargs...) where T<:AbstractFloat
     error("Local Projection estimation not yet implemented. Coming in next phase.")
 end

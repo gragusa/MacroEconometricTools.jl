@@ -43,7 +43,7 @@ const SAMPLE_MATRIX = load_sample_matrix()
 Estimate a 5-lag OLS VAR on the transformed sample.
 """
 function build_reference_model()
-    return estimate(OLSVAR, SAMPLE_MATRIX, 5; names=VAR_COLUMN_NAMES)
+    return fit(OLSVAR, SAMPLE_MATRIX, 5; names=VAR_COLUMN_NAMES)
 end
 
 const REFERENCE_MODEL = build_reference_model()
@@ -93,7 +93,7 @@ const SUITE = BenchmarkGroup()
 
 SUITE["estimation"] = BenchmarkGroup()
 SUITE["estimation"]["ols_var_5lags"] =
-    @benchmarkable estimate(OLSVAR, $SAMPLE_MATRIX, 5; names=$VAR_COLUMN_NAMES)
+    @benchmarkable fit(OLSVAR, $SAMPLE_MATRIX, 5; names=$VAR_COLUMN_NAMES)
 
 SUITE["irf"] = BenchmarkGroup()
 SUITE["irf"]["point_response"] =

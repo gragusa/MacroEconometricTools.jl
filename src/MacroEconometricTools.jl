@@ -17,6 +17,7 @@ using Random
 using Dates
 using Distributed
 using StatsBase
+using StatsBase: fit
 using StatsFuns
 using Distributions
 using CovarianceMatrices
@@ -62,7 +63,7 @@ export AbstractInstrument, ExternalInstrument, ProxyIV
 export AbstractIRFResult, IRFResult, SignRestrictedIRFResult
 
 # Export main functions
-export estimate
+export fit
 export irf, impulse_response
 export coef, vcov, residuals, fitted
 export n_vars, n_lags, effective_obs, varnames, intercept

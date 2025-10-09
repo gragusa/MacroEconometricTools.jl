@@ -80,7 +80,7 @@ using MacroEconometricTools
 Y = randn(200, 3)  # 200 observations, 3 variables
 
 # Estimate VAR(4)
-var = estimate(OLSVAR, Y, 4)
+var = fit(OLSVAR, Y, 4)
 
 # Cholesky identification
 P = identify(var, CholeskyID())

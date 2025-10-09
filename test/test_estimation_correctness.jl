@@ -32,18 +32,18 @@ end
 
     @testset "Basic Model Properties" begin
         # Estimate VAR(5)
-        var5 = estimate(OLSVAR, Y, 5)
+        var5 = fit(OLSVAR, Y, 5)
 
         @test var5 isa VARModel{Float64, OLSVAR}
         @test n_vars(var5) == 4
         @test n_lags(var5) == 5
-        @test n_obs(var5) == size(Y, 1) - 5
+        @test effective_obs(var5) == size(Y, 1) - 5
 
         # Check variable names (default)
         @test var5.names == [:Y_1, :Y_2, :Y_3, :Y_4]
 
         # Check size tuple
-        @test size(var5) == (n_obs(var5), 5, 4)
+        @test size(var5) == (effective_obs(var5), 5, 4)
 
         # Check stability
         @test is_stable(var5) == true
@@ -51,7 +51,7 @@ end
 
     @testset "VAR(2) Coefficient Estimation" begin
         # Estimate VAR(2) - reference values
-        var2 = estimate(OLSVAR, Y, 2)
+        var2 = fit(OLSVAR, Y, 2)
 
         coefs = coef(var2)
         A = coefs.lags
@@ -78,7 +78,7 @@ end
     end
 
     @testset "Covariance Matrix Estimation" begin
-        var2 = estimate(OLSVAR, Y, 2)
+        var2 = fit(OLSVAR, Y, 2)
 
         # Reference Σ (OLS - this is what vcov returns, using n_obs as denominator)
         Σ_ref = [5.23503796e-01 -2.42735062e-03 1.54076314e-01 6.28057798e-02;
@@ -98,13 +98,13 @@ end
         # Note: Small numerical differences may exist between old and new implementations
         # due to different calculation paths, but the estimates should be very close
         T = size(Y, 1)
-        n_obs_val = n_obs(var2)
+        n_obs_val = effective_obs(var2)
         Σ_mle_computed = (n_obs_val / T) * Matrix(vcov(var2))
         @test Σ_mle_computed ≈ Σ_mle_ref rtol=0.02  # Relaxed tolerance for numerical differences
     end
 
     @testset "Long-Run Effects" begin
-        var2 = estimate(OLSVAR, Y, 2)
+        var2 = fit(OLSVAR, Y, 2)
 
         # Reference long-run effect matrix
         lr_ref = [1.44534756 -1.36120053 -0.08488883 -3.82148141;
@@ -128,7 +128,7 @@ end
     end
 
     @testset "MA Representation" begin
-        var2 = estimate(OLSVAR, Y, 2)
+        var2 = fit(OLSVAR, Y, 2)
 
         # Compute MA matrices using internal function
         F = var2.companion
@@ -162,7 +162,7 @@ end
     end
 
     @testset "Log-Likelihood" begin
-        var2 = estimate(OLSVAR, Y, 2)
+        var2 = fit(OLSVAR, Y, 2)
 
         ll_ref = -1855.70345572
         ll_computed = log_likelihood(var2)
@@ -173,7 +173,7 @@ end
     end
 
     @testset "Identification and IRFs" begin
-        var2 = estimate(OLSVAR, Y, 2)
+        var2 = fit(OLSVAR, Y, 2)
 
         # Cholesky identification
         id = CholeskyID()

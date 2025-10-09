@@ -3,9 +3,11 @@
 # ============================================================================
 
 """
-    estimate(::Type{OLSVAR}, Y, n_lags; kwargs...)
+    StatsBase.fit(::Type{OLSVAR}, Y, n_lags; kwargs...)
 
-Estimate a Vector Autoregression using Ordinary Least Squares.
+Fit a Vector Autoregression using Ordinary Least Squares.
+
+This follows the StatsBase.jl convention for model fitting.
 
 # Arguments
 - `::Type{OLSVAR}`: VAR specification type
@@ -23,17 +25,17 @@ Estimate a Vector Autoregression using Ordinary Least Squares.
 # Examples
 ```julia
 # Basic estimation
-var = estimate(OLSVAR, Y, 4)
+var = fit(OLSVAR, Y, 4)
 
 # With constraints
 constraints = [BlockExogeneity([:Foreign], [:Domestic])]
-var = estimate(OLSVAR, Y, 4; constraints=constraints)
+var = fit(OLSVAR, Y, 4; constraints=constraints)
 ```
 """
-function estimate(::Type{OLSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
-                  constraints::Vector{<:AbstractConstraint}=AbstractConstraint[],
-                  names::Union{Nothing,Vector{Symbol}}=nothing,
-                  demean::Bool=false) where T<:AbstractFloat
+function StatsBase.fit(::Type{OLSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
+                       constraints::Vector{<:AbstractConstraint}=AbstractConstraint[],
+                       names::Union{Nothing,Vector{Symbol}}=nothing,
+                       demean::Bool=false) where T<:AbstractFloat
 
     n_obs_total, n_vars = size(Y)
     n_lags > 0 || throw(ArgumentError("n_lags must be positive"))
@@ -101,11 +103,11 @@ end
 """
     VAR(Y, n_lags; kwargs...)
 
-Convenience wrapper for `estimate(OLSVAR, Y, n_lags; kwargs...)` to preserve the
+Convenience wrapper for `fit(OLSVAR, Y, n_lags; kwargs...)` to preserve the
 IRFs.jl API.
 """
 function VAR(Y::AbstractMatrix{T}, n_lags::Int; kwargs...) where T<:AbstractFloat
-    return estimate(OLSVAR, Y, n_lags; kwargs...)
+    return fit(OLSVAR, Y, n_lags; kwargs...)
 end
 
 """

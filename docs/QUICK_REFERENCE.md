@@ -15,7 +15,7 @@ Pkg.add("MacroEconometricTools")
 using MacroEconometricTools
 
 # 1. Estimate VAR
-var = estimate(OLSVAR, Y, p; names=varnames)
+var = fit(OLSVAR, Y, p; names=varnames)
 
 # 2. Identify structural shocks (compute rotation matrix)
 P = rotation_matrix(var, CholeskyID())
@@ -36,20 +36,20 @@ irf_result = irf(var, CholeskyID();
 ```julia
 # Matrix Y: T × n_vars
 # p: number of lags
-var = estimate(OLSVAR, Y, p)
+var = fit(OLSVAR, Y, p)
 ```
 
 ### With variable names
 
 ```julia
 names = [:gdp, :inflation, :interest_rate]
-var = estimate(OLSVAR, Y, p; names=names)
+var = fit(OLSVAR, Y, p; names=names)
 ```
 
 ### With demeaning
 
 ```julia
-var = estimate(OLSVAR, Y, p; demean=true)
+var = fit(OLSVAR, Y, p; demean=true)
 ```
 
 ### Model properties
@@ -78,7 +78,7 @@ fitted(var)     # Fitted values
 ```julia
 # Interest rate doesn't affect GDP at lag 1
 c = ZeroConstraint(:gdp, [:interest_rate], [1])
-var = estimate(OLSVAR, Y, p; constraints=[c])
+var = fit(OLSVAR, Y, p; constraints=[c])
 ```
 
 ### Zero constraint (all lags)
@@ -86,7 +86,7 @@ var = estimate(OLSVAR, Y, p; constraints=[c])
 ```julia
 # Interest rate doesn't affect GDP at any lag
 c = ZeroConstraint(:gdp, [:interest_rate], Int[])  # empty = all lags
-var = estimate(OLSVAR, Y, p; constraints=[c])
+var = fit(OLSVAR, Y, p; constraints=[c])
 ```
 
 ### Block exogeneity
@@ -94,7 +94,7 @@ var = estimate(OLSVAR, Y, p; constraints=[c])
 ```julia
 # Foreign variables don't respond to domestic
 c = BlockExogeneity([:domestic_gdp, :domestic_rate], [:foreign_gdp, :foreign_rate])
-var = estimate(OLSVAR, Y, p; constraints=[c])
+var = fit(OLSVAR, Y, p; constraints=[c])
 ```
 
 ### Fixed value constraint
@@ -102,7 +102,7 @@ var = estimate(OLSVAR, Y, p; constraints=[c])
 ```julia
 # Fix GDP persistence to 0.9
 c = FixedConstraint(:gdp, :gdp, 1, 0.9)  # (equation, regressor, lag, value)
-var = estimate(OLSVAR, Y, p; constraints=[c])
+var = fit(OLSVAR, Y, p; constraints=[c])
 ```
 
 ### Multiple constraints
@@ -113,7 +113,7 @@ constraints = [
     FixedConstraint(:var2, :var1, 1, 0.5),
     BlockExogeneity([:foreign], [:domestic])
 ]
-var = estimate(OLSVAR, Y, p; constraints=constraints)
+var = fit(OLSVAR, Y, p; constraints=constraints)
 ```
 
 ---
@@ -292,7 +292,7 @@ hqic(var)
 # Try different lags
 results = []
 for p in 1:12
-    var_p = estimate(OLSVAR, Y, p)
+    var_p = fit(OLSVAR, Y, p)
     push!(results, (p=p, aic=aic(var_p), bic=bic(var_p)))
 end
 
@@ -384,11 +384,11 @@ Y = load_data()  # Your data loading function
 names = [:var1, :var2, :var3]
 
 # 2. Lag selection
-bic_values = [bic(estimate(OLSVAR, Y, p)) for p in 1:12]
+bic_values = [bic(fit(OLSVAR, Y, p)) for p in 1:12]
 p_opt = argmin(bic_values)
 
 # 3. Estimate
-var = estimate(OLSVAR, Y, p_opt; names=names)
+var = fit(OLSVAR, Y, p_opt; names=names)
 
 # 4. Check stability
 @assert maximum(abs.(eigvals(var.companion))) < 1 "VAR is unstable!"
@@ -413,7 +413,7 @@ fc = forecast(var, 12; bootstrap_reps=1000)
 
 ```julia
 # Estimate once
-var = estimate(OLSVAR, Y, p)
+var = fit(OLSVAR, Y, p)
 
 # Multiple identification schemes
 id_chol = CholeskyID()
@@ -431,7 +431,7 @@ irf_sign = irf(var, id_sign; horizon=24)
 ```julia
 irf_results = []
 for p in [6, 12, 18, 24]
-    var = estimate(OLSVAR, Y, p)
+    var = fit(OLSVAR, Y, p)
     push!(irf_results, irf(var, id; horizon=48))
 end
 
@@ -515,7 +515,7 @@ id = SignRestriction(restrictions, 6)  # instead of 12
 ```julia
 # Slower
 for p in 1:12
-    var = estimate(OLSVAR, Y, p)
+    var = fit(OLSVAR, Y, p)
     # ...
 end
 

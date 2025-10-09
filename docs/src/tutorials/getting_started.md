@@ -89,7 +89,7 @@ Estimate a VAR(24) model with OLS:
 p = 24  # Two years of monthly data
 
 # Estimate VAR
-var_model = estimate(OLSVAR, Y, p; names=names)
+var_model = fit(OLSVAR, Y, p; names=names)
 
 println(var_model)
 ```
@@ -321,7 +321,7 @@ constraints = [
 ]
 
 # Estimate constrained VAR
-var_constrained = estimate(OLSVAR, Y, p;
+var_constrained = fit(OLSVAR, Y, p;
                            names=names,
                            constraints=constraints)
 

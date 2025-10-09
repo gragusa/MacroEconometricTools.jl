@@ -25,11 +25,11 @@
 
 ```julia
 # ✓ CORRECT: Type-based dispatch
-var = estimate(OLSVAR, Y, p)
-bayesian_var = estimate(BayesianVAR(prior), Y, p)
+var = fit(OLSVAR, Y, p)
+bayesian_var = fit(BayesianVAR(prior), Y, p)
 
 # ✗ WRONG: Method flags
-var = estimate(Y, p; method=:ols)  # Avoid this pattern
+var = fit(Y, p; method=:ols)  # Avoid this pattern
 ```
 
 **When integrating new code**: Convert method flag patterns to type-based dispatch.
@@ -51,11 +51,11 @@ struct BayesianVAR{P<:AbstractPrior} <: AbstractVARSpec
     prior::P
 end
 
-function estimate(spec::OLSVAR, Y, p; kwargs...)
+function fit(spec::OLSVAR, Y, p; kwargs...)
     # OLS-specific estimation
 end
 
-function estimate(spec::BayesianVAR, Y, p; kwargs...)
+function fit(spec::BayesianVAR, Y, p; kwargs...)
     # Bayesian-specific estimation
 end
 ```
@@ -194,7 +194,7 @@ end
 
 #### Functions
 
-- **Estimation**: `estimate(spec::AbstractVARSpec, Y, p; kwargs...)`
+- **Estimation**: `fit(spec::AbstractVARSpec, Y, p; kwargs...)`
 - **Identification**: `rotation_matrix(model, id::AbstractIdentification)`
   - **Note**: We use `rotation_matrix`, NOT `identify` (breaking change from earlier versions)
   - **Rationale**: "rotation matrix" precisely describes what it returns (the P matrix)
@@ -213,7 +213,7 @@ end
 #### Estimation
 
 ```julia
-function estimate(spec::ConcreteVARSpec, Y::Matrix{T}, p::Int;
+function fit(spec::ConcreteVARSpec, Y::Matrix{T}, p::Int;
                  names::Union{Vector{Symbol}, Nothing}=nothing,
                  constraints::Union{Vector{<:AbstractConstraint}, Nothing}=nothing,
                  demean::Bool=false) where T<:AbstractFloat
@@ -295,7 +295,7 @@ export AbstractStateSpace, LinearStateSpace
 
 ```julia
 # Estimation
-function estimate(spec::StateSpaceSpec, Y::Matrix{T}, ...) where T
+function fit(spec::StateSpaceSpec, Y::Matrix{T}, ...) where T
     # Return StateSpaceModel{T, typeof(spec)}
 end
 
@@ -322,7 +322,7 @@ function irf(model::StateSpaceModel{T}, shock_idx::Int; horizon::Int=24) where T
 end
 
 # If they support constraints:
-function estimate(spec::StateSpaceSpec, Y, ...;
+function fit(spec::StateSpaceSpec, Y, ...;
                  constraints::Vector{<:AbstractConstraint}=nothing)
     # Apply constraints during estimation
 end
@@ -348,7 +348,7 @@ n_states(model::StateSpaceModel) = ...
 ```julia
 # 1. Add docstring to every exported function
 """
-    estimate(spec::StateSpaceSpec, Y::Matrix, ...)
+    fit(spec::StateSpaceSpec, Y::Matrix, ...)
 
 Estimate a state space model.
 
@@ -361,7 +361,7 @@ Estimate a state space model.
 
 # Examples
 ```julia
-ss = estimate(KalmanFilter(), Y)
+ss = fit(KalmanFilter(), Y)
 ```
 """
 
@@ -436,7 +436,7 @@ end
 ```julia
 # In src/var/estimation.jl
 
-function estimate(spec::BayesianVAR{P}, Y::Matrix{T}, p::Int;
+function fit(spec::BayesianVAR{P}, Y::Matrix{T}, p::Int;
                  names::Union{Vector{Symbol}, Nothing}=nothing,
                  n_draws::Int=1000,
                  burn_in::Int=500,
@@ -586,7 +586,7 @@ function bootstrap_irf(model::VARModel{T}, id::AbstractIdentification,
 
         # Simulate, re-estimate, re-identify
         Y_boot = simulate_var(model, ε_boot, ...)
-        model_boot = estimate(typeof(model.spec), Y_boot, n_lags(model))
+        model_boot = fit(typeof(model.spec), Y_boot, n_lags(model))
         P_boot = rotation_matrix(model_boot, id)
 
         # Compute IRF
@@ -629,10 +629,10 @@ Before committing new code, verify type stability on critical paths:
 using Test
 
 @testset "Type stability" begin
-    var = estimate(OLSVAR, Y, 4)
+    var = fit(OLSVAR, Y, 4)
 
     # Check estimation
-    @inferred estimate(OLSVAR, Y, 4)
+    @inferred fit(OLSVAR, Y, 4)
 
     # Check identification
     @inferred rotation_matrix(var, CholeskyID())
@@ -650,7 +650,7 @@ Profile before optimizing:
 using BenchmarkTools
 
 # Benchmark critical functions
-var = estimate(OLSVAR, Y, 4)
+var = fit(OLSVAR, Y, 4)
 P = rotation_matrix(var, CholeskyID())
 
 @btime compute_irf_point($var, $P, 24)  # Note the $ for interpolation
@@ -748,7 +748,7 @@ using LinearAlgebra
     @testset "Basic OLS estimation" begin
         rng = StableRNG(123)
         Y = randn(rng, 100, 3)
-        var = estimate(OLSVAR, Y, 4)
+        var = fit(OLSVAR, Y, 4)
 
         @test n_vars(var) == 3
         @test n_lags(var) == 4
@@ -810,19 +810,19 @@ using LinearAlgebra  # Add all dependencies
 
     @testset "Mathematical properties" begin
         # Test correctness (e.g., P*P' ≈ Σ)
-        var = estimate(OLSVAR, Y, 4)
+        var = fit(OLSVAR, Y, 4)
         P = rotation_matrix(var, CholeskyID())
         @test P * P' ≈ var.Σ
     end
 
     @testset "Type stability" begin
         # Test with @inferred
-        @inferred estimate(OLSVAR, Y, 4)
+        @inferred fit(OLSVAR, Y, 4)
     end
 
     @testset "Edge cases" begin
         # Test boundary conditions
-        @test_throws ArgumentError estimate(OLSVAR, Y, 0)
+        @test_throws ArgumentError fit(OLSVAR, Y, 0)
     end
 
     @testset "Reproducibility" begin
@@ -848,7 +848,7 @@ using StableRNGs
 @testset "Bootstrap reproducibility" begin
     rng = StableRNG(123)
     Y = randn(rng, 100, 3)  # Use rng for data generation
-    var = estimate(OLSVAR, Y, 4)
+    var = fit(OLSVAR, Y, 4)
 
     # Test that same seed gives same results
     rng1 = StableRNG(123)
@@ -879,7 +879,7 @@ using LinearAlgebra
     p = 4
 
     @testset "Basic OLS estimation" begin
-        var = estimate(OLSVAR, Y, p)
+        var = fit(OLSVAR, Y, p)
 
         @test n_vars(var) == 3
         @test n_lags(var) == 4
@@ -889,13 +889,13 @@ using LinearAlgebra
 
     @testset "Estimation with variable names" begin
         names = [:GDP, :Inflation, :Rate]
-        var = estimate(OLSVAR, Y, p; names=names)
+        var = fit(OLSVAR, Y, p; names=names)
 
         @test varnames(var) == names
     end
 
     @testset "Coefficient structure" begin
-        var = estimate(OLSVAR, Y, p)
+        var = fit(OLSVAR, Y, p)
         coefs = coef(var)
 
         @test size(coefs.intercept) == (3,)
@@ -903,12 +903,12 @@ using LinearAlgebra
     end
 
     @testset "Type stability" begin
-        @inferred estimate(OLSVAR, Y, p)
-        @inferred coef(estimate(OLSVAR, Y, p))
+        @inferred fit(OLSVAR, Y, p)
+        @inferred coef(fit(OLSVAR, Y, p))
     end
 
     @testset "Mathematical properties" begin
-        var = estimate(OLSVAR, Y, p)
+        var = fit(OLSVAR, Y, p)
         Σ = vcov(var)
 
         # Covariance matrix is symmetric
@@ -920,13 +920,13 @@ using LinearAlgebra
 
     @testset "Edge cases" begin
         # Zero lags
-        @test_throws ArgumentError estimate(OLSVAR, Y, 0)
+        @test_throws ArgumentError fit(OLSVAR, Y, 0)
 
         # Negative lags
-        @test_throws ArgumentError estimate(OLSVAR, Y, -1)
+        @test_throws ArgumentError fit(OLSVAR, Y, -1)
 
         # More lags than observations
-        @test_throws ArgumentError estimate(OLSVAR, Y, 200)
+        @test_throws ArgumentError fit(OLSVAR, Y, 200)
     end
 end
 ```
@@ -980,7 +980,7 @@ The matrix P satisfies PP' = Σ, where Σ is the residual covariance matrix.
 
 # Examples
 ```julia
-var = estimate(OLSVAR, Y, 4)
+var = fit(OLSVAR, Y, 4)
 P = rotation_matrix(var, CholeskyID())
 @test P * P' ≈ var.Σ
 ```
@@ -1082,7 +1082,7 @@ struct MinnesotaPrior{T} <: AbstractPrior
     λ2::T
 end
 
-function estimate(spec::BayesianVAR{MinnesotaPrior{T}}, Y::Matrix{T}, p::Int;
+function fit(spec::BayesianVAR{MinnesotaPrior{T}}, Y::Matrix{T}, p::Int;
                  kwargs...) where T
     prior = spec.prior
     # ... estimation using prior.λ1, prior.λ2
@@ -1090,7 +1090,7 @@ end
 
 # Usage
 prior = MinnesotaPrior(0.2, 0.5)
-bvar = estimate(BayesianVAR(prior), Y, 4)
+bvar = fit(BayesianVAR(prior), Y, 4)
 ```
 
 ### 4. Maintain Mathematical Correctness
@@ -1103,7 +1103,7 @@ bvar = estimate(BayesianVAR(prior), Y, 4)
 
 ```julia
 """
-    estimate(spec::BayesianVAR{MinnesotaPrior}, ...)
+    fit(spec::BayesianVAR{MinnesotaPrior}, ...)
 
 Bayesian VAR estimation with Minnesota prior.
 

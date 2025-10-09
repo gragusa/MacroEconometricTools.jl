@@ -37,7 +37,7 @@ Pkg.add(url="https://github.com/gragusa/MacroEconometricTools.jl")
 using MacroEconometricTools
 
 # Estimate VAR
-var = estimate(OLSVAR, Y, 4)  # 4 lags
+var = fit(OLSVAR, Y, 4)  # 4 lags
 
 # Cholesky identification - compute rotation matrix
 P = rotation_matrix(var, CholeskyID())
@@ -90,7 +90,7 @@ include("docs/src/tutorials/data/oil_data.jl")
 data = load_oil_data()
 
 # Estimate VAR(24) - monthly data, 2 years of lags
-var = estimate(OLSVAR, data.data, 24; names=data.names)
+var = fit(OLSVAR, data.data, 24; names=data.names)
 
 # Cholesky identification (production → activity → price)
 irf_result = irf(var, CholeskyID();
@@ -138,7 +138,7 @@ plot(irf_sign; plot_type=:both)       # Combined
 - **Efficient algorithms**: Equation-by-equation estimation with constraints
 
 ### Design
-- **Type-based dispatch**: `estimate(OLSVAR, ...)` not `estimate(..., method=:ols)`
+- **Type-based dispatch**: `fit(OLSVAR, ...)` not `fit(..., method=:ols)`
 - **Flexible constraints**: Easy specification of coefficient restrictions
 - **Extensible**: Simple to add new estimators and identification schemes
 - **No Missing types**: Uses NaN for type stability

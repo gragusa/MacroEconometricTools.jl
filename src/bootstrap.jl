@@ -99,9 +99,9 @@ function bootstrap_irf_serial!(irf_boot::Array{T,4}, model::VARModel{T},
         try
             constraints_arg = model.coefficients.constraints
             constraints_arg = constraints_arg === nothing ? AbstractConstraint[] : constraints_arg
-            var_boot = estimate(typeof(model.spec), Y_boot, n_lags(model);
-                              constraints=constraints_arg,
-                              names=model.names)
+            var_boot = fit(typeof(model.spec), Y_boot, n_lags(model);
+                           constraints=constraints_arg,
+                           names=model.names)
 
             # Compute IRF for bootstrap sample
             P_boot = rotation_matrix(var_boot, identification)
@@ -348,9 +348,9 @@ function bootstrap_irf_distributed(model::VARModel{T}, identification::AbstractI
 
             # Re-estimate
             try
-                var_boot = estimate(typeof(model.spec), Y_boot, n_lags_val;
-                                  constraints=constraints_arg,
-                                  names=model.names)
+                var_boot = fit(typeof(model.spec), Y_boot, n_lags_val;
+                               constraints=constraints_arg,
+                               names=model.names)
 
                 # Re-identify and compute IRF
                 P_boot = rotation_matrix(var_boot, identification)
