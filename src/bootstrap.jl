@@ -398,3 +398,300 @@ function bootstrap_irf_distributed(model::VARModel{T}, identification::AbstractI
 
     return irf_boot
 end
+
+# ============================================================================
+# Bootstrap Implementations for InferenceType System
+# ============================================================================
+
+"""
+    bootstrap_irf_wild(model, identification, horizon, reps, rng)
+
+Wild bootstrap for VAR impulse responses.
+
+The wild bootstrap resamples residuals by multiplying them with random
+Rademacher weights (±1 with equal probability). This preserves the
+conditional heteroskedasticity structure in the residuals while maintaining
+independence across equations.
+
+# Algorithm
+1. For each bootstrap replication:
+   - Draw Rademacher weights: ω[t] ∼ Uniform({-1, +1})
+   - Create bootstrap residuals: ū[t] = ω[t] * u[t]
+   - Simulate VAR with bootstrap residuals starting from initial observations
+   - Re-estimate VAR and compute IRF
+2. Return all bootstrap IRF draws
+
+# References
+- Liu (1988): "Bootstrap Procedures under Some Non-I.I.D. Models"
+- Gonçalves and Kilian (2004): "Bootstrapping autoregressions with
+  conditional heteroskedasticity of unknown form"
+
+# Note
+The wild bootstrap is robust to conditional heteroskedasticity and preserves
+the cross-equation correlation structure in the residuals.
+"""
+function bootstrap_irf_wild(
+    model::VARModel{T},
+    identification::AbstractIdentification,
+    horizon::Int,
+    reps::Int,
+    rng::AbstractRNG
+) where T
+
+    m = n_vars(model)
+    n_lags_val = n_lags(model)
+
+    # Preallocate output: (reps, horizon+1, n_vars, n_shocks)
+    irf_boot = zeros(T, reps, horizon + 1, m, m)
+
+    # Get residuals and original data
+    u = residuals(model)
+    Y_original = model.Y
+
+    # Get normalization from identification (if applicable)
+    # We'll compute this once outside the loop
+    for r in 1:reps
+        # Wild bootstrap: Rademacher weights (±1 with equal probability)
+        ω = rand(rng, T[-one(T), one(T)], size(u, 1))
+
+        # Multiply residuals by weights (broadcasts across columns)
+        ū = ω .* u
+
+        # Simulate bootstrap VAR
+        Y_boot = simulate_var(model, ū, Y_original)
+
+        # Re-estimate VAR on bootstrap data
+        try
+            constraints_arg = model.coefficients.constraints
+            constraints_arg = isnothing(constraints_arg) ? AbstractConstraint[] : constraints_arg
+            var_boot = fit(typeof(model.spec), Y_boot, n_lags_val;
+                          constraints=constraints_arg,
+                          names=model.names)
+
+            # Compute bootstrap IRF
+            P_boot = rotation_matrix(var_boot, identification)
+            P_boot = normalize(P_boot, UnitStd())
+            irf_boot[r, :, :, :] = compute_irf_point(var_boot, P_boot, horizon)
+        catch e
+            # If estimation fails, fill with NaN
+            @warn "Wild bootstrap replication $r failed: $e"
+            fill!(view(irf_boot, r, :, :, :), NaN)
+        end
+    end
+
+    return irf_boot
+end
+
+"""
+    bootstrap_irf_standard(model, identification, horizon, reps, rng)
+
+Standard i.i.d. bootstrap for VAR impulse responses.
+
+The standard bootstrap resamples residuals with replacement, treating them
+as independent draws from an unknown distribution. This is appropriate when
+residuals can be assumed i.i.d. (homoskedastic and uncorrelated).
+
+# Algorithm
+1. For each bootstrap replication:
+   - Sample row indices with replacement: i[t] ∼ Uniform(1, ..., T)
+   - Create bootstrap residuals: ū[t] = u[i[t], :]
+   - Simulate VAR with bootstrap residuals
+   - Re-estimate VAR and compute IRF
+2. Return all bootstrap IRF draws
+
+# References
+- Efron (1979): "Bootstrap methods: Another look at the jackknife"
+- Freedman (1981): "Bootstrapping regression models"
+
+# Note
+For time series with temporal dependence or heteroskedasticity, wild bootstrap or
+block bootstrap may be more appropriate. The standard bootstrap assumes i.i.d. errors.
+"""
+function bootstrap_irf_standard(
+    model::VARModel{T},
+    identification::AbstractIdentification,
+    horizon::Int,
+    reps::Int,
+    rng::AbstractRNG
+) where T
+
+    m = n_vars(model)
+    n_lags_val = n_lags(model)
+    n_obs = size(model.residuals, 1)
+
+    # Preallocate output
+    irf_boot = zeros(T, reps, horizon + 1, m, m)
+
+    u = residuals(model)
+    Y_original = model.Y
+
+    for r in 1:reps
+        # Standard bootstrap: resample rows with replacement
+        indices = rand(rng, 1:n_obs, n_obs)
+        ū = u[indices, :]
+
+        # Simulate bootstrap VAR
+        Y_boot = simulate_var(model, ū, Y_original)
+
+        # Re-estimate and compute IRF
+        try
+            constraints_arg = model.coefficients.constraints
+            constraints_arg = isnothing(constraints_arg) ? AbstractConstraint[] : constraints_arg
+            var_boot = fit(typeof(model.spec), Y_boot, n_lags_val;
+                          constraints=constraints_arg,
+                          names=model.names)
+
+            P_boot = rotation_matrix(var_boot, identification)
+            P_boot = normalize(P_boot, UnitStd())
+            irf_boot[r, :, :, :] = compute_irf_point(var_boot, P_boot, horizon)
+        catch e
+            @warn "Standard bootstrap replication $r failed: $e"
+            fill!(view(irf_boot, r, :, :, :), NaN)
+        end
+    end
+
+    return irf_boot
+end
+
+"""
+    bootstrap_irf_block(model, identification, horizon, reps, block_length, rng)
+
+Moving block bootstrap for VAR impulse responses.
+
+The block bootstrap resamples blocks of consecutive residuals to preserve
+the temporal dependence structure in the data. This is appropriate for time
+series with serial correlation that violates the i.i.d. assumption.
+
+# Algorithm
+1. Divide the sample into overlapping blocks of length ℓ
+2. For each bootstrap replication:
+   - Randomly select N = ⌈T/ℓ⌉ blocks (with replacement)
+   - Concatenate blocks to form bootstrap residual series of length N*ℓ
+   - Apply position-specific centering: for position s within a block,
+     subtract the mean of all residuals at position s, s+ℓ, s+2ℓ, ...
+   - Trim bootstrap series to original sample size T
+   - Simulate VAR with bootstrap residuals
+   - Re-estimate VAR and compute IRF
+3. Return all bootstrap IRF draws
+
+# Position-Specific Centering
+The key innovation (following Carlstein 1986, Künsch 1989) is centering
+residuals based on their position within the block cycle:
+
+    ū[j * ℓ + s] -= mean(u[s : ℓ : end])
+
+This preserves the block structure while ensuring the resampled residuals
+have (approximately) zero mean, which is critical for VAR simulation. Without
+this adjustment, the bootstrap VAR would drift away from the true mean.
+
+# Why Position-Specific?
+Simply subtracting the global mean would break the temporal dependence structure
+within blocks. The position-specific approach respects that observations at
+position s may systematically differ from those at position s+1, preserving
+intra-block patterns.
+
+# References
+- Künsch (1989): "The jackknife and the bootstrap for general stationary
+  observations"
+- Carlstein (1986): "The use of subseries values for estimating the variance
+  of a general statistic from a stationary sequence"
+- Paparoditis and Politis (2001): "Tapered block bootstrap"
+
+# Block Length Selection
+Rule of thumb: ℓ ≈ T^(1/3) for moderate dependence
+For stronger persistence, use larger blocks (e.g., ℓ = 10-20 for quarterly data)
+
+# Example
+```julia
+# For T=100 observations with moderate dependence
+irf_boot = bootstrap_irf_block(model, id, 24, 1000, 10, rng)
+
+# For stronger persistence
+irf_boot = bootstrap_irf_block(model, id, 24, 1000, 20, rng)
+```
+"""
+function bootstrap_irf_block(
+    model::VARModel{T},
+    identification::AbstractIdentification,
+    horizon::Int,
+    reps::Int,
+    block_length::Int,
+    rng::AbstractRNG
+) where T
+
+    m = n_vars(model)
+    n_lags_val = n_lags(model)
+    n_obs = size(model.residuals, 1)  # T
+    ℓ = block_length
+
+    # Number of blocks needed to cover T observations
+    N = ceil(Int, n_obs / ℓ)
+
+    # Preallocate
+    irf_boot = zeros(T, reps, horizon + 1, m, m)
+    u = residuals(model)
+    Y_original = model.Y
+
+    # Preallocate bootstrap residuals (may be longer than T)
+    # We create N*ℓ observations, then trim to T
+    ū_full = zeros(T, N * ℓ, m)
+
+    # Maximum valid starting index for a block
+    max_start = n_obs - ℓ + 1
+
+    for r in 1:reps
+        # Step 1: Sample N random blocks
+        # Each block has length ℓ and starts at a random position
+        for j in 1:N
+            # Random starting index for this block
+            start_idx = rand(rng, 1:max_start)
+
+            # Copy block into position j of bootstrap sample
+            block_start = 1 + ℓ * (j - 1)
+            block_end = block_start + ℓ - 1
+            ū_full[block_start:block_end, :] = u[start_idx:(start_idx + ℓ - 1), :]
+        end
+
+        # Step 2: Position-specific centering
+        # For each position s within a block (s = 1, ..., ℓ):
+        #   Subtract mean of all residuals at positions s, s+ℓ, s+2ℓ, ..., s+(T-ℓ)
+        # This preserves the block structure while ensuring zero mean
+        for s in 1:ℓ
+            # Indices at this position in the ORIGINAL residuals
+            # These are positions s, s+ℓ, s+2ℓ, ..., s+k*ℓ where s+k*ℓ ≤ T
+            positions_in_original = s:ℓ:(n_obs - ℓ + s)
+
+            # Compute mean at this position from original residuals
+            mean_at_s = vec(mean(u[positions_in_original, :]; dims=1))
+
+            # Subtract from all occurrences of this position in bootstrap sample
+            for j in 0:(N - 1)
+                ū_full[j * ℓ + s, :] .-= mean_at_s
+            end
+        end
+
+        # Step 3: Trim to original sample size
+        ū = ū_full[1:n_obs, :]
+
+        # Step 4: Simulate bootstrap VAR
+        Y_boot = simulate_var(model, ū, Y_original)
+
+        # Step 5: Re-estimate and compute IRF
+        try
+            constraints_arg = model.coefficients.constraints
+            constraints_arg = isnothing(constraints_arg) ? AbstractConstraint[] : constraints_arg
+            var_boot = fit(typeof(model.spec), Y_boot, n_lags_val;
+                          constraints=constraints_arg,
+                          names=model.names)
+
+            P_boot = rotation_matrix(var_boot, identification)
+            P_boot = normalize(P_boot, UnitStd())
+            irf_boot[r, :, :, :] = compute_irf_point(var_boot, P_boot, horizon)
+        catch e
+            @warn "Block bootstrap replication $r failed: $e"
+            fill!(view(irf_boot, r, :, :, :), NaN)
+        end
+    end
+
+    return irf_boot
+end

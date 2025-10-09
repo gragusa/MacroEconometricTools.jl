@@ -63,7 +63,7 @@ const IRFResult = MacroEconometricTools.IRFResult
         horizon = 12
         id = CholeskyID()
 
-        irf_delta = irf(var, id; horizon=horizon, inference=:delta)
+        irf_delta = irf(var, id; horizon=horizon, inference=Analytic())
 
         # Check structure
         @test irf_delta isa IRFResult
@@ -97,9 +97,9 @@ const IRFResult = MacroEconometricTools.IRFResult
         horizon = 8
         id = CholeskyID()
 
-        irf_delta = irf(var, id; horizon=horizon, inference=:delta)
-        irf_boot = irf(var, id; horizon=horizon, inference=:bootstrap,
-                      bootstrap_reps=100, rng=StableRNG(789))
+        irf_delta = irf(var, id; horizon=horizon, inference=Analytic())
+        irf_boot = irf(var, id; horizon=horizon, inference=WildBootstrap(100),
+                      rng=StableRNG(789))
 
         # Both should give similar point estimates (same identification)
         @test irf_delta.irf ≈ irf_boot.irf rtol=1e-10

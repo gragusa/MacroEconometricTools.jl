@@ -62,6 +62,9 @@ export AbstractIdentification, CholeskyID, SignRestriction, IVIdentification
 export AbstractInstrument, ExternalInstrument, ProxyIV
 export AbstractIRFResult, IRFResult, SignRestrictedIRFResult
 
+# Export inference types
+export InferenceType, Analytic, WildBootstrap, Bootstrap, BlockBootstrap
+
 # Export main functions
 export fit
 export irf, impulse_response
@@ -77,5 +80,6 @@ export companion_form
 export variance_decomposition, historical_decomposition
 export cumulative_irf
 export is_stable, long_run_effect, long_run_mean
+export confidence_bands
 
 end # module

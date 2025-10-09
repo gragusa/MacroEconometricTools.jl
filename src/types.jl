@@ -269,6 +269,149 @@ Identification via instrumental variables (for IV-SVAR).
 struct IVIdentification <: AbstractIdentification end
 
 # ============================================================================
+# Inference Types
+# ============================================================================
+
+"""
+    InferenceType
+
+Abstract type for statistical inference methods used to compute confidence bands for IRFs.
+
+Concrete subtypes:
+- `Analytic`: Asymptotic inference using delta method (Lütkepohl)
+- `WildBootstrap`: Wild bootstrap with Rademacher weights
+- `Bootstrap`: Standard i.i.d. bootstrap
+- `BlockBootstrap`: Moving block bootstrap for time series dependence
+"""
+abstract type InferenceType end
+
+"""
+    Analytic <: InferenceType
+
+Asymptotic inference using the delta method.
+
+Based on Lütkepohl (2005) analytical formulas for IRF standard errors.
+Valid only for Cholesky (triangular) identification schemes.
+
+# Example
+```julia
+irf(model, CholeskyID(); inference=Analytic())
+```
+"""
+struct Analytic <: InferenceType end
+
+"""
+    WildBootstrap <: InferenceType
+
+Wild bootstrap inference using Rademacher weights.
+
+Resamples residuals by multiplying with random ±1 weights, preserving
+conditional heteroskedasticity while maintaining independence across equations.
+
+# Fields
+- `reps::Int`: Number of bootstrap replications
+- `save_draws::Bool`: Whether to save all bootstrap IRF draws
+
+# References
+- Liu (1988): "Bootstrap Procedures under Some Non-I.I.D. Models"
+- Gonçalves and Kilian (2004): "Bootstrapping autoregressions with
+  conditional heteroskedasticity of unknown form"
+
+# Example
+```julia
+# Save draws for post-hoc band computation
+irf(model, id; inference=WildBootstrap(reps=1000, save_draws=true))
+
+# Memory-efficient: don't save draws
+irf(model, id; inference=WildBootstrap(reps=1000, save_draws=false))
+```
+"""
+struct WildBootstrap <: InferenceType
+    reps::Int
+    save_draws::Bool
+
+    function WildBootstrap(reps::Int=1000; save_draws::Bool=false)
+        reps > 0 || throw(ArgumentError("reps must be positive"))
+        return new(reps, save_draws)
+    end
+end
+
+"""
+    Bootstrap <: InferenceType
+
+Standard i.i.d. bootstrap inference.
+
+Resamples residuals with replacement, treating them as independent draws.
+Appropriate when residuals can be assumed i.i.d. (homoskedastic and uncorrelated).
+
+# Fields
+- `reps::Int`: Number of bootstrap replications
+- `save_draws::Bool`: Whether to save all bootstrap IRF draws
+
+# References
+- Efron (1979): "Bootstrap methods: Another look at the jackknife"
+- Freedman (1981): "Bootstrapping regression models"
+
+# Note
+For time series with dependence or heteroskedasticity, wild bootstrap or
+block bootstrap may be more appropriate.
+
+# Example
+```julia
+irf(model, id; inference=Bootstrap(reps=1000, save_draws=true))
+```
+"""
+struct Bootstrap <: InferenceType
+    reps::Int
+    save_draws::Bool
+
+    function Bootstrap(reps::Int=1000; save_draws::Bool=false)
+        reps > 0 || throw(ArgumentError("reps must be positive"))
+        return new(reps, save_draws)
+    end
+end
+
+"""
+    BlockBootstrap <: InferenceType
+
+Moving block bootstrap for time series with temporal dependence.
+
+Resamples blocks of consecutive residuals to preserve temporal dependence structure.
+Uses position-specific centering to ensure resampled residuals have approximately zero mean.
+
+# Fields
+- `reps::Int`: Number of bootstrap replications
+- `block_length::Int`: Length of each block (rule of thumb: T^(1/3))
+- `save_draws::Bool`: Whether to save all bootstrap IRF draws
+
+# References
+- Künsch (1989): "The jackknife and the bootstrap for general stationary observations"
+- Carlstein (1986): "The use of subseries values for estimating the variance of
+  a general statistic from a stationary sequence"
+- Paparoditis and Politis (2001): "Tapered block bootstrap"
+
+# Block Length Selection
+Rule of thumb: ℓ ≈ T^(1/3) for moderate dependence.
+For stronger persistence, use larger blocks (e.g., ℓ = 10-20 for quarterly data).
+
+# Example
+```julia
+irf(model, id; inference=BlockBootstrap(reps=1000, block_length=15, save_draws=true))
+```
+"""
+struct BlockBootstrap <: InferenceType
+    reps::Int
+    block_length::Int
+    save_draws::Bool
+
+    function BlockBootstrap(reps::Int=1000; block_length::Int=10, save_draws::Bool=false)
+        reps > 0 || throw(ArgumentError("reps must be positive"))
+        block_length > 0 || throw(ArgumentError("block_length must be positive"))
+        return new(reps, block_length, save_draws)
+    end
+end
+
+# ============================================================================
 # IRF Structure
 # ============================================================================
 
@@ -291,21 +434,23 @@ Impulse response function results for point-identified systems.
 # Fields
 - `irf::Array{T,3}`: IRF array (horizon, n_vars, n_shocks)
 - `stderr::Array{T,3}`: Standard errors (if computed)
+- `bootstrap_draws::Union{Nothing, Array{T,4}}`: Bootstrap IRF draws (reps, horizon, n_vars, n_shocks) if saved
 - `lower::Vector{Array{T,3}}`: Lower confidence bands (one per coverage level)
 - `upper::Vector{Array{T,3}}`: Upper confidence bands
 - `coverage::Vector{Float64}`: Coverage levels
 - `identification::AbstractIdentification`: Identification scheme used
-- `inference::Symbol`: Inference method (`:bootstrap`, `:delta`, etc.)
+- `inference::Union{Nothing, InferenceType}`: Inference method used
 - `metadata::NamedTuple`: Additional information
 """
 struct IRFResult{T<:AbstractFloat} <: AbstractIRFResult{T}
     irf::Array{T,3}
     stderr::Array{T,3}
+    bootstrap_draws::Union{Nothing, Array{T,4}}
     lower::Vector{Array{T,3}}
     upper::Vector{Array{T,3}}
     coverage::Vector{Float64}
     identification::AbstractIdentification
-    inference::Symbol
+    inference::Union{Nothing, InferenceType}
     metadata::NamedTuple
 end
 
