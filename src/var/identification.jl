@@ -3,31 +3,43 @@
 # ============================================================================
 
 """
-    identify(model::VARModel, id::AbstractIdentification)
+    rotation_matrix(model::VARModel, id::AbstractIdentification; kwargs...)
 
-Compute structural impact matrix from identification scheme.
+Compute structural rotation/impact matrix from identification scheme.
+
+The rotation matrix `P` relates structural shocks ε to reduced-form shocks u via u = P*ε.
+
+# Arguments
+- `model::VARModel`: Estimated VAR model
+- `id::AbstractIdentification`: Identification scheme
+
+# Keyword Arguments
+(For SignRestriction only)
+- `max_draws::Int=10000`: Maximum number of rotation draws
+- `parallel::Symbol=:none`: Parallelization (`:none`, `:distributed`)
+- `verbose::Bool=false`: Print progress information
+- `rng::AbstractRNG=Random.default_rng()`: Random number generator
 
 # Returns
-- Impact matrix `P` such that structural shocks ε relate to reduced-form shocks u via u = P*ε
+- Matrix `P`: Structural rotation/impact matrix
+
+# Examples
+```julia
+# Cholesky identification
+P = rotation_matrix(var_model, CholeskyID())
+
+# Sign restrictions with reproducible draws
+P = rotation_matrix(var_model, sign_id; max_draws=5000, rng=StableRNG(42))
+```
 """
-function identify(model::VARModel, id::AbstractIdentification)
-    if id isa CholeskyID
-        return identify_cholesky(model, id)
-    elseif id isa SignRestriction
-        return identify_sign(model, id)
-    elseif id isa IVIdentification
-        return identify_iv(model, id)
-    else
-        throw(ArgumentError("Unknown identification scheme: $(typeof(id))"))
-    end
-end
+function rotation_matrix end
 
 # ============================================================================
 # Cholesky Identification
 # ============================================================================
 
 """
-    identify_cholesky(model::VARModel, id::CholeskyID)
+    rotation_matrix(model::VARModel, id::CholeskyID)
 
 Recursive (Cholesky) identification.
 
@@ -38,9 +50,9 @@ Computes lower-triangular Cholesky factor: Σ = P*P'
 - `id::CholeskyID`: Cholesky identification with optional variable ordering
 
 # Returns
-- Lower-triangular impact matrix
+- Lower-triangular rotation matrix
 """
-function identify_cholesky(model::VARModel{T}, id::CholeskyID) where T
+function rotation_matrix(model::VARModel{T}, id::CholeskyID) where T
     Σ = vcov(model)
 
     # Handle variable ordering
@@ -80,7 +92,7 @@ end
 # ============================================================================
 
 """
-    identify_sign(model::VARModel, id::SignRestriction; kwargs...)
+    rotation_matrix(model::VARModel, id::SignRestriction; kwargs...)
 
 Identification via sign restrictions.
 
@@ -97,25 +109,25 @@ Uses algorithm of Rubio-Ramírez, Waggoner, and Zha (2010).
 - `rng::AbstractRNG=Random.default_rng()`: Random number generator for reproducible draws
 
 # Returns
-- Impact matrix satisfying sign restrictions
+- Rotation matrix satisfying sign restrictions
 
 # Examples
 ```julia
 # Serial search
-P = identify_sign(model, id; max_draws=10000)
+P = rotation_matrix(model, id; max_draws=10000)
 
 # Distributed search (requires Distributed + workers)
 using Distributed
 addprocs(4)
 @everywhere using MacroEconometricTools
-P = identify_sign(model, id; max_draws=50000, parallel=:distributed)
+P = rotation_matrix(model, id; max_draws=50000, parallel=:distributed)
 ```
 """
-function identify_sign(model::VARModel{T}, id::SignRestriction;
-                      max_draws::Int=10000,
-                      parallel::Symbol=:none,
-                      verbose::Bool=false,
-                      rng::AbstractRNG=Random.default_rng()) where T
+function rotation_matrix(model::VARModel{T}, id::SignRestriction;
+                        max_draws::Int=10000,
+                        parallel::Symbol=:none,
+                        verbose::Bool=false,
+                        rng::AbstractRNG=Random.default_rng()) where T
 
     parallel ∈ [:none, :distributed] ||
         throw(ArgumentError("parallel must be :none or :distributed"))
@@ -322,14 +334,14 @@ end
 # ============================================================================
 
 """
-    identify_iv(model::VARModel, id::IVIdentification)
+    rotation_matrix(model::VARModel, id::IVIdentification)
 
 Identification via instrumental variables.
 
 For IV-SVAR models, identification is performed during estimation.
-This function extracts the identified structural matrix.
+This function extracts the identified structural rotation matrix.
 """
-function identify_iv(model::VARModel, id::IVIdentification)
+function rotation_matrix(model::VARModel, id::IVIdentification)
     # Check if model was estimated with IV
     if !(model.spec isa IVSVAR)
         throw(ArgumentError("IV identification requires model estimated with IVSVAR"))

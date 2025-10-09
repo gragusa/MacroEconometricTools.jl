@@ -59,19 +59,21 @@ export VAR
 export AbstractConstraint, ZeroConstraint, FixedConstraint, BlockExogeneity
 export AbstractIdentification, CholeskyID, SignRestriction, IVIdentification
 export AbstractInstrument, ExternalInstrument, ProxyIV
+export IRFResult, SignRestrictedIRFResult
 
 # Export main functions
 export estimate
 export irf, impulse_response
 export coef, vcov, residuals, fitted
-export n_vars, n_lags, n_obs
+export n_vars, n_lags, n_obs, varnames, raw_nobs
 export log_likelihood, aic, bic, hqic
 export bootstrap_irf
 export forecast
-export identify, normalize, normalize!
+export rotation_matrix, normalize, normalize!
 export lag, create_lags, create_lags!
 export companion_form
 export variance_decomposition, historical_decomposition
 export cumulative_irf
+export is_stable, long_run_effect, long_run_mean
 
 end # module

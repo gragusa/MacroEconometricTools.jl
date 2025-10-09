@@ -193,7 +193,7 @@ function simulate_structural(model::VARModel{T}, identification::AbstractIdentif
                             structural_shocks::AbstractMatrix{T},
                             Y_init::AbstractMatrix{T}; burn_in::Int=0) where T
     # Get impact matrix
-    P = identify(model, identification)
+    P = rotation_matrix(model, identification)
 
     # Convert structural to reduced-form shocks: u = P * ε
     innovations = structural_shocks * P'
@@ -219,7 +219,7 @@ function historical_decomposition(model::VARModel{T}, identification::AbstractId
     n_obs_val = n_obs(model)
 
     # Identify structural shocks
-    P = identify(model, identification)
+    P = rotation_matrix(model, identification)
     P_inv = inv(P)
 
     # Recover structural shocks from residuals

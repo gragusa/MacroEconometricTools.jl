@@ -255,7 +255,7 @@ function irf_effect_covariance(model::VARModel{T,OLSVAR}, P::Matrix{T},
 end
 
 """
-    irf_asymptotic_stderr(model::VARModel, P::Matrix{T}, irf_point::Array{T,3}) where T
+    irf_asymptotic_stderror(model::VARModel, P::Matrix{T}, irf_point::Array{T,3}) where T
 
 Compute asymptotic standard errors for IRF using delta method.
 
@@ -269,7 +269,7 @@ Extracts the square root of diagonal elements of the covariance matrix.
 # Returns
 - Standard error array of size (horizon+1, n_vars, n_vars)
 """
-function irf_asymptotic_stderr(model::VARModel{T,OLSVAR}, P::Matrix{T},
+function irf_asymptotic_stderror(model::VARModel{T,OLSVAR}, P::Matrix{T},
                                irf_point::Array{T,3}) where T
     n_vars_val = n_vars(model)
 
@@ -278,13 +278,13 @@ function irf_asymptotic_stderr(model::VARModel{T,OLSVAR}, P::Matrix{T},
 
     # Extract standard errors as sqrt of diagonal
     horizon = size(V, 1) - 1
-    stderr = zeros(T, horizon + 1, n_vars_val, n_vars_val)
+    stderror = zeros(T, horizon + 1, n_vars_val, n_vars_val)
 
     for h in 0:horizon
         v_h = V[h + 1, :, :]
-        stderr_vec = sqrt.(max.(diag(v_h), zero(T)))  # Ensure non-negative
-        stderr[h + 1, :, :] = reshape(stderr_vec, (n_vars_val, n_vars_val))
+        stderror_vec = sqrt.(max.(diag(v_h), zero(T)))  # Ensure non-negative
+        stderror[h + 1, :, :] = reshape(stderror_vec, (n_vars_val, n_vars_val))
     end
 
-    return stderr
+    return stderror
 end

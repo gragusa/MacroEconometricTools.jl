@@ -104,7 +104,7 @@ function bootstrap_irf_serial!(irf_boot::Array{T,4}, model::VARModel{T},
                               names=model.names)
 
             # Compute IRF for bootstrap sample
-            P_boot = identify(var_boot, identification)
+            P_boot = rotation_matrix(var_boot, identification)
             P_boot = normalize(P_boot, normalization)
             irf_boot[r, :, :, :] = compute_irf_point(var_boot, P_boot, horizon)
         catch e
@@ -353,7 +353,7 @@ function bootstrap_irf_distributed(model::VARModel{T}, identification::AbstractI
                                   names=model.names)
 
                 # Re-identify and compute IRF
-                P_boot = identify(var_boot, identification)
+                P_boot = rotation_matrix(var_boot, identification)
                 P_boot = normalize(P_boot, normalization)
                 batch_irfs[batch_idx, :, :, :] = compute_irf_point(var_boot, P_boot, horizon)
             catch e

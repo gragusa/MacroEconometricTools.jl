@@ -116,7 +116,7 @@ const IRFResult = MacroEconometricTools.IRFResult
         # Test Jacobian computation
         horizon = 6
         id = CholeskyID()
-        P = identify(var, id)
+        P = rotation_matrix(var, id)
         irf_point = MacroEconometricTools.compute_irf_point(var, P, horizon)
 
         G_matrices = MacroEconometricTools.irf_jacobian_matrices(var, irf_point, horizon)
@@ -134,7 +134,7 @@ const IRFResult = MacroEconometricTools.IRFResult
     @testset "Delta Method Effect Covariance" begin
         horizon = 6
         id = CholeskyID()
-        P = identify(var, id)
+        P = rotation_matrix(var, id)
         irf_point = MacroEconometricTools.compute_irf_point(var, P, horizon)
 
         V = MacroEconometricTools.irf_effect_covariance(var, P, irf_point)

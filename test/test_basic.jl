@@ -57,7 +57,7 @@ using StableRNGs: StableRNG
 
         # Cholesky identification
         id = CholeskyID()
-        P = identify(var, id)
+        P = rotation_matrix(var, id)
 
         @test size(P) == (n_v, n_v)
         @test istril(P)  # Should be lower triangular

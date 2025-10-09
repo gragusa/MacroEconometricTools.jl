@@ -97,10 +97,10 @@ Ported complete delta method implementation from old API:
 **New functions in `var/inference.jl`**:
 1. `irf_jacobian_matrices(model, irf_point, horizon)` ← from old `G`
 2. `irf_effect_covariance(model, P, irf_point)` ← from old `effect_cov`
-3. `irf_asymptotic_stderr(model, P, irf_point)` ← from old `irf_se_asy`
+3. `irf_asymptotic_stderror(model, P, irf_point)` ← from old `irf_se_asy`
 
 **Updated `compute_irf_stderr_delta` in `var/irfs.jl`**:
-- Now calls `irf_asymptotic_stderr` for Cholesky identification
+- Now calls `irf_asymptotic_stderror` for Cholesky identification
 - Clear warning for non-Cholesky schemes (falls back to bootstrap)
 - Proper documentation noting triangular identification requirement
 

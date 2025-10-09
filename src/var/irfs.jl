@@ -53,7 +53,7 @@ function irf(model::VARModel{T}, identification::AbstractIdentification;
     coverage = sort(coverage)
 
     # Compute point estimate of IRF
-    P = identify(model, identification)
+    P = rotation_matrix(model, identification)
     P = normalize(P, normalization)
     irf_point = compute_irf_point(model, P, horizon)
 
@@ -92,6 +92,77 @@ end
 
 # Convenience alias
 impulse_response = irf
+
+"""
+    irf(model::VARModel, id::SignRestriction; kwargs...)
+
+Compute impulse response functions for sign restriction identification.
+
+For sign restrictions, this returns `SignRestrictedIRFResult` containing multiple
+draws to represent set identification.
+
+# Keyword Arguments
+- `n_draws::Int=1000`: Number of valid rotation draws to compute
+- `max_attempts::Int=10000`: Maximum attempts per draw
+- `horizon::Int=24`: IRF horizon
+- `coverage::Vector{Float64}=[0.68, 0.90, 0.95]`: Coverage levels for quantile bands
+- `normalization::AbstractNormalization=UnitStd()`: Shock normalization
+- `parallel::Symbol=:none`: Parallelization (`:none` or `:distributed`)
+- `rng::AbstractRNG=Random.default_rng()`: Random number generator
+
+# Returns
+- `SignRestrictedIRFResult`: IRF result with multiple draws and quantile bands
+"""
+function irf(model::VARModel{T}, id::SignRestriction;
+             n_draws::Int=1000,
+             max_attempts::Int=10000,
+             horizon::Int=24,
+             coverage::Vector{Float64}=[0.68, 0.90, 0.95],
+             normalization::AbstractNormalization=UnitStd(),
+             parallel::Symbol=:none,
+             rng::AbstractRNG=Random.default_rng()) where T
+
+    # Compute multiple rotation matrices and IRFs
+    rotation_matrices = Vector{Matrix{T}}(undef, n_draws)
+    irf_draws = zeros(T, n_draws, horizon + 1, n_vars(model), n_vars(model))
+
+    for i in 1:n_draws
+        # Draw a rotation matrix satisfying restrictions
+        P = rotation_matrix(model, id; max_draws=max_attempts, parallel=parallel,
+                          verbose=false, rng=rng)
+        P = normalize(P, normalization)
+        rotation_matrices[i] = P
+
+        # Compute IRF for this draw
+        irf_draws[i, :, :, :] = compute_irf_point(model, P, horizon)
+    end
+
+    # Compute pointwise quantiles
+    irf_median = dropdims(median(irf_draws; dims=1); dims=1)
+
+    lower = Vector{Array{T,3}}(undef, length(coverage))
+    upper = Vector{Array{T,3}}(undef, length(coverage))
+
+    for (idx, cov) in enumerate(coverage)
+        α = 1 - cov
+        lower_q = α / 2
+        upper_q = 1 - α / 2
+
+        lower[idx] = dropdims(mapslices(x -> quantile(x, lower_q), irf_draws; dims=1); dims=1)
+        upper[idx] = dropdims(mapslices(x -> quantile(x, upper_q), irf_draws; dims=1); dims=1)
+    end
+
+    metadata = (
+        horizon = horizon,
+        n_draws = n_draws,
+        normalization = typeof(normalization),
+        names = model.names,
+        timestamp = now()
+    )
+
+    return SignRestrictedIRFResult(irf_median, irf_draws, lower, upper,
+                                   coverage, rotation_matrices, id, metadata)
+end
 
 """
     compute_irf_point(model::VARModel, P::Matrix, horizon::Int)
@@ -157,7 +228,7 @@ function compute_irf_stderr_delta(model::VARModel{T}, P::Matrix{T},
     end
 
     # Use analytical delta method formulas
-    return irf_asymptotic_stderr(model, P, irf)
+    return irf_asymptotic_stderror(model, P, irf)
 end
 
 """

@@ -297,3 +297,29 @@ struct IRFResult{T<:AbstractFloat}
     inference::Symbol
     metadata::NamedTuple
 end
+
+"""
+    SignRestrictedIRFResult{T}
+
+Impulse response function results for sign restriction identification (set-identified).
+
+# Fields
+- `irf_median::Array{T,3}`: Median IRF across draws (horizon, n_vars, n_shocks)
+- `irf_draws::Array{T,4}`: All drawn IRFs (n_draws, horizon, n_vars, n_shocks)
+- `lower::Vector{Array{T,3}}`: Pointwise lower quantile bands
+- `upper::Vector{Array{T,3}}`: Pointwise upper quantile bands
+- `coverage::Vector{Float64}`: Coverage levels for quantile bands
+- `rotation_matrices::Vector{Matrix{T}}`: All rotation matrices satisfying restrictions
+- `identification::SignRestriction`: Identification scheme used
+- `metadata::NamedTuple`: Additional information (n_draws, etc.)
+"""
+struct SignRestrictedIRFResult{T<:AbstractFloat}
+    irf_median::Array{T,3}
+    irf_draws::Array{T,4}
+    lower::Vector{Array{T,3}}
+    upper::Vector{Array{T,3}}
+    coverage::Vector{Float64}
+    rotation_matrices::Vector{Matrix{T}}
+    identification::SignRestriction
+    metadata::NamedTuple
+end

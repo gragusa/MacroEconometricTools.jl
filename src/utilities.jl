@@ -302,6 +302,20 @@ Number of lags in the model.
 n_lags(model::VARModel) = size(model.coefficients.lags, 3)
 
 """
+    varnames(model)
+
+Variable names in the model.
+"""
+varnames(model::VARModel) = model.names
+
+"""
+    raw_nobs(model)
+
+Total number of observations in data (before lag adjustment).
+"""
+raw_nobs(model::VARModel) = size(model.Y, 1)
+
+"""
     Base.size(model::VARModel)
 
 Return (n_obs, n_lags, n_vars).

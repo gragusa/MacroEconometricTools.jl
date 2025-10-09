@@ -349,3 +349,43 @@ function log_likelihood(model::VARModel{T,OLSVAR}) where T
 
     return ll
 end
+
+"""
+    is_stable(model::VARModel)
+
+Check if VAR model is stable (all eigenvalues of companion matrix inside unit circle).
+
+# Returns
+- `true` if all eigenvalues have modulus < 1, `false` otherwise
+"""
+function is_stable(model::VARModel)
+    eigenvalues = eigvals(model.companion)
+    return all(abs.(eigenvalues) .< 1.0)
+end
+
+"""
+    long_run_effect(model::VARModel{T}) where T
+
+Compute long-run multiplier matrix (I - A₁ - ... - Aₚ)⁻¹.
+
+# Returns
+- Matrix of long-run effects of shocks on variables
+"""
+function long_run_effect(model::VARModel{T}) where T
+    A_sum = dropdims(sum(model.coefficients.lags, dims=3), dims=3)
+    n = n_vars(model)
+    return inv(Matrix{T}(I, n, n) - A_sum)
+end
+
+"""
+    long_run_mean(model::VARModel{T}) where T
+
+Compute long-run mean of the VAR process.
+
+# Returns
+- Vector of long-run means: (I - A₁ - ... - Aₚ)⁻¹ * c
+"""
+function long_run_mean(model::VARModel{T}) where T
+    lr_effect = long_run_effect(model)
+    return lr_effect * model.coefficients.intercept
+end
