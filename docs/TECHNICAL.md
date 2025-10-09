@@ -147,6 +147,46 @@ end
 - `X` includes intercept column and all lags: size `(T, 1 + n_vars * p)`
 - `residuals` has `T - p` rows (loses first p observations)
 
+#### IRF Result Types
+
+The package uses an abstract type hierarchy for impulse response results to support both point-identified and set-identified models:
+
+```julia
+abstract type AbstractIRFResult{T<:AbstractFloat} end
+
+struct IRFResult{T} <: AbstractIRFResult{T}
+    irf::Array{T,3}                    # Point estimate (horizon+1, n_vars, n_shocks)
+    stderr::Array{T,3}                 # Standard errors
+    lower::Vector{Array{T,3}}          # Lower bounds for each coverage level
+    upper::Vector{Array{T,3}}          # Upper bounds for each coverage level
+    coverage::Vector{Float64}          # Coverage levels (e.g., [0.68, 0.90])
+    identification::AbstractIdentification
+    inference::Symbol                  # :bootstrap, :delta, or :none
+    metadata::NamedTuple
+end
+
+struct SignRestrictedIRFResult{T} <: AbstractIRFResult{T}
+    irf_median::Array{T,3}             # Median IRF (horizon+1, n_vars, n_shocks)
+    irf_draws::Array{T,4}              # All draws (n_draws, horizon+1, n_vars, n_shocks)
+    lower::Vector{Array{T,3}}          # Pointwise quantile bands
+    upper::Vector{Array{T,3}}
+    coverage::Vector{Float64}
+    rotation_matrices::Vector{Matrix{T}}  # All valid P matrices
+    identification::SignRestriction
+    metadata::NamedTuple
+end
+```
+
+**Design rationale**:
+- **Separate types**: Point vs set identification have fundamentally different data structures
+- **Abstract supertype**: Enables polymorphic dispatch on accessor methods like `horizon()`, `n_vars()`
+- **Type stability**: Each struct has concrete field types, no `Union{T, Nothing}` fields
+- **Extensibility**: Easy to add new result types (e.g., `BayesianIRFResult`) without modifying existing code
+
+**Key distinction**:
+- `IRFResult`: Single IRF with confidence bands (Cholesky, IV)
+- `SignRestrictedIRFResult`: Multiple IRF draws representing identified set
+
 ---
 
 ## Constraint System Implementation
@@ -515,8 +555,8 @@ function bootstrap_irf(model, identification, horizon, reps; method=:wild)
         # 3. Re-estimate VAR
         model_boot = estimate(typeof(model.spec), Y_boot, n_lags)
 
-        # 4. Re-identify
-        P_boot = identify(model_boot, identification)
+        # 4. Compute rotation matrix
+        P_boot = rotation_matrix(model_boot, identification)
 
         # 5. Compute IRF
         irf_draws[:,:,:,b] = compute_irf_point(model_boot, P_boot, horizon)
@@ -623,11 +663,11 @@ struct MyIdentification <: AbstractIdentification
 end
 ```
 
-2. **Implement identification method**:
+2. **Implement rotation matrix method**:
 
 ```julia
-function identify(model::VARModel, id::MyIdentification)
-    # Return structural matrix P
+function rotation_matrix(model::VARModel, id::MyIdentification)
+    # Return structural impact matrix P such that PP' = Σ
     return P
 end
 ```
