@@ -68,7 +68,7 @@ Parallel map with batching for better load balancing.
 # Returns
 - Vector of results
 """
-function pmap_batched(f, collection; batch_size=nothing)
+function pmap_batched(f, collection; batch_size = nothing)
     dist = Base.require(Main, :Distributed)
     n = length(collection)
     n_w = dist.nworkers()
@@ -79,7 +79,7 @@ function pmap_batched(f, collection; batch_size=nothing)
     end
 
     # Create batches
-    batches = [collection[i:min(i+batch_size-1, n)]
+    batches = [collection[i:min(i + batch_size - 1, n)]
                for i in 1:batch_size:n]
 
     # Process batches in parallel

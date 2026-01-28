@@ -2,11 +2,6 @@
 # Constraint System for VAR Estimation
 # ============================================================================
 
-"""
-    AbstractConstraint
-
-Abstract type for coefficient constraints in VAR models.
-"""
 abstract type AbstractConstraint end
 
 """
@@ -91,7 +86,7 @@ end
 Apply constraints to coefficient matrix `A` in-place.
 
 # Arguments
-- `A::Matrix`: Coefficient matrix (n_vars × (1 + n_vars * n_lags))
+- `A::Matrix`: Coefficient matrix (n_vars  (1 + n_vars * n_lags))
 - `constraints::Vector{<:AbstractConstraint}`: Constraints to apply
 - `varnames::Vector{Symbol}`: Variable names
 - `n_lags::Int`: Number of lags
@@ -100,7 +95,7 @@ Apply constraints to coefficient matrix `A` in-place.
 - Modified `A` matrix with constraints applied
 """
 function apply_constraints!(A::Matrix{T}, constraints::Vector{<:AbstractConstraint},
-                            varnames::Vector{Symbol}, n_lags::Int) where T
+        varnames::Vector{Symbol}, n_lags::Int) where {T}
     n_vars = length(varnames)
 
     for c in constraints
@@ -117,7 +112,7 @@ function apply_constraints!(A::Matrix{T}, constraints::Vector{<:AbstractConstrai
 end
 
 function apply_zero_constraint!(A::Matrix, c::ZeroConstraint, varnames::Vector{Symbol},
-                                n_lags::Int, n_vars::Int)
+        n_lags::Int, n_vars::Int)
     # Find equation (row) index
     row_idx = findfirst(==(c.variable), varnames)
     row_idx === nothing && throw(ArgumentError("Variable $(c.variable) not found"))
@@ -140,7 +135,7 @@ function apply_zero_constraint!(A::Matrix, c::ZeroConstraint, varnames::Vector{S
 end
 
 function apply_fixed_constraint!(A::Matrix, c::FixedConstraint,
-                                 varnames::Vector{Symbol}, n_vars::Int)
+        varnames::Vector{Symbol}, n_vars::Int)
     row_idx = findfirst(==(c.variable), varnames)
     row_idx === nothing && throw(ArgumentError("Variable $(c.variable) not found"))
 
@@ -152,12 +147,12 @@ function apply_fixed_constraint!(A::Matrix, c::FixedConstraint,
 end
 
 function apply_block_exogeneity!(A::Matrix, c::BlockExogeneity, varnames::Vector{Symbol},
-                                  n_lags::Int, n_vars::Int)
+        n_lags::Int, n_vars::Int)
     # Create equivalent zero constraints
     for to_var in c.to
         for lag in 1:n_lags
             apply_zero_constraint!(A, ZeroConstraint(to_var, c.from, [lag]),
-                                  varnames, n_lags, n_vars)
+                varnames, n_lags, n_vars)
         end
     end
 end
@@ -167,14 +162,14 @@ end
 
 Build selection matrix `S` that selects free (unconstrained) parameters.
 
-For restricted estimation: β̂ = S * θ where θ are the free parameters.
+For restricted estimation:  = S *  where  are the free parameters.
 
 # Returns
 - `S::Matrix`: Selection matrix mapping free parameters to full coefficient vector
 - `n_free::Int`: Number of free parameters
 """
 function build_selection_matrix(constraints::Vector{<:AbstractConstraint},
-                                 varnames::Vector{Symbol}, n_lags::Int)
+        varnames::Vector{Symbol}, n_lags::Int)
     n_vars = length(varnames)
     n_coef = n_vars * (1 + n_vars * n_lags)
 
@@ -189,7 +184,7 @@ function build_selection_matrix(constraints::Vector{<:AbstractConstraint},
             for to_var in c.to
                 for lag in 1:n_lags
                     mark_zero_constraint!(is_free, ZeroConstraint(to_var, c.from, [lag]),
-                                        varnames, n_lags, n_vars)
+                        varnames, n_lags, n_vars)
                 end
             end
         end
@@ -209,7 +204,7 @@ function build_selection_matrix(constraints::Vector{<:AbstractConstraint},
 end
 
 function mark_zero_constraint!(is_free::BitVector, c::ZeroConstraint,
-                               varnames::Vector{Symbol}, n_lags::Int, n_vars::Int)
+        varnames::Vector{Symbol}, n_lags::Int, n_vars::Int)
     row_idx = findfirst(==(c.variable), varnames)
     row_idx === nothing && return
 
@@ -223,7 +218,7 @@ function mark_zero_constraint!(is_free::BitVector, c::ZeroConstraint,
             (lag < 1 || lag > n_lags) && continue
             # Linear index in vectorized form
             # vec(A) = [col1; col2; ...; coln]
-            # A is n_vars × (1 + n_vars * n_lags)
+            # A is n_vars  (1 + n_vars * n_lags)
             col_idx = 1 + (lag - 1) * n_vars + reg_idx
             linear_idx = (col_idx - 1) * n_vars + row_idx
             is_free[linear_idx] = false
@@ -240,24 +235,26 @@ Validate that constraints are well-specified.
 - `ArgumentError` if constraints reference non-existent variables or invalid lags
 """
 function check_constraints(constraints::Vector{<:AbstractConstraint},
-                          varnames::Vector{Symbol}, n_lags::Int)
+        varnames::Vector{Symbol}, n_lags::Int)
     for c in constraints
         if c isa ZeroConstraint
-            c.variable ∈ varnames || throw(ArgumentError("Unknown variable: $(c.variable)"))
-            all(r -> r ∈ varnames, c.regressors) ||
+            c.variable in varnames ||
+                throw(ArgumentError("Unknown variable: $(c.variable)"))
+            all(r -> r in varnames, c.regressors) ||
                 throw(ArgumentError("Unknown regressor in ZeroConstraint"))
-            all(l -> 1 ≤ l ≤ n_lags, c.lags) ||
+            all(l -> 1 <= l <= n_lags, c.lags) ||
                 throw(ArgumentError("Invalid lag in ZeroConstraint: $(c.lags)"))
-
         elseif c isa FixedConstraint
-            c.variable ∈ varnames || throw(ArgumentError("Unknown variable: $(c.variable)"))
-            c.regressor ∈ varnames || throw(ArgumentError("Unknown regressor: $(c.regressor)"))
-            1 ≤ c.lag ≤ n_lags || throw(ArgumentError("Invalid lag: $(c.lag)"))
+            c.variable in varnames ||
+                throw(ArgumentError("Unknown variable: $(c.variable)"))
+            c.regressor in varnames ||
+                throw(ArgumentError("Unknown regressor: $(c.regressor)"))
+            1 <= c.lag <= n_lags || throw(ArgumentError("Invalid lag: $(c.lag)"))
 
         elseif c isa BlockExogeneity
-            all(v -> v ∈ varnames, c.from) ||
+            all(v -> v in varnames, c.from) ||
                 throw(ArgumentError("Unknown variable in 'from' list"))
-            all(v -> v ∈ varnames, c.to) ||
+            all(v -> v in varnames, c.to) ||
                 throw(ArgumentError("Unknown variable in 'to' list"))
         end
     end

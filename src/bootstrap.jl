@@ -36,13 +36,12 @@ irf_boot = bootstrap_irf(model, id, 24, 1000; parallel=:distributed)
 ```
 """
 function bootstrap_irf(model::VARModel{T}, identification::AbstractIdentification,
-                      horizon::Int, reps::Int;
-                      method::Symbol=:wild,
-                      block_length::Int=10,
-                      normalization::AbstractNormalization=UnitStd(),
-                      parallel::Symbol=:none,
-                      rng::AbstractRNG=Random.default_rng()) where T
-
+        horizon::Int, reps::Int;
+        method::Symbol = :wild,
+        block_length::Int = 10,
+        normalization::AbstractNormalization = UnitStd(),
+        parallel::Symbol = :none,
+        rng::AbstractRNG = Random.default_rng()) where {T}
     method ∈ [:wild, :standard, :block] ||
         throw(ArgumentError("method must be :wild, :standard, or :block"))
     parallel ∈ [:none, :distributed] ||
@@ -53,12 +52,12 @@ function bootstrap_irf(model::VARModel{T}, identification::AbstractIdentificatio
     # Choose execution method
     if parallel == :distributed
         irf_boot = bootstrap_irf_distributed(model, identification, horizon, reps,
-                                            method, block_length, normalization, rng)
+            method, block_length, normalization, rng)
     else
         # Preallocate bootstrap IRF storage
         irf_boot = zeros(T, reps, horizon + 1, n_vars_val, n_vars_val)
         bootstrap_irf_serial!(irf_boot, model, identification, horizon,
-                             method, block_length, normalization, rng)
+            method, block_length, normalization, rng)
     end
 
     return irf_boot
@@ -69,11 +68,11 @@ end
 
 Serial bootstrap computation.
 """
-function bootstrap_irf_serial!(irf_boot::Array{T,4}, model::VARModel{T},
-                               identification::AbstractIdentification, horizon::Int,
-                               method::Symbol, block_length::Int,
-                               normalization::AbstractNormalization,
-                               rng::AbstractRNG) where T
+function bootstrap_irf_serial!(irf_boot::Array{T, 4}, model::VARModel{T},
+        identification::AbstractIdentification, horizon::Int,
+        method::Symbol, block_length::Int,
+        normalization::AbstractNormalization,
+        rng::AbstractRNG) where {T}
     reps = size(irf_boot, 1)
     residuals = model.residuals
     n_obs_val = size(residuals, 1)
@@ -98,10 +97,11 @@ function bootstrap_irf_serial!(irf_boot::Array{T,4}, model::VARModel{T},
         # Re-estimate VAR on bootstrap data
         try
             constraints_arg = model.coefficients.constraints
-            constraints_arg = constraints_arg === nothing ? AbstractConstraint[] : constraints_arg
+            constraints_arg = constraints_arg === nothing ? AbstractConstraint[] :
+                              constraints_arg
             var_boot = fit(typeof(model.spec), Y_boot, n_lags(model);
-                           constraints=constraints_arg,
-                           names=model.names)
+                constraints = constraints_arg,
+                names = model.names)
 
             # Compute IRF for bootstrap sample
             P_boot = rotation_matrix(var_boot, identification)
@@ -117,7 +117,6 @@ function bootstrap_irf_serial!(irf_boot::Array{T,4}, model::VARModel{T},
     end
 end
 
-
 # ============================================================================
 # Bootstrap Residual Generation
 # ============================================================================
@@ -127,7 +126,7 @@ end
 
 Wild bootstrap: multiply residuals by random ±1.
 """
-function wild_bootstrap_residuals(rng::AbstractRNG, residuals::Matrix{T}) where T
+function wild_bootstrap_residuals(rng::AbstractRNG, residuals::Matrix{T}) where {T}
     n_obs, n_vars = size(residuals)
     u_boot = similar(residuals)
 
@@ -146,7 +145,7 @@ end
 
 Standard bootstrap: resample residuals with replacement.
 """
-function standard_bootstrap_residuals(rng::AbstractRNG, residuals::Matrix{T}) where T
+function standard_bootstrap_residuals(rng::AbstractRNG, residuals::Matrix{T}) where {T}
     n_obs = size(residuals, 1)
     indices = rand(rng, 1:n_obs, n_obs)
     return residuals[indices, :]
@@ -157,7 +156,7 @@ end
 
 Moving block bootstrap for time series.
 """
-function block_bootstrap_residuals(rng::AbstractRNG, residuals::Matrix{T}, block_length::Int) where T
+function block_bootstrap_residuals(rng::AbstractRNG, residuals::Matrix{T}, block_length::Int) where {T}
     n_obs, n_vars = size(residuals)
     u_boot = similar(residuals)
 
@@ -198,24 +197,25 @@ end
 
 Compute percentile bootstrap confidence bands.
 """
-function compute_bands_bootstrap(irf_point::Array{T,3}, irf_boot::Array{T,4},
-                                coverage::Vector{Float64}) where T
+function compute_bands_bootstrap(irf_point::Array{T, 3}, irf_boot::Array{T, 4},
+        coverage::Vector{Float64}) where {T}
     reps = size(irf_boot, 1)
 
-    lower = Vector{Array{T,3}}(undef, length(coverage))
-    upper = Vector{Array{T,3}}(undef, length(coverage))
+    lower = Vector{Array{T, 3}}(undef, length(coverage))
+    upper = Vector{Array{T, 3}}(undef, length(coverage))
 
     # Compute centered bootstrap draws: irf_boot - mean(irf_boot) + irf_point
-    irf_boot_mean = mean(irf_boot; dims=1)[1, :, :, :]
-    irf_boot_centered = irf_boot .- reshape(irf_boot_mean, (1, size(irf_boot_mean)...)) .+ reshape(irf_point, (1, size(irf_point)...))
+    irf_boot_mean = mean(irf_boot; dims = 1)[1, :, :, :]
+    irf_boot_centered = irf_boot .- reshape(irf_boot_mean, (1, size(irf_boot_mean)...)) .+
+                        reshape(irf_point, (1, size(irf_point)...))
 
     for (i, α) in enumerate(coverage)
         # Percentile method
         α_lower = (1 - α) / 2
         α_upper = 1 - α_lower
 
-        lower[i] = mapslices(x -> quantile(x, α_lower), irf_boot_centered; dims=1)[1, :, :, :]
-        upper[i] = mapslices(x -> quantile(x, α_upper), irf_boot_centered; dims=1)[1, :, :, :]
+        lower[i] = mapslices(x -> quantile(x, α_lower), irf_boot_centered; dims = 1)[1, :, :, :]
+        upper[i] = mapslices(x -> quantile(x, α_upper), irf_boot_centered; dims = 1)[1, :, :, :]
     end
 
     return lower, upper
@@ -226,16 +226,16 @@ end
 
 Compute simple percentile confidence bands (non-centered).
 """
-function compute_bands_percentile(irf_boot::Array{T,4}, coverage::Vector{Float64}) where T
-    lower = Vector{Array{T,3}}(undef, length(coverage))
-    upper = Vector{Array{T,3}}(undef, length(coverage))
+function compute_bands_percentile(irf_boot::Array{T, 4}, coverage::Vector{Float64}) where {T}
+    lower = Vector{Array{T, 3}}(undef, length(coverage))
+    upper = Vector{Array{T, 3}}(undef, length(coverage))
 
     for (i, α) in enumerate(coverage)
         α_lower = (1 - α) / 2
         α_upper = 1 - α_lower
 
-        lower[i] = mapslices(x -> quantile(x, α_lower), irf_boot; dims=1)[1, :, :, :]
-        upper[i] = mapslices(x -> quantile(x, α_upper), irf_boot; dims=1)[1, :, :, :]
+        lower[i] = mapslices(x -> quantile(x, α_lower), irf_boot; dims = 1)[1, :, :, :]
+        upper[i] = mapslices(x -> quantile(x, α_upper), irf_boot; dims = 1)[1, :, :, :]
     end
 
     return lower, upper
@@ -253,10 +253,10 @@ Compute bootstrap diagnostics (bias, variance, etc.).
 # Returns
 - NamedTuple with diagnostic statistics
 """
-function bootstrap_diagnostics(irf_boot::Array{T,4}) where T
-    boot_mean = mean(irf_boot; dims=1)[1, :, :, :]
-    boot_std = std(irf_boot; dims=1)[1, :, :, :]
-    boot_median = mapslices(median, irf_boot; dims=1)[1, :, :, :]
+function bootstrap_diagnostics(irf_boot::Array{T, 4}) where {T}
+    boot_mean = mean(irf_boot; dims = 1)[1, :, :, :]
+    boot_std = std(irf_boot; dims = 1)[1, :, :, :]
+    boot_median = mapslices(median, irf_boot; dims = 1)[1, :, :, :]
 
     return (
         mean = boot_mean,
@@ -285,18 +285,19 @@ addprocs(4)
 @everywhere using MacroEconometricTools
 ```
 """
-function bootstrap_irf_distributed(model::VARModel{T}, identification::AbstractIdentification,
-                                   horizon::Int, reps::Int,
-                                   method::Symbol, block_length::Int,
-                                   normalization::AbstractNormalization,
-                                   rng::AbstractRNG) where T
+function bootstrap_irf_distributed(
+        model::VARModel{T}, identification::AbstractIdentification,
+        horizon::Int, reps::Int,
+        method::Symbol, block_length::Int,
+        normalization::AbstractNormalization,
+        rng::AbstractRNG) where {T}
 
     # Check if Distributed is available
     if !isdefined(Main, :Distributed)
         @warn "Distributed package not loaded. Falling back to serial execution."
         irf_boot = zeros(T, reps, horizon + 1, n_vars(model), n_vars(model))
         bootstrap_irf_serial!(irf_boot, model, identification, horizon,
-                             method, block_length, normalization, rng)
+            method, block_length, normalization, rng)
         return irf_boot
     end
 
@@ -306,13 +307,13 @@ function bootstrap_irf_distributed(model::VARModel{T}, identification::AbstractI
         @warn "No worker processes available. Use addprocs() to add workers. Falling back to serial."
         irf_boot = zeros(T, reps, horizon + 1, n_vars(model), n_vars(model))
         bootstrap_irf_serial!(irf_boot, model, identification, horizon,
-                             method, block_length, normalization, rng)
+            method, block_length, normalization, rng)
         return irf_boot
     end
 
     # Batch bootstrap iterations to minimize pmap overhead
     # Each worker processes a batch of replications
-    function batched_bootstrap_rep(batch_info::Tuple{UnitRange{Int},UInt64})
+    function batched_bootstrap_rep(batch_info::Tuple{UnitRange{Int}, UInt64})
         batch_range, base_seed = batch_info
         n_batch = length(batch_range)
         n_vars_val = n_vars(model)
@@ -325,7 +326,8 @@ function bootstrap_irf_distributed(model::VARModel{T}, identification::AbstractI
         residuals = model.residuals
         Y_original = model.Y[1:n_lags_val, :]
         constraints_arg = model.coefficients.constraints
-        constraints_arg = constraints_arg === nothing ? AbstractConstraint[] : constraints_arg
+        constraints_arg = constraints_arg === nothing ? AbstractConstraint[] :
+                          constraints_arg
 
         # Process each replication in the batch
         for (batch_idx, rep_idx) in enumerate(batch_range)
@@ -349,8 +351,8 @@ function bootstrap_irf_distributed(model::VARModel{T}, identification::AbstractI
             # Re-estimate
             try
                 var_boot = fit(typeof(model.spec), Y_boot, n_lags_val;
-                               constraints=constraints_arg,
-                               names=model.names)
+                    constraints = constraints_arg,
+                    names = model.names)
 
                 # Re-identify and compute IRF
                 P_boot = rotation_matrix(var_boot, identification)
@@ -375,7 +377,7 @@ function bootstrap_irf_distributed(model::VARModel{T}, identification::AbstractI
     base_seed = rand(rng, UInt64)
 
     # Create batch ranges
-    batches = Tuple{UnitRange{Int},UInt64}[]
+    batches = Tuple{UnitRange{Int}, UInt64}[]
     for start_idx in 1:batch_size:reps
         end_idx = min(start_idx + batch_size - 1, reps)
         push!(batches, (start_idx:end_idx, base_seed))
@@ -431,13 +433,12 @@ The wild bootstrap is robust to conditional heteroskedasticity and preserves
 the cross-equation correlation structure in the residuals.
 """
 function bootstrap_irf_wild(
-    model::VARModel{T},
-    identification::AbstractIdentification,
-    horizon::Int,
-    reps::Int,
-    rng::AbstractRNG
-) where T
-
+        model::VARModel{T},
+        identification::AbstractIdentification,
+        horizon::Int,
+        reps::Int,
+        rng::AbstractRNG
+) where {T}
     m = n_vars(model)
     n_lags_val = n_lags(model)
 
@@ -463,10 +464,11 @@ function bootstrap_irf_wild(
         # Re-estimate VAR on bootstrap data
         try
             constraints_arg = model.coefficients.constraints
-            constraints_arg = isnothing(constraints_arg) ? AbstractConstraint[] : constraints_arg
+            constraints_arg = isnothing(constraints_arg) ? AbstractConstraint[] :
+                              constraints_arg
             var_boot = fit(typeof(model.spec), Y_boot, n_lags_val;
-                          constraints=constraints_arg,
-                          names=model.names)
+                constraints = constraints_arg,
+                names = model.names)
 
             # Compute bootstrap IRF
             P_boot = rotation_matrix(var_boot, identification)
@@ -475,7 +477,7 @@ function bootstrap_irf_wild(
         catch e
             # If estimation fails, fill with NaN
             @warn "Wild bootstrap replication $r failed: $e"
-            fill!(view(irf_boot, r, :, :, :), NaN)
+            fill!(view(irf_boot,r,:,:,:), NaN)
         end
     end
 
@@ -508,13 +510,12 @@ For time series with temporal dependence or heteroskedasticity, wild bootstrap o
 block bootstrap may be more appropriate. The standard bootstrap assumes i.i.d. errors.
 """
 function bootstrap_irf_standard(
-    model::VARModel{T},
-    identification::AbstractIdentification,
-    horizon::Int,
-    reps::Int,
-    rng::AbstractRNG
-) where T
-
+        model::VARModel{T},
+        identification::AbstractIdentification,
+        horizon::Int,
+        reps::Int,
+        rng::AbstractRNG
+) where {T}
     m = n_vars(model)
     n_lags_val = n_lags(model)
     n_obs = size(model.residuals, 1)
@@ -536,17 +537,18 @@ function bootstrap_irf_standard(
         # Re-estimate and compute IRF
         try
             constraints_arg = model.coefficients.constraints
-            constraints_arg = isnothing(constraints_arg) ? AbstractConstraint[] : constraints_arg
+            constraints_arg = isnothing(constraints_arg) ? AbstractConstraint[] :
+                              constraints_arg
             var_boot = fit(typeof(model.spec), Y_boot, n_lags_val;
-                          constraints=constraints_arg,
-                          names=model.names)
+                constraints = constraints_arg,
+                names = model.names)
 
             P_boot = rotation_matrix(var_boot, identification)
             P_boot = normalize(P_boot, UnitStd())
             irf_boot[r, :, :, :] = compute_irf_point(var_boot, P_boot, horizon)
         catch e
             @warn "Standard bootstrap replication $r failed: $e"
-            fill!(view(irf_boot, r, :, :, :), NaN)
+            fill!(view(irf_boot,r,:,:,:), NaN)
         end
     end
 
@@ -611,14 +613,13 @@ irf_boot = bootstrap_irf_block(model, id, 24, 1000, 20, rng)
 ```
 """
 function bootstrap_irf_block(
-    model::VARModel{T},
-    identification::AbstractIdentification,
-    horizon::Int,
-    reps::Int,
-    block_length::Int,
-    rng::AbstractRNG
-) where T
-
+        model::VARModel{T},
+        identification::AbstractIdentification,
+        horizon::Int,
+        reps::Int,
+        block_length::Int,
+        rng::AbstractRNG
+) where {T}
     m = n_vars(model)
     n_lags_val = n_lags(model)
     n_obs = size(model.residuals, 1)  # T
@@ -662,7 +663,7 @@ function bootstrap_irf_block(
             positions_in_original = s:ℓ:(n_obs - ℓ + s)
 
             # Compute mean at this position from original residuals
-            mean_at_s = vec(mean(u[positions_in_original, :]; dims=1))
+            mean_at_s = vec(mean(u[positions_in_original, :]; dims = 1))
 
             # Subtract from all occurrences of this position in bootstrap sample
             for j in 0:(N - 1)
@@ -679,17 +680,18 @@ function bootstrap_irf_block(
         # Step 5: Re-estimate and compute IRF
         try
             constraints_arg = model.coefficients.constraints
-            constraints_arg = isnothing(constraints_arg) ? AbstractConstraint[] : constraints_arg
+            constraints_arg = isnothing(constraints_arg) ? AbstractConstraint[] :
+                              constraints_arg
             var_boot = fit(typeof(model.spec), Y_boot, n_lags_val;
-                          constraints=constraints_arg,
-                          names=model.names)
+                constraints = constraints_arg,
+                names = model.names)
 
             P_boot = rotation_matrix(var_boot, identification)
             P_boot = normalize(P_boot, UnitStd())
             irf_boot[r, :, :, :] = compute_irf_point(var_boot, P_boot, horizon)
         catch e
             @warn "Block bootstrap replication $r failed: $e"
-            fill!(view(irf_boot, r, :, :, :), NaN)
+            fill!(view(irf_boot,r,:,:,:), NaN)
         end
     end
 

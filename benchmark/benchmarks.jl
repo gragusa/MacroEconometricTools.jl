@@ -21,7 +21,7 @@ const SIGN_MAX_DRAWS = parse(Int, get(ENV, "MET_BENCH_SIGN_DRAWS", "10000"))
 Reproduce the canonical Kilian-Kim dataset transformations used in tests.
 """
 function load_sample_matrix()
-    df = DataFrame(CSV.File(DATA_PATH; header=false))
+    df = DataFrame(CSV.File(DATA_PATH; header = false))
     rename!(df, [:CFNAI, :CPI, :PCOM, :FF])
 
     dy = df.CFNAI[2:end]
@@ -43,7 +43,7 @@ const SAMPLE_MATRIX = load_sample_matrix()
 Estimate a 5-lag OLS VAR on the transformed sample.
 """
 function build_reference_model()
-    return fit(OLSVAR, SAMPLE_MATRIX, 5; names=VAR_COLUMN_NAMES)
+    return fit(OLSVAR, SAMPLE_MATRIX, 5; names = VAR_COLUMN_NAMES)
 end
 
 const REFERENCE_MODEL = build_reference_model()
@@ -92,61 +92,53 @@ const DISTRIBUTED_READY = _init_distributed()
 const SUITE = BenchmarkGroup()
 
 SUITE["estimation"] = BenchmarkGroup()
-SUITE["estimation"]["ols_var_5lags"] =
-    @benchmarkable fit(OLSVAR, $SAMPLE_MATRIX, 5; names=$VAR_COLUMN_NAMES)
+SUITE["estimation"]["ols_var_5lags"] = @benchmarkable fit(OLSVAR, $SAMPLE_MATRIX, 5; names = $VAR_COLUMN_NAMES)
 
 SUITE["irf"] = BenchmarkGroup()
-SUITE["irf"]["point_response"] =
-    @benchmarkable irf($REFERENCE_MODEL, $CHOLESKY_ID; horizon=$BOOTSTRAP_HORIZON, inference=:none)
+SUITE["irf"]["point_response"] = @benchmarkable irf(
+    $REFERENCE_MODEL, $CHOLESKY_ID; horizon = $BOOTSTRAP_HORIZON, inference = :none)
 
-SUITE["irf"]["bootstrap_response"] =
-    @benchmarkable begin
-        irf($REFERENCE_MODEL, $CHOLESKY_ID;
-            horizon=$BOOTSTRAP_HORIZON,
-            inference=:bootstrap,
-            bootstrap_reps=$IRF_BOOTSTRAP_REPS,
-            bootstrap_method=:wild,
-            rng=StableRNG($DEFAULT_SEED))
-    end
+SUITE["irf"]["bootstrap_response"] = @benchmarkable begin
+    irf($REFERENCE_MODEL, $CHOLESKY_ID;
+        horizon = $BOOTSTRAP_HORIZON,
+        inference = :bootstrap,
+        bootstrap_reps = $IRF_BOOTSTRAP_REPS,
+        bootstrap_method = :wild,
+        rng = StableRNG($DEFAULT_SEED))
+end
 
 SUITE["bootstrap"] = BenchmarkGroup()
-SUITE["bootstrap"]["serial_wild"] =
-    @benchmarkable begin
-        bootstrap_irf($REFERENCE_MODEL, $CHOLESKY_ID,
-                      $BOOTSTRAP_HORIZON, $BOOTSTRAP_REPS;
-                      method=:wild, parallel=:none,
-                      rng=StableRNG($DEFAULT_SEED))
-    end
+SUITE["bootstrap"]["serial_wild"] = @benchmarkable begin
+    bootstrap_irf($REFERENCE_MODEL, $CHOLESKY_ID,
+        $BOOTSTRAP_HORIZON, $BOOTSTRAP_REPS;
+        method = :wild, parallel = :none,
+        rng = StableRNG($DEFAULT_SEED))
+end
 
 if DISTRIBUTED_READY
-    SUITE["bootstrap"]["distributed_wild"] =
-        @benchmarkable begin
-            bootstrap_irf($REFERENCE_MODEL, $CHOLESKY_ID,
-                          $BOOTSTRAP_HORIZON, $BOOTSTRAP_REPS;
-                          method=:wild, parallel=:distributed,
-                          rng=StableRNG($DEFAULT_SEED))
-        end
+    SUITE["bootstrap"]["distributed_wild"] = @benchmarkable begin
+        bootstrap_irf($REFERENCE_MODEL, $CHOLESKY_ID,
+            $BOOTSTRAP_HORIZON, $BOOTSTRAP_REPS;
+            method = :wild, parallel = :distributed,
+            rng = StableRNG($DEFAULT_SEED))
+    end
 end
 
 SUITE["sign_restrictions"] = BenchmarkGroup()
-SUITE["sign_restrictions"]["serial"] =
-    @benchmarkable begin
-        MacroEconometricTools.identify_sign($REFERENCE_MODEL, $SIGN_RESTRICTION;
-                      max_draws=$SIGN_MAX_DRAWS,
-                      parallel=:none,
-                      verbose=false,
-                      rng=StableRNG($DEFAULT_SEED))
-    end
-
-if DISTRIBUTED_READY
-    SUITE["sign_restrictions"]["distributed"] =
-        @benchmarkable begin
-            MacroEconometricTools.identify_sign($REFERENCE_MODEL, $SIGN_RESTRICTION;
-                          max_draws=$SIGN_MAX_DRAWS,
-                          parallel=:distributed,
-                          verbose=false,
-                          rng=StableRNG($DEFAULT_SEED))
-        end
+SUITE["sign_restrictions"]["serial"] = @benchmarkable begin
+    MacroEconometricTools.identify_sign($REFERENCE_MODEL, $SIGN_RESTRICTION;
+        max_draws = $SIGN_MAX_DRAWS,
+        parallel = :none,
+        verbose = false,
+        rng = StableRNG($DEFAULT_SEED))
 end
 
-
+if DISTRIBUTED_READY
+    SUITE["sign_restrictions"]["distributed"] = @benchmarkable begin
+        MacroEconometricTools.identify_sign($REFERENCE_MODEL, $SIGN_RESTRICTION;
+            max_draws = $SIGN_MAX_DRAWS,
+            parallel = :distributed,
+            verbose = false,
+            rng = StableRNG($DEFAULT_SEED))
+    end
+end

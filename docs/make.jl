@@ -7,10 +7,7 @@ makedocs(
     format = Documenter.HTML(; prettyurls = get(ENV, "CI", nothing) == "true"),
     authors = "Giuseppe Ragusa",
     sitename = "IRFs.jl",
-    pages = Any["index.md"]
-    # strict = true,
-    # clean = true,
-    # checkdocs = :exports,
+    pages = Any["index.md"]    # strict = true,    # clean = true,    # checkdocs = :exports,
 )
 
 # Some setup is needed for documentation deployment, see “Hosting Documentation” and

@@ -18,11 +18,11 @@ const IRFResult = MacroEconometricTools.IRFResult
     # Generate AR(2) data with stronger signal
     Y = randn(T, n_v)
     for t in 3:T
-        Y[t, :] = 0.6 * Y[t-1, :] + 0.3 * Y[t-2, :] + 0.1 * randn(n_v)
+        Y[t, :] = 0.6 * Y[t - 1, :] + 0.3 * Y[t - 2, :] + 0.1 * randn(n_v)
     end
 
     # Estimate VAR
-    var = fit(OLSVAR, Y, n_l; names=[:Y1, :Y2, :Y3])
+    var = fit(OLSVAR, Y, n_l; names = [:Y1, :Y2, :Y3])
 
     @testset "Matrix Utilities" begin
         # Test duplication matrix
@@ -63,7 +63,7 @@ const IRFResult = MacroEconometricTools.IRFResult
         horizon = 12
         id = CholeskyID()
 
-        irf_delta = irf(var, id; horizon=horizon, inference=Analytic())
+        irf_delta = irf(var, id; horizon = horizon, inference = Analytic())
 
         # Check structure
         @test irf_delta isa IRFResult
@@ -87,7 +87,7 @@ const IRFResult = MacroEconometricTools.IRFResult
 
         # Standard errors should generally increase with horizon
         # (This is a statistical property, not guaranteed, so we just check trend)
-        avg_stderr_by_horizon = [mean(irf_delta.stderr[h, :, :]) for h in 1:(horizon+1)]
+        avg_stderr_by_horizon = [mean(irf_delta.stderr[h, :, :]) for h in 1:(horizon + 1)]
         # At least monotonically non-decreasing for first few horizons
         @test all(diff(avg_stderr_by_horizon[1:5]) .>= -1e-10)
     end
@@ -97,9 +97,9 @@ const IRFResult = MacroEconometricTools.IRFResult
         horizon = 8
         id = CholeskyID()
 
-        irf_delta = irf(var, id; horizon=horizon, inference=Analytic())
-        irf_boot = irf(var, id; horizon=horizon, inference=WildBootstrap(100),
-                      rng=StableRNG(789))
+        irf_delta = irf(var, id; horizon = horizon, inference = Analytic())
+        irf_boot = irf(var, id; horizon = horizon, inference = WildBootstrap(100),
+            rng = StableRNG(789))
 
         # Both should give similar point estimates (same identification)
         @test irf_delta.irf ≈ irf_boot.irf rtol=1e-10
@@ -144,7 +144,7 @@ const IRFResult = MacroEconometricTools.IRFResult
         @test all(isfinite.(V))
 
         # Each slice should be symmetric (with tolerance)
-        for h in 1:(horizon+1)
+        for h in 1:(horizon + 1)
             V_h = V[h, :, :]
             @test maximum(abs.(V_h - V_h')) < 1e-8
         end

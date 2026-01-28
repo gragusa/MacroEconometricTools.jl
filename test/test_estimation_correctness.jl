@@ -17,17 +17,17 @@ using DataFrames
 # Load test data
 function load_kilian_data()
     path_d = @__DIR__
-    data = DataFrame(CSV.File(joinpath(path_d, "kilian_kim_original_dataset.csv"), header=false))
+    data = DataFrame(CSV.File(joinpath(path_d, "kilian_kim_original_dataset.csv"), header = false))
     rename!(data, [:CFNAI, :CPI, :PCOM, :FF])
     DY = data[!, :CFNAI][2:end] # CFNAI
-    DP = (log.(data[!, :CPI][2:end]) - log.(data[!, :CPI][1:end-1])) * 100  # D(log(CPI))
-    DPCOM = ((log.(data[!, :PCOM][2:end]) - log.(data[!, :CPI][2:end])) - (log.(data[!, :PCOM][1:end-1]) - log.(data[!, :CPI][1:end-1]))) * 100 # D(log(real PCOM)): CRB
+    DP = (log.(data[!, :CPI][2:end]) - log.(data[!, :CPI][1:(end - 1)])) * 100  # D(log(CPI))
+    DPCOM = ((log.(data[!, :PCOM][2:end]) - log.(data[!, :CPI][2:end])) -
+             (log.(data[!, :PCOM][1:(end - 1)]) - log.(data[!, :CPI][1:(end - 1)]))) * 100 # D(log(real PCOM)): CRB
     FF = data[!, :FF][2:end]  # FedFound
     return [DY DP DPCOM FF]
 end
 
 @testset "VAR Estimation Correctness" begin
-
     Y = load_kilian_data()
 
     @testset "Basic Model Properties" begin
@@ -117,7 +117,7 @@ end
 
         # Verify computation: (I - A₁ - A₂)⁻¹
         A = coef(var2).lags
-        A_sum = dropdims(sum(A, dims=3), dims=3)
+        A_sum = dropdims(sum(A, dims = 3), dims = 3)
         lr_manual = inv(I - A_sum)
         @test lr_manual ≈ lr_ref
 
@@ -190,7 +190,7 @@ end
         @test P * P' ≈ Matrix(vcov(var2)) rtol=1e-10
 
         # Compute IRFs (use keyword argument)
-        irf_result = irf(var2, id; horizon=2)
+        irf_result = irf(var2, id; horizon = 2)
 
         # Reference IRF horizon 1
         i1_ref = [0.3020874 0.01075371 0.04778229 -0.03584247;

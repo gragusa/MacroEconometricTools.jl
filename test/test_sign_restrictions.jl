@@ -27,7 +27,7 @@ using Distributed
     # Generate AR(2) data
     Y = randn(T, n_v)
     for t in 3:T
-        Y[t, :] = 0.5 * Y[t-1, :] + 0.3 * Y[t-2, :] + 0.1 * randn(n_v)
+        Y[t, :] = 0.5 * Y[t - 1, :] + 0.3 * Y[t - 2, :] + 0.1 * randn(n_v)
     end
 
     # Estimate VAR
@@ -41,14 +41,17 @@ using Distributed
         id = SignRestriction(restrictions, 0)
 
         # Test 1: Same seed → same results (use rotation_matrix directly for kwargs)
-        P1 = rotation_matrix(var, id; max_draws=1000, parallel=:none, rng=StableRNG(42))
-        P2 = rotation_matrix(var, id; max_draws=1000, parallel=:none, rng=StableRNG(42))
+        P1 = rotation_matrix(
+            var, id; max_draws = 1000, parallel = :none, rng = StableRNG(42))
+        P2 = rotation_matrix(
+            var, id; max_draws = 1000, parallel = :none, rng = StableRNG(42))
 
         @test P1 ≈ P2
         @test size(P1) == (n_v, n_v)
 
         # Test 2: Different seeds → different results (set identification)
-        P3 = rotation_matrix(var, id; max_draws=1000, parallel=:none, rng=StableRNG(123))
+        P3 = rotation_matrix(
+            var, id; max_draws = 1000, parallel = :none, rng = StableRNG(123))
         @test !(P1 ≈ P3)
 
         # Test 3: Verify restrictions are satisfied
@@ -72,8 +75,10 @@ using Distributed
             id = SignRestriction(restrictions, 0)
 
             # Test 1: Same seed → same results (distributed)
-            P1_dist = rotation_matrix(var, id; max_draws=1000, parallel=:distributed, rng=StableRNG(42))
-            P2_dist = rotation_matrix(var, id; max_draws=1000, parallel=:distributed, rng=StableRNG(42))
+            P1_dist = rotation_matrix(
+                var, id; max_draws = 1000, parallel = :distributed, rng = StableRNG(42))
+            P2_dist = rotation_matrix(
+                var, id; max_draws = 1000, parallel = :distributed, rng = StableRNG(42))
 
             @test P1_dist ≈ P2_dist
             @test size(P1_dist) == (n_v, n_v)
@@ -97,7 +102,8 @@ using Distributed
         id = SignRestriction(restrictions, 0)
 
         # Find rotation satisfying restrictions
-        P = rotation_matrix(var, id; max_draws=5000, parallel=:none, rng=StableRNG(999))
+        P = rotation_matrix(
+            var, id; max_draws = 5000, parallel = :none, rng = StableRNG(999))
 
         # Verify all restrictions
         @test P[1, 1] > 0
@@ -120,7 +126,8 @@ using Distributed
         id = SignRestriction(restrictions, 2)
 
         # Find rotation satisfying restrictions on IRFs
-        P = rotation_matrix(var, id; max_draws=5000, parallel=:none, rng=StableRNG(777))
+        P = rotation_matrix(
+            var, id; max_draws = 5000, parallel = :none, rng = StableRNG(777))
 
         # Verify P*P' ≈ Σ
         Σ = Matrix(vcov(var))
@@ -141,7 +148,8 @@ using Distributed
         n_draws = 50  # Small number for testing
 
         # Test with sign restriction-specific method (returns SignRestrictedIRFResult)
-        irf_result = irf(var, id; horizon=horizon, n_draws=n_draws, rng=StableRNG(333))
+        irf_result = irf(
+            var, id; horizon = horizon, n_draws = n_draws, rng = StableRNG(333))
 
         @test irf_result isa SignRestrictedIRFResult
         @test size(irf_result.irf_median) == (horizon+1, n_v, n_v)
@@ -150,7 +158,8 @@ using Distributed
         @test all(irf_result.irf_draws[:, 1, 1, 1] .> 0)  # All draws should satisfy restriction
 
         # Test reproducibility
-        irf_result2 = irf(var, id; horizon=horizon, n_draws=n_draws, rng=StableRNG(333))
+        irf_result2 = irf(
+            var, id; horizon = horizon, n_draws = n_draws, rng = StableRNG(333))
         @test irf_result.irf_median ≈ irf_result2.irf_median
         @test irf_result.irf_draws ≈ irf_result2.irf_draws
     end

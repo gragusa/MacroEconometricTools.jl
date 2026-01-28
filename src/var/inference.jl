@@ -9,7 +9,7 @@ Compute standard errors for VAR coefficients.
 
 Returns standard errors in same shape as coefficients.
 """
-function StatsBase.stderror(model::VARModel{T,OLSVAR}) where T
+function StatsBase.stderror(model::VARModel{T, OLSVAR}) where {T}
     n_obs_val = effective_obs(model)
     n_vars_val = n_vars(model)
     n_lags_val = n_lags(model)
@@ -44,7 +44,7 @@ Compute confidence intervals for VAR coefficients.
 # Returns
 - NamedTuple with `lower` and `upper` matrices
 """
-function StatsBase.confint(model::VARModel{T,OLSVAR}; level::Float64=0.95) where T
+function StatsBase.confint(model::VARModel{T, OLSVAR}; level::Float64 = 0.95) where {T}
     coef_est = coef(model)
     stderr_est = stderror(model)
 
@@ -61,7 +61,7 @@ function StatsBase.confint(model::VARModel{T,OLSVAR}; level::Float64=0.95) where
     lower = A .- z .* stderr_est
     upper = A .+ z .* stderr_est
 
-    return (lower=lower, upper=upper)
+    return (lower = lower, upper = upper)
 end
 
 # ============================================================================
@@ -81,7 +81,7 @@ where B are the lag coefficients (excluding intercept) and Σ_ε is the residual
 # Returns
 - Covariance matrix of size (n_vars * n_lags * n_vars, n_vars * n_lags * n_vars)
 """
-function coefficient_covariance(model::VARModel{T,OLSVAR}) where T
+function coefficient_covariance(model::VARModel{T, OLSVAR}) where {T}
     n_vars_val = n_vars(model)
     n_lags_val = n_lags(model)
     Σ = vcov(model)
@@ -114,7 +114,7 @@ where D is the duplication matrix and D⁺ is its Moore-Penrose pseudoinverse.
 # Returns
 - Covariance matrix of vech(Σ) elements
 """
-function sigma_covariance(model::VARModel{T,OLSVAR}) where T
+function sigma_covariance(model::VARModel{T, OLSVAR}) where {T}
     n_obs_val = effective_obs(model)
     n_vars_val = n_vars(model)
     Σ = Matrix(vcov(model))
@@ -150,14 +150,14 @@ This is used in the delta method for computing IRF standard errors.
 # Returns
 - Vector of G matrices, one for each horizon 1:horizon
 """
-function irf_jacobian_matrices(model::VARModel{T,OLSVAR}, irf_point::Array{T,3},
-                              horizon::Int) where T
+function irf_jacobian_matrices(model::VARModel{T, OLSVAR}, irf_point::Array{T, 3},
+        horizon::Int) where {T}
     n_vars_val = n_vars(model)
     n_lags_val = n_lags(model)
     F = model.companion
 
     # Memoize F^h computations
-    F_powers = Dict{Int,Matrix{T}}()
+    F_powers = Dict{Int, Matrix{T}}()
     for h in 0:horizon
         F_powers[h] = (F')^h
     end
@@ -175,7 +175,7 @@ function irf_jacobian_matrices(model::VARModel{T,OLSVAR}, irf_point::Array{T,3},
             A_power = F_powers[h - 1 - j]
 
             # Φ_j = F^j[1:n_vars, 1:n_vars]
-            Φ_j = (F^j)[1:n_vars_val, 1:n_vars_val]
+            Φ_j = (F ^ j)[1:n_vars_val, 1:n_vars_val]
 
             # G_h += J * F^(h-1-j) ⊗ Φ_j
             G .+= kron(J * A_power, Φ_j)
@@ -204,8 +204,8 @@ Based on Lütkepohl (2005), Section 3.7.
 # Returns
 - Covariance array of size (horizon+1, n_vars^2, n_vars^2)
 """
-function irf_effect_covariance(model::VARModel{T,OLSVAR}, P::Matrix{T},
-                               irf_point::Array{T,3}) where T
+function irf_effect_covariance(model::VARModel{T, OLSVAR}, P::Matrix{T},
+        irf_point::Array{T, 3}) where {T}
     horizon = size(irf_point, 1) - 1
     n_vars_val = n_vars(model)
     n_lags_val = n_lags(model)
@@ -269,8 +269,8 @@ Extracts the square root of diagonal elements of the covariance matrix.
 # Returns
 - Standard error array of size (horizon+1, n_vars, n_vars)
 """
-function irf_asymptotic_stderror(model::VARModel{T,OLSVAR}, P::Matrix{T},
-                               irf_point::Array{T,3}) where T
+function irf_asymptotic_stderror(model::VARModel{T, OLSVAR}, P::Matrix{T},
+        irf_point::Array{T, 3}) where {T}
     n_vars_val = n_vars(model)
 
     # Compute covariance

@@ -19,7 +19,7 @@ Simulate VAR process given innovations and initial conditions.
 - Simulated data matrix (T × n_vars)
 """
 function simulate_var(model::VARModel{T}, innovations::AbstractMatrix{T},
-                     Y_init::AbstractMatrix{T}; burn_in::Int=0) where T
+        Y_init::AbstractMatrix{T}; burn_in::Int = 0) where {T}
     n_lags_val = n_lags(model)
     n_vars_val = n_vars(model)
     n_periods = size(innovations, 1)
@@ -39,7 +39,7 @@ function simulate_var(model::VARModel{T}, innovations::AbstractMatrix{T},
     Y_sim = zeros(T, n_total, n_vars_val)
 
     # Set initial conditions
-    Y_sim[1:n_lags_val, :] = Y_init[end-n_lags_val+1:end, :]
+    Y_sim[1:n_lags_val, :] = Y_init[(end - n_lags_val + 1):end, :]
 
     # Get coefficients
     intercept = model.coefficients.intercept
@@ -93,11 +93,10 @@ Forecast h periods ahead from VAR model.
 - If `include_draws=true`: NamedTuple with `forecast`, `draws`, and `bands`
 """
 function forecast(model::VARModel{T}, h::Int;
-                 Y_init::Union{Nothing,AbstractMatrix{T}}=nothing,
-                 include_draws::Bool=false,
-                 n_draws::Int=1000,
-                 coverage::Vector{Float64}=[0.68, 0.90, 0.95]) where T
-
+        Y_init::Union{Nothing, AbstractMatrix{T}} = nothing,
+        include_draws::Bool = false,
+        n_draws::Int = 1000,
+        coverage::Vector{Float64} = [0.68, 0.90, 0.95]) where {T}
     h > 0 || throw(ArgumentError("forecast horizon h must be positive"))
 
     n_lags_val = n_lags(model)
@@ -105,7 +104,7 @@ function forecast(model::VARModel{T}, h::Int;
 
     # Initial conditions
     if Y_init === nothing
-        Y_init = model.Y[end-n_lags_val+1:end, :]
+        Y_init = model.Y[(end - n_lags_val + 1):end, :]
     end
 
     if !include_draws
@@ -128,7 +127,7 @@ function forecast(model::VARModel{T}, h::Int;
         end
 
         # Point forecast (mean of draws)
-        forecast_point = dropdims(mean(forecast_draws; dims=1); dims=1)
+        forecast_point = dropdims(mean(forecast_draws; dims = 1); dims = 1)
 
         # Confidence bands
         forecast_bands = compute_forecast_bands(forecast_draws, coverage)
@@ -147,7 +146,7 @@ end
 
 Compute forecast confidence bands from draws.
 """
-function compute_forecast_bands(forecast_draws::Array{T,3}, coverage::Vector{Float64}) where T
+function compute_forecast_bands(forecast_draws::Array{T, 3}, coverage::Vector{Float64}) where {T}
     n_coverage = length(coverage)
     h, n_vars = size(forecast_draws)[2:3]
 
@@ -190,15 +189,15 @@ Simulate VAR using structural shocks.
 - Simulated data matrix
 """
 function simulate_structural(model::VARModel{T}, identification::AbstractIdentification,
-                            structural_shocks::AbstractMatrix{T},
-                            Y_init::AbstractMatrix{T}; burn_in::Int=0) where T
+        structural_shocks::AbstractMatrix{T},
+        Y_init::AbstractMatrix{T}; burn_in::Int = 0) where {T}
     # Get impact matrix
     P = rotation_matrix(model, identification)
 
     # Convert structural to reduced-form shocks: u = P * ε
     innovations = structural_shocks * P'
 
-    return simulate_var(model, innovations, Y_init; burn_in=burn_in)
+    return simulate_var(model, innovations, Y_init; burn_in = burn_in)
 end
 
 # ============================================================================
@@ -213,7 +212,7 @@ Compute historical decomposition of observed data into structural shocks.
 # Returns
 - NamedTuple with `contributions` (T × n_vars × n_shocks) and `initial_condition` (T × n_vars)
 """
-function historical_decomposition(model::VARModel{T}, identification::AbstractIdentification) where T
+function historical_decomposition(model::VARModel{T}, identification::AbstractIdentification) where {T}
     n_lags_val = n_lags(model)
     n_vars_val = n_vars(model)
     n_obs_val = effective_obs(model)
@@ -247,7 +246,7 @@ function historical_decomposition(model::VARModel{T}, identification::AbstractId
 
     # Initial condition contribution (everything not explained by shocks)
     Y_actual = model.Y[(n_lags_val + 1):end, :]
-    initial_condition = Y_actual - sum(contributions; dims=3)[:, :, 1]
+    initial_condition = Y_actual - sum(contributions; dims = 3)[:, :, 1]
 
     return (
         contributions = contributions,
@@ -272,7 +271,8 @@ Compute forecast error variance decomposition from IRFs.
 # Returns
 - Array (horizon × n_vars × n_shocks) with variance shares (sum to 1 across shocks)
 """
-function variance_decomposition(irf::IRFResult{T}; horizon_spec::Union{Nothing,Int}=nothing) where T
+function variance_decomposition(irf::IRFResult{T}; horizon_spec::Union{
+        Nothing, Int} = nothing) where {T}
     irf_array = irf.irf  # (H+1, n_vars, n_shocks)
     H, n_vars_val, n_shocks = size(irf_array)
 
@@ -280,7 +280,7 @@ function variance_decomposition(irf::IRFResult{T}; horizon_spec::Union{Nothing,I
     mse = zeros(T, H, n_vars_val)
     for h in 1:H
         for j in 1:n_vars_val
-            mse[h, j] = sum(irf_array[1:h, j, :].^2)
+            mse[h, j] = sum(irf_array[1:h, j, :] .^ 2)
         end
     end
 
@@ -289,7 +289,7 @@ function variance_decomposition(irf::IRFResult{T}; horizon_spec::Union{Nothing,I
     for h in 1:H
         for j in 1:n_vars_val
             for k in 1:n_shocks
-                variance_shares[h, j, k] = sum(irf_array[1:h, j, k].^2) / mse[h, j]
+                variance_shares[h, j, k] = sum(irf_array[1:h, j, k] .^ 2) / mse[h, j]
             end
         end
     end

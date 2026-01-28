@@ -33,10 +33,9 @@ var = fit(OLSVAR, Y, 4; constraints=constraints)
 ```
 """
 function StatsBase.fit(::Type{OLSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
-                       constraints::Vector{<:AbstractConstraint}=AbstractConstraint[],
-                       names::Union{Nothing,Vector{Symbol}}=nothing,
-                       demean::Bool=false) where T<:AbstractFloat
-
+        constraints::Vector{<:AbstractConstraint} = AbstractConstraint[],
+        names::Union{Nothing, Vector{Symbol}} = nothing,
+        demean::Bool = false) where {T <: AbstractFloat}
     n_obs_total, n_vars = size(Y)
     n_lags > 0 || throw(ArgumentError("n_lags must be positive"))
     n_obs_total > n_lags || throw(ArgumentError("Not enough observations for $n_lags lags"))
@@ -46,7 +45,8 @@ function StatsBase.fit(::Type{OLSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
         # Try to extract names from array-like object
         names = try_extract_names(Y, n_vars)
     end
-    length(names) == n_vars || throw(ArgumentError("Length of names must match number of variables"))
+    length(names) == n_vars ||
+        throw(ArgumentError("Length of names must match number of variables"))
 
     # Validate constraints
     if !isempty(constraints)
@@ -54,7 +54,7 @@ function StatsBase.fit(::Type{OLSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
     end
 
     # Demean if requested
-    Y_work = demean ? Y .- mean(Y, dims=1) : copy(Y)
+    Y_work = demean ? Y .- mean(Y, dims = 1) : copy(Y)
 
     # Create lagged matrix
     X = create_lags(Y_work, n_lags)
@@ -84,7 +84,8 @@ function StatsBase.fit(::Type{OLSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
     # Build coefficient structure
     intercept = A[1, :]
     lags_matrix = Array(reshape(A[2:end, :]', (n_vars, n_vars, n_lags)))
-    coefs = VARCoefficients(intercept, lags_matrix, isempty(constraints) ? nothing : constraints)
+    coefs = VARCoefficients(intercept, lags_matrix, isempty(constraints) ? nothing :
+                                                    constraints)
 
     # Companion form
     F = companion_form(lags_matrix)
@@ -106,7 +107,7 @@ end
 Convenience wrapper for `fit(OLSVAR, Y, n_lags; kwargs...)` to preserve the
 IRFs.jl API.
 """
-function VAR(Y::AbstractMatrix{T}, n_lags::Int; kwargs...) where T<:AbstractFloat
+function VAR(Y::AbstractMatrix{T}, n_lags::Int; kwargs...) where {T <: AbstractFloat}
     return fit(OLSVAR, Y, n_lags; kwargs...)
 end
 
@@ -118,11 +119,11 @@ Estimate VAR coefficients under linear constraints.
 Uses restricted least squares with selection matrix approach.
 """
 function constrained_ols(X::AbstractMatrix{T}, Y::AbstractMatrix{T},
-                         constraints::Vector{<:AbstractConstraint},
-                         names::Vector{Symbol}, n_lags::Int, n_vars::Int) where T
+        constraints::Vector{<:AbstractConstraint},
+        names::Vector{Symbol}, n_lags::Int, n_vars::Int) where {T}
 
     # Check if we only have zero/block constraints (easy case)
-    only_zero = all(c -> c isa Union{ZeroConstraint,BlockExogeneity}, constraints)
+    only_zero = all(c -> c isa Union{ZeroConstraint, BlockExogeneity}, constraints)
 
     if only_zero
         # Use selection matrix approach
@@ -141,9 +142,8 @@ Restricted OLS using selection matrix (for zero constraints only).
 Estimates each equation separately, applying constraints.
 """
 function constrained_ols_selection(X::AbstractMatrix{T}, Y::AbstractMatrix{T},
-                                   constraints::Vector{<:AbstractConstraint},
-                                   names::Vector{Symbol}, n_lags::Int, n_vars::Int) where T
-
+        constraints::Vector{<:AbstractConstraint},
+        names::Vector{Symbol}, n_lags::Int, n_vars::Int) where {T}
     n_coef_per_eq = 1 + n_vars * n_lags
     A = zeros(T, n_coef_per_eq, n_vars)
 
@@ -201,8 +201,8 @@ Restricted OLS with general linear equality constraints.
 Handles both zero and fixed value constraints.
 """
 function constrained_ols_general(X::AbstractMatrix{T}, Y::AbstractMatrix{T},
-                                 constraints::Vector{<:AbstractConstraint},
-                                names::Vector{Symbol}, n_lags::Int, n_vars::Int) where T
+        constraints::Vector{<:AbstractConstraint},
+        names::Vector{Symbol}, n_lags::Int, n_vars::Int) where {T}
 
     # Start with unconstrained estimate
     A = X \ Y
@@ -218,7 +218,7 @@ function constrained_ols_general(X::AbstractMatrix{T}, Y::AbstractMatrix{T},
     end
 
     # Apply zero/block constraints
-    zero_constraints = filter(c -> c isa Union{ZeroConstraint,BlockExogeneity}, constraints)
+    zero_constraints = filter(c -> c isa Union{ZeroConstraint, BlockExogeneity}, constraints)
     if !isempty(zero_constraints)
         # Re-estimate with zero constraints holding fixed values constant
         A = reestimate_with_fixed(X, Y, A, constraints, names, n_lags, n_vars)
@@ -233,9 +233,9 @@ end
 Re-estimate holding fixed constraints at their specified values.
 """
 function reestimate_with_fixed(X::AbstractMatrix{T}, Y::AbstractMatrix{T},
-                               A_init::AbstractMatrix{T},
-                               constraints::Vector{<:AbstractConstraint},
-                               names::Vector{Symbol}, n_lags::Int, n_vars::Int) where T
+        A_init::AbstractMatrix{T},
+        constraints::Vector{<:AbstractConstraint},
+        names::Vector{Symbol}, n_lags::Int, n_vars::Int) where {T}
 
     # Build modified system: Y_adj = Y - X_fixed * A_fixed
     # Then estimate free parameters
@@ -255,7 +255,7 @@ function reestimate_with_fixed(X::AbstractMatrix{T}, Y::AbstractMatrix{T},
     end
 
     # Now estimate on free parameters
-    zero_constraints = filter(c -> c isa Union{ZeroConstraint,BlockExogeneity}, constraints)
+    zero_constraints = filter(c -> c isa Union{ZeroConstraint, BlockExogeneity}, constraints)
     S, n_free = build_selection_matrix(zero_constraints, names, n_lags)
 
     # Solve for free parameters
@@ -300,7 +300,7 @@ Extract VAR coefficients.
 """
 function StatsBase.coef(model::VARModel)
     return (intercept = model.coefficients.intercept,
-            lags = model.coefficients.lags)
+        lags = model.coefficients.lags)
 end
 
 """
@@ -341,7 +341,7 @@ end
 
 Compute log-likelihood for OLS-VAR.
 """
-function log_likelihood(model::VARModel{T,OLSVAR}) where T
+function log_likelihood(model::VARModel{T, OLSVAR}) where {T}
     n_obs_val, n_vars_val = effective_obs(model), n_vars(model)
     Σ = vcov(model)
 
@@ -373,8 +373,8 @@ Compute long-run multiplier matrix (I - A₁ - ... - Aₚ)⁻¹.
 # Returns
 - Matrix of long-run effects of shocks on variables
 """
-function long_run_effect(model::VARModel{T}) where T
-    A_sum = dropdims(sum(model.coefficients.lags, dims=3), dims=3)
+function long_run_effect(model::VARModel{T}) where {T}
+    A_sum = dropdims(sum(model.coefficients.lags, dims = 3), dims = 3)
     n = n_vars(model)
     return inv(Matrix{T}(I, n, n) - A_sum)
 end
@@ -387,7 +387,7 @@ Compute long-run mean of the VAR process.
 # Returns
 - Vector of long-run means: (I - A₁ - ... - Aₚ)⁻¹ * c
 """
-function long_run_mean(model::VARModel{T}) where T
+function long_run_mean(model::VARModel{T}) where {T}
     lr_effect = long_run_effect(model)
     return lr_effect * model.coefficients.intercept
 end

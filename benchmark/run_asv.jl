@@ -15,8 +15,7 @@ const CANDIDATE_REV = get(ENV, "MET_ASV_CANDIDATE", "dirty")
 const BASELINE_PATH = get(ENV, "MET_ASV_BASELINE_PATH", "")
 const CANDIDATE_PATH = get(ENV, "MET_ASV_CANDIDATE_PATH", REPO_ROOT)
 const EXTRA_PKGS = String.(filter(!isempty, split(get(ENV, "MET_ASV_EXTRA_PKGS", ""), ',')))
-const FILTER_PATTERNS =
-    String.(filter(!isempty, split(get(ENV, "MET_ASV_FILTER", ""), ',')))
+const FILTER_PATTERNS = String.(filter(!isempty, split(get(ENV, "MET_ASV_FILTER", ""), ',')))
 const TUNE_BENCH = lowercase(get(ENV, "MET_ASV_TUNE", "false")) in ("1", "true", "yes")
 const NSAMPLES_LOAD_TIME = parse(Int, get(ENV, "MET_ASV_LOAD_SAMPLES", "5"))
 
@@ -24,8 +23,8 @@ mkpath(OUTPUT_DIR)
 
 function spec_with_optional_path(rev::String, path::String)
     path = strip(path)
-    return isempty(path) ? PackageSpec(; name=PKG_NAME, rev=rev) :
-           PackageSpec(; name=PKG_NAME, rev=rev, path=abspath(path))
+    return isempty(path) ? PackageSpec(; name = PKG_NAME, rev = rev) :
+           PackageSpec(; name = PKG_NAME, rev = rev, path = abspath(path))
 end
 
 baseline_spec = spec_with_optional_path(BASELINE_REV, BASELINE_PATH)
@@ -35,25 +34,27 @@ specs = [baseline_spec, candidate_spec]
 
 println("== Running AirspeedVelocity benchmark suite ==")
 println(" Output directory: ", OUTPUT_DIR)
-println(" Baseline: ", baseline_spec.rev, isempty(BASELINE_PATH) ? "" : " (path=$(baseline_spec.path))")
-println(" Candidate: ", candidate_spec.rev, isempty(CANDIDATE_PATH) ? "" : " (path=$(candidate_spec.path))")
+println(" Baseline: ", baseline_spec.rev, isempty(BASELINE_PATH) ? "" :
+                                          " (path=$(baseline_spec.path))")
+println(" Candidate: ", candidate_spec.rev, isempty(CANDIDATE_PATH) ? "" :
+                                            " (path=$(candidate_spec.path))")
 !isempty(FILTER_PATTERNS) && println(" Filters: ", join(FILTER_PATTERNS, ", "))
 
 results = AirspeedVelocity.benchmark(
     specs;
-    output_dir=OUTPUT_DIR,
-    script=BENCH_SCRIPT,
-    project_toml=BENCH_PROJECT,
-    tune=TUNE_BENCH,
-    extra_pkgs=EXTRA_PKGS,
-    filter_benchmarks=FILTER_PATTERNS,
-    nsamples_load_time=NSAMPLES_LOAD_TIME,
+    output_dir = OUTPUT_DIR,
+    script = BENCH_SCRIPT,
+    project_toml = BENCH_PROJECT,
+    tune = TUNE_BENCH,
+    extra_pkgs = EXTRA_PKGS,
+    filter_benchmarks = FILTER_PATTERNS,
+    nsamples_load_time = NSAMPLES_LOAD_TIME
 )
 
 timestamp = Dates.format(Dates.now(), dateformat"yyyy-mm-ddTHHMM")
 summary_path = joinpath(OUTPUT_DIR, "summary_$timestamp.md")
 
-combined = AirspeedVelocity.load_results(specs; input_dir=OUTPUT_DIR)
+combined = AirspeedVelocity.load_results(specs; input_dir = OUTPUT_DIR)
 table_md = AirspeedVelocity.create_table(combined)
 
 open(summary_path, "w") do io

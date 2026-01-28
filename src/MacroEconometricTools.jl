@@ -22,6 +22,8 @@ using StatsFuns
 using Distributions
 using CovarianceMatrices
 using GLM
+using AxisArrays
+using Tables
 
 # Core type hierarchy
 include("types.jl")
@@ -35,8 +37,8 @@ include("var/identification.jl")
 include("var/irfs.jl")
 
 # Local projections
-include("localprojection/estimation.jl")
-include("localprojection/inference.jl")
+# include("localprojection/estimation.jl")
+# include("localprojection/inference.jl")
 
 # IV-SVAR
 include("ivsvar/instruments.jl")
@@ -61,6 +63,10 @@ export AbstractConstraint, ZeroConstraint, FixedConstraint, BlockExogeneity
 export AbstractIdentification, CholeskyID, SignRestriction, IVIdentification
 export AbstractInstrument, ExternalInstrument, ProxyIV
 export AbstractIRFResult, IRFResult, SignRestrictedIRFResult
+export BayesianIRFResult, LocalProjectionIRFResult
+export NarrativeShockRestriction, NarrativeRestriction
+export point_estimate, mean_estimate, has_draws, n_draws, get_draws
+export lowerbounds, upperbounds, coverages, horizon
 
 # Export inference types
 export InferenceType, Analytic, WildBootstrap, Bootstrap, BlockBootstrap

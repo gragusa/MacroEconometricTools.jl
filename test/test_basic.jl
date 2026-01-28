@@ -16,7 +16,7 @@ using StableRNGs: StableRNG
     # Generate AR(2) data
     Y = randn(T, n_v)
     for t in 3:T
-        Y[t, :] = 0.5 * Y[t-1, :] + 0.3 * Y[t-2, :] + 0.1 * randn(n_v)
+        Y[t, :] = 0.5 * Y[t - 1, :] + 0.3 * Y[t - 2, :] + 0.1 * randn(n_v)
     end
 
     @testset "VAR Estimation" begin
@@ -46,7 +46,7 @@ using StableRNGs: StableRNG
     @testset "VAR with Constraints" begin
         # Test zero constraint
         constraints = [ZeroConstraint(:Y_1, [:Y_2], [1])]
-        var_constrained = fit(OLSVAR, Y, n_l; constraints=constraints)
+        var_constrained = fit(OLSVAR, Y, n_l; constraints = constraints)
 
         @test var_constrained isa VARModel
         @test !isnothing(var_constrained.coefficients.constraints)
@@ -71,8 +71,8 @@ using StableRNGs: StableRNG
         var = fit(OLSVAR, Y, n_l)
         id = CholeskyID()
 
-        boot1 = bootstrap_irf(var, id, 5, 20; rng=StableRNG(20240612))
-        boot2 = bootstrap_irf(var, id, 5, 20; rng=StableRNG(20240612))
+        boot1 = bootstrap_irf(var, id, 5, 20; rng = StableRNG(20240612))
+        boot2 = bootstrap_irf(var, id, 5, 20; rng = StableRNG(20240612))
         @test boot1 == boot2
     end
 

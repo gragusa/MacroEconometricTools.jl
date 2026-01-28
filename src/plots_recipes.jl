@@ -7,10 +7,10 @@
 #
 
 using RecipesBase
+using AxisArrays: AxisArrays, Axis
 
-# Helper functions that work on any AbstractIRFResult
-lowerbounds(irf::AbstractIRFResult) = irf.lower
-upperbounds(irf::AbstractIRFResult) = irf.upper
+# Note: lowerbounds, upperbounds, coverages are now defined in types.jl
+# They work on any AbstractIRFResult
 
 function _var_names(irf::AbstractIRFResult)
     if haskey(irf.metadata, :names)
@@ -45,8 +45,8 @@ function _resolve_labels(labels, nms::Vector{Symbol}, suffix::AbstractString)
     end
 end
 
-function _prepare_irf_plot(irf::AbstractIRFResult; vars=:all, shocks=:all,
-    pretty_vars=nothing, pretty_shocks=nothing)
+function _prepare_irf_plot(irf::AbstractIRFResult; vars = :all, shocks = :all,
+        pretty_vars = nothing, pretty_shocks = nothing)
     nms = _var_names(irf)
     idxvars = _resolve_indices(nms, vars, :vars)
     idxshocks = _resolve_indices(nms, shocks, :shocks)
@@ -61,18 +61,17 @@ function _prepare_irf_plot(irf::AbstractIRFResult; vars=:all, shocks=:all,
 end
 
 RecipesBase.@recipe function f(irf::IRFResult;
-    vars=:all,
-    shocks=:all,
-    pretty_shocks=nothing,
-    pretty_vars=nothing,
-    drawzero=true,
-    zerolinecol=:lightgray)
-
+        vars = :all,
+        shocks = :all,
+        pretty_shocks = nothing,
+        pretty_vars = nothing,
+        drawzero = true,
+        zerolinecol = :lightgray)
     info = _prepare_irf_plot(irf;
-        vars=vars,
-        shocks=shocks,
-        pretty_vars=pretty_vars,
-        pretty_shocks=pretty_shocks
+        vars = vars,
+        shocks = shocks,
+        pretty_vars = pretty_vars,
+        pretty_shocks = pretty_shocks
     )
 
     layout --> (length(info.idxvars), length(info.idxshocks))
@@ -93,7 +92,7 @@ RecipesBase.@recipe function f(irf::IRFResult;
     for (row_idx, var_idx) in enumerate(info.idxvars)
         for (col_idx, shock_idx) in enumerate(info.idxshocks)
             y = irf.irf[:, var_idx, shock_idx]
-            x = 0:(length(y)-1)
+            x = 0:(length(y) - 1)
             title := info.shock_labels[col_idx]
             yguide := col_idx == 1 ? info.var_labels[row_idx] : ""
             xticks := (0:6:length(y), 0:6:length(y))
@@ -142,23 +141,23 @@ Supports three plot types:
 - `:both` - Show both paths and quantiles
 """
 RecipesBase.@recipe function f(irf::SignRestrictedIRFResult;
-    vars=:all,
-    shocks=:all,
-    pretty_shocks=nothing,
-    pretty_vars=nothing,
-    plot_type=:quantiles,
-    path_alpha=0.02,
-    path_color=:gray,
-    median_color=:black,
-    drawzero=true,
-    zerolinecol=:lightgray)
+        vars = :all,
+        shocks = :all,
+        pretty_shocks = nothing,
+        pretty_vars = nothing,
+        plot_type = :quantiles,
+        path_alpha = 0.02,
+        path_color = :gray,
+        median_color = :black,
+        drawzero = true,
+        zerolinecol = :lightgray)
 
     # Use unified _prepare_irf_plot helper
     info = _prepare_irf_plot(irf;
-        vars=vars,
-        shocks=shocks,
-        pretty_vars=pretty_vars,
-        pretty_shocks=pretty_shocks
+        vars = vars,
+        shocks = shocks,
+        pretty_vars = pretty_vars,
+        pretty_shocks = pretty_shocks
     )
 
     idxvars = info.idxvars
@@ -182,7 +181,7 @@ RecipesBase.@recipe function f(irf::SignRestrictedIRFResult;
     for (row_idx, var_idx) in enumerate(idxvars)
         for (col_idx, shock_idx) in enumerate(idxshocks)
             y_median = irf.irf_median[:, var_idx, shock_idx]
-            x = 0:(length(y_median)-1)
+            x = 0:(length(y_median) - 1)
             title := shock_labels_full[col_idx]
             yguide := col_idx == 1 ? var_labels_full[row_idx] : ""
             xticks := (0:6:length(y_median), 0:6:length(y_median))
@@ -242,5 +241,235 @@ RecipesBase.@recipe function f(irf::SignRestrictedIRFResult;
 
             subplot += 1
         end
+    end
+end
+
+# ============================================================================
+# Recipe for BayesianIRFResult (AxisArray-based)
+# ============================================================================
+
+"""
+Plot recipe for Bayesian IRFs with posterior draws.
+
+Supports:
+- `irf_scale::Real=1.0`: Scale factor for IRF values (use 100 for percentage)
+- `plot_type`: `:quantiles`, `:paths`, or `:both`
+- Multiple coverage levels with layered ribbons
+"""
+RecipesBase.@recipe function f(irf::BayesianIRFResult;
+        vars = :all,
+        shocks = :all,
+        pretty_shocks = nothing,
+        pretty_vars = nothing,
+        irf_scale = 1.0,
+        plot_type = :quantiles,
+        path_alpha = 0.02,
+        path_color = :gray,
+        median_color = :black,
+        drawzero = true,
+        zerolinecol = :lightgray)
+
+    # Get variable and shock names from AxisArray axes
+    var_axis = AxisArrays.axes(irf.data, Axis{:variable})
+    shock_axis = AxisArrays.axes(irf.data, Axis{:shock})
+    horizon_axis = AxisArrays.axes(irf.data, Axis{:horizon})
+
+    all_vars = collect(AxisArrays.axisvalues(var_axis)[1])
+    all_shocks = collect(AxisArrays.axisvalues(shock_axis)[1])
+    horizons = collect(AxisArrays.axisvalues(horizon_axis)[1])
+
+    # Resolve variable and shock indices
+    idxvars = vars === :all ? (1:length(all_vars)) :
+              _resolve_indices_generic(all_vars, vars)
+    idxshocks = shocks === :all ? (1:length(all_shocks)) :
+                _resolve_indices_generic(all_shocks, shocks)
+
+    var_labels = pretty_vars === nothing ? string.(all_vars[idxvars]) : pretty_vars
+    shock_labels = pretty_shocks === nothing ? string.(all_shocks[idxshocks]) .* " shock" :
+                   pretty_shocks
+
+    layout --> (length(idxvars), length(idxshocks))
+    titlefontsize --> 5
+    labelfontsize --> 5
+    tickfontsize --> 5
+    tick_direction := :none
+    top_margin := -1.5mm
+    label --> nothing
+
+    subplot = 1
+    lb = lowerbounds(irf)
+    ub = upperbounds(irf)
+    cvgs = coverages(irf)
+
+    # Get point estimate (median across draws)
+    pt_est = point_estimate(irf)
+
+    for (row_idx, var_idx) in enumerate(idxvars)
+        for (col_idx, shock_idx) in enumerate(idxshocks)
+            # Extract point estimate for this variable/shock
+            y_median = Array(pt_est)[var_idx, shock_idx, :] .* irf_scale
+            x = horizons
+            title := shock_labels[col_idx]
+            yguide := col_idx == 1 ? var_labels[row_idx] : ""
+            xticks := (0:6:maximum(horizons), 0:6:maximum(horizons))
+            xlims := (-0.2, maximum(horizons) + 0.5)
+
+            # Draw paths if requested
+            if plot_type ∈ [:paths, :both]
+                n_drw = n_draws(irf)
+                data_arr = Array(irf.data)
+                for draw_idx in 1:n_drw
+                    y_path = data_arr[draw_idx, var_idx, shock_idx, :] .* irf_scale
+                    @series begin
+                        subplot := subplot
+                        linecolor := path_color
+                        linealpha := path_alpha
+                        primary := false
+                        x, y_path
+                    end
+                end
+            end
+
+            # Draw quantile bands if requested (widest first for proper stacking)
+            if plot_type ∈ [:quantiles, :both]
+                for (cv_idx, _) in enumerate(reverse(cvgs))
+                    rev_idx = length(cvgs) - cv_idx + 1
+                    lb_slice = Array(lb[rev_idx])[var_idx, shock_idx, :] .* irf_scale
+                    ub_slice = Array(ub[rev_idx])[var_idx, shock_idx, :] .* irf_scale
+                    @series begin
+                        subplot := subplot
+                        linecolor := nothing
+                        fillcolor --> :red
+                        fillalpha := 0.3 / cv_idx  # Darker for narrower bands
+                        primary := false
+                        fillrange := lb_slice
+                        x, ub_slice
+                    end
+                end
+            end
+
+            # Draw median
+            @series begin
+                subplot := subplot
+                linecolor := median_color
+                linewidth := 2
+                primary := false
+                x, y_median
+            end
+
+            # Zero line
+            if drawzero
+                @series begin
+                    subplot := subplot
+                    linestyle := :dot
+                    linecolor := zerolinecol
+                    seriestype --> :hline
+                    [0]
+                end
+            end
+
+            subplot += 1
+        end
+    end
+end
+
+# ============================================================================
+# Recipe for LocalProjectionIRFResult (AxisArray-based)
+# ============================================================================
+
+"""
+Plot recipe for Local Projection IRFs.
+
+Supports:
+- `irf_scale::Real=1.0`: Scale factor for IRF values (use 100 for percentage)
+- Multiple coverage levels with layered confidence bands
+"""
+RecipesBase.@recipe function f(irf::LocalProjectionIRFResult;
+        irf_scale = 1.0,
+        drawzero = true,
+        zerolinecol = :lightgray,
+        linecolor = :black)
+
+    # Get dimensions from AxisArray axes
+    response_axis = AxisArrays.axes(irf.data, Axis{:response})
+    shock_axis = AxisArrays.axes(irf.data, Axis{:shock})
+    horizon_axis = AxisArrays.axes(irf.data, Axis{:horizon})
+
+    responses = collect(AxisArrays.axisvalues(response_axis)[1])
+    shocks = collect(AxisArrays.axisvalues(shock_axis)[1])
+    horizons = collect(AxisArrays.axisvalues(horizon_axis)[1])
+
+    layout --> (length(responses), length(shocks))
+    titlefontsize --> 5
+    labelfontsize --> 5
+    tickfontsize --> 5
+    tick_direction := :none
+    top_margin := -1.5mm
+    label --> nothing
+
+    subplot = 1
+    lb = lowerbounds(irf)
+    ub = upperbounds(irf)
+    cvgs = coverages(irf)
+
+    pt_data = Array(irf.data)
+
+    for (row_idx, _) in enumerate(responses)
+        for (col_idx, shock) in enumerate(shocks)
+            y = pt_data[row_idx, col_idx, :] .* irf_scale
+            x = horizons
+            title := string(shock) * " shock"
+            yguide := col_idx == 1 ? string(responses[row_idx]) : ""
+            xticks := (0:6:maximum(horizons), 0:6:maximum(horizons))
+            xlims := (-0.2, maximum(horizons) + 0.5)
+
+            # Draw confidence bands (widest first)
+            for (cv_idx, _) in enumerate(reverse(cvgs))
+                rev_idx = length(cvgs) - cv_idx + 1
+                lb_slice = Array(lb[rev_idx])[row_idx, col_idx, :] .* irf_scale
+                ub_slice = Array(ub[rev_idx])[row_idx, col_idx, :] .* irf_scale
+                @series begin
+                    subplot := subplot
+                    linecolor := nothing
+                    fillcolor --> :blue
+                    fillalpha := 0.3 / cv_idx
+                    primary := false
+                    fillrange := lb_slice
+                    x, ub_slice
+                end
+            end
+
+            # Point estimate line
+            @series begin
+                subplot := subplot
+                linecolor := linecolor
+                linewidth := 2
+                x, y
+            end
+
+            # Zero line
+            if drawzero
+                @series begin
+                    subplot := subplot
+                    linestyle := :dot
+                    linecolor := zerolinecol
+                    seriestype --> :hline
+                    [0]
+                end
+            end
+
+            subplot += 1
+        end
+    end
+end
+
+# Helper for generic index resolution with AxisArray values
+function _resolve_indices_generic(all_names, selection)
+    if selection isa AbstractVector{Symbol}
+        return [findfirst(==(s), all_names) for s in selection]
+    elseif selection isa AbstractVector{<:Integer}
+        return selection
+    else
+        error("Selection must be :all, a vector of Symbols, or a vector of integers")
     end
 end
