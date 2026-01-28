@@ -1,3 +1,17 @@
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+docs/build/
+docs/site/
+Manifest.toml
+.DS_Store
+.vscode
+.claude
+CLAUDE.md
+AGENTS.md
+lost+found/
+*/Manifest.toml
+
 # Julia
 *.jl.*.cov
 *.jl.cov
@@ -6,7 +20,9 @@
 /docs/build/
 /docs/site/
 benchmark/results/
-
+*/Manifest.toml
+*/docs/build/
+*/docs/site/
 # IDE
 .vscode/
 .idea/
@@ -34,3 +50,10 @@ deps/downloads/
 # Local testing
 scratch/
 tmp/
+
+text_pkg/
+AGENTS.md
+CLAUDE.md
+.gitignore
+
+lost+found/
