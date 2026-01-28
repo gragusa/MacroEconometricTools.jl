@@ -27,7 +27,7 @@ println("Output directory:  ", OUTPUT_DIR)
 println()
 
 # Create package spec for current state
-current_spec = PackageSpec(; name=PKG_NAME, rev=CURRENT_REV, path=REPO_ROOT)
+current_spec = PackageSpec(; name = PKG_NAME, rev = CURRENT_REV, path = REPO_ROOT)
 
 println("Running benchmarks...")
 println()
@@ -35,24 +35,24 @@ println()
 # Run benchmarks
 results = AirspeedVelocity.benchmark(
     [current_spec];
-    output_dir=OUTPUT_DIR,
-    script=BENCH_SCRIPT,
-    project_toml=BENCH_PROJECT,
-    tune=false,  # Set to true for more accurate results (takes longer)
-    nsamples_load_time=5,
+    output_dir = OUTPUT_DIR,
+    script = BENCH_SCRIPT,
+    project_toml = BENCH_PROJECT,
+    tune = false,  # Set to true for more accurate results (takes longer)
+    nsamples_load_time = 5
 )
 
 println()
 println("Loading results...")
 
 # Load results
-combined = AirspeedVelocity.load_results([current_spec]; input_dir=OUTPUT_DIR)
+combined = AirspeedVelocity.load_results([current_spec]; input_dir = OUTPUT_DIR)
 
 # Create markdown table
 println()
 println("Creating markdown table...")
 
-table_md = AirspeedVelocity.benchpkgtable([current_spec]; input_dir=OUTPUT_DIR)
+table_md = AirspeedVelocity.benchpkgtable([current_spec]; input_dir = OUTPUT_DIR)
 
 # Save to file with timestamp
 timestamp = Dates.format(Dates.now(), dateformat"yyyy-mm-dd_HHMMSS")

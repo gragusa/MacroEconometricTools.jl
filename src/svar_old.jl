@@ -21,7 +21,7 @@
     and accessing model variables by name.
   - `timeindex`: Time index, representing the temporal aspect of the data.
 """
-struct VectorAutoRegression{M,V}
+struct VectorAutoRegression{M, V}
     "The actual data - untouched"
     rawdata::M
     "Matrix of data - could be demeaned from p+1:end"
@@ -61,26 +61,26 @@ end
 
 const VAR = VectorAutoRegression
 
-function VAR(n::Int64, nlags, nvars, type::Type{FF}=Float64;
-             intercept::Bool=true,
-             names=Symbol.("Y_" .* string.(1:nvars)),
-             index=1:n) where {FF<:AbstractFloat}
+function VAR(n::Int64, nlags, nvars, type::Type{FF} = Float64;
+        intercept::Bool = true,
+        names = Symbol.("Y_" .* string.(1:nvars)),
+        index = 1:n) where {FF <: AbstractFloat}
     parent = Array{FF}(undef, n, nvars)
     Y = similar(parent)
     X = similar(parent, (n, nvars * nlags + Int(intercept)))
     A = similar(parent, (nvars * nlags + Int(intercept), nvars))
     F = zeros(FF, nvars * nlags, nvars * nlags)
     E = similar(Y, (n - nlags, nvars))
-    @inbounds for j ∈ (nvars + 1):(nvars * nlags)
+    @inbounds for j in (nvars + 1):(nvars * nlags)
         F[j, j - nvars] = one(FF)
     end
     μ = Array{FF}(undef, nvars)
     Σ = similar(parent, (nvars, nvars))
     return VAR(parent, Y, X, A, E, Σ, F,
-               intercept,
-               μ,
-               names,
-               index)
+        intercept,
+        μ,
+        names,
+        index)
 end
 
 ## This is used for the simulation of the bootstrap. Takes the VAR
@@ -103,8 +103,8 @@ end
 end
 
 @propagate_inbounds function StatsBase.fit!(v::VectorAutoRegression;
-                                            estimatecoef::Bool=true,
-                                            copyrawdata::Bool=true)
+        estimatecoef::Bool = true,
+        copyrawdata::Bool = true)
     _, p, m = sizes(v)
     delag!(v.X, v.Y, p, hasintercept(v))
     if estimatecoef
@@ -119,7 +119,7 @@ end
         update_companion!(v)
         α = v.A[1, :]
         A = coef(v)
-        AA = dropdims(sum(A; dims=3); dims=3)
+        AA = dropdims(sum(A; dims = 3); dims = 3)
         μ = (I - AA) \ α
         v.longrunmean .= μ
     end
@@ -173,14 +173,14 @@ varnames(v::VectorAutoRegression) = v.names
 timeindex(v::VectorAutoRegression) = v.timeindex
 roots(v::VectorAutoRegression) = inv.(eigvals(companionmatrix(v)))
 function marepresentation(v::VectorAutoRegression, j)
-    out = Array{eltype(v.A),3}(undef, nvars(v), nvars(v), j+1) 
-    out[:,:,1] = Matrix(float(I(nvars(v))))
-    out[:,:,2] = v.F[1:nvars(v), 1:nvars(v)]
+    out = Array{eltype(v.A), 3}(undef, nvars(v), nvars(v), j+1)
+    out[:, :, 1] = Matrix(float(I(nvars(v))))
+    out[:, :, 2] = v.F[1:nvars(v), 1:nvars(v)]
     if j == 1
         return out
     end
-    for i ∈ 2:j
-        out[:,:,i+1] = (v.F^i)[1:nvars(v), 1:nvars(v)]
+    for i in 2:j
+        out[:, :, i + 1] = (v.F ^ i)[1:nvars(v), 1:nvars(v)]
     end
     return out
 end
@@ -232,7 +232,7 @@ Internal API
 @propagate_inbounds function update_companion!(v::VectorAutoRegression)
     p, m = nlags(v), nvars(v)
     tmp = coef(v)
-    for j ∈ 1:p
+    for j in 1:p
         v.F[1:m, (1 + (j - 1)m):(m + (j - 1)m)] .= tmp[:, :, j]
     end
     return v.F
@@ -260,7 +260,7 @@ residualsvariance(v::VectorAutoRegression)
 
 Retrieves the (estimated) variance of the residuals of a VAR model.
 """
-function residualsvariance(v::VectorAutoRegression; type=:ols)
+function residualsvariance(v::VectorAutoRegression; type = :ols)
     type ∈ (:ols, :mle) || throw(ArgumentError("Unknown type: $type"))
     if type == :ols
         return Symmetric(v.Sigma_e)
@@ -287,11 +287,11 @@ of the VAR(1) representation.
 Returns `true` if the VAR model is stable (i.e., all eigenvalues of the companion
 matrix have absolute values less than or equal to 1), `false` otherwise.
 """
-function isstable(v::VectorAutoRegression; verbose::Bool=false)
+function isstable(v::VectorAutoRegression; verbose::Bool = false)
     eigs = eigvals(companionmatrix(v))
     if verbose
         println("Eigenvalues of VAR($(nlags(v)))")
-        for val ∈ sort(abs.(eigs); rev=true)
+        for val in sort(abs.(eigs); rev = true)
             println(val)
         end
     end
@@ -331,7 +331,7 @@ end
 abstract type LagOrderSelector end
 
 struct VARLagOrderSelector <: LagOrderSelector
-    results::Array{@NamedTuple{bic::Float64,aic::Float64,hqic::Float64},1}
+    results::Array{@NamedTuple{bic::Float64, aic::Float64, hqic::Float64}, 1}
 end
 
 abstract type InformationCriterion end
@@ -344,7 +344,7 @@ function BIC(v::VectorAutoRegression)
     m = nvars(v)
     p = nlags(v)
     freepar = p * m^2 + m * Int(hasintercept(v))
-    ld = logdet(residualsvariance(v; type=:mle))
+    ld = logdet(residualsvariance(v; type = :mle))
     return ld + (log(T) / T) * freepar
 end
 
@@ -353,7 +353,7 @@ function AIC(v::VectorAutoRegression)
     m = nvars(v)
     p = nlags(v)
     freepar = p * m^2 + m * Int(hasintercept(v))
-    ld = logdet(residualsvariance(v; type=:mle))
+    ld = logdet(residualsvariance(v; type = :mle))
     return ld + (2.0 / T) * freepar
 end
 
@@ -362,19 +362,19 @@ function HQIC(v::VectorAutoRegression)
     m = nvars(v)
     p = nlags(v)
     freepar = p * m^2 + m * Int(hasintercept(v))
-    ld = logdet(residualsvariance(v; type=:mle))
+    ld = logdet(residualsvariance(v; type = :mle))
     return ld + (2.0 * log(log(T)) / T) * freepar
 end
 
-ics(v::VectorAutoRegression) = (bic=BIC(v), aic=AIC(v), hqic=HQIC(v))
+ics(v::VectorAutoRegression) = (bic = BIC(v), aic = AIC(v), hqic = HQIC(v))
 
-function selectorder(v::VectorAutoRegression, maxlags::Int=12)
+function selectorder(v::VectorAutoRegression, maxlags::Int = 12)
     ## Fit 0 order VAR
     YY = v.rawdata
     vv = VAR(YY[maxlags:end, :], 0)
     fit!(vv)
     cics = [ics(vv)]
-    for p ∈ 0:(maxlags - 1)
+    for p in 0:(maxlags - 1)
         offset = maxlags - p
         vv = VAR(YY[offset:end, :], p)
         fit!(vv)
@@ -399,13 +399,13 @@ function Base.show(io::IO, c::LagOrderSelector)
 end
 
 function pickorder(c::LagOrderSelector, ::BIC)
-    return argmin([c.results[i].bic for i ∈ 1:length(c.results)]) + 1
+    return argmin([c.results[i].bic for i in 1:length(c.results)]) + 1
 end
 function pickorder(c::LagOrderSelector, ::AIC)
-    return argmin([c.results[i].aic for i ∈ 1:length(c.results)]) + 1
+    return argmin([c.results[i].aic for i in 1:length(c.results)]) + 1
 end
 function pickorder(c::LagOrderSelector, ::HQIC)
-    return argmin([c.results[i].hqic for i ∈ 1:length(c.results)]) + 1
+    return argmin([c.results[i].hqic for i in 1:length(c.results)]) + 1
 end
 
 ## ------------------------------------------------------
@@ -416,24 +416,25 @@ abstract type AbstractNormalization end
 struct UnitStd <: AbstractNormalization end
 struct UnitEffect <: AbstractNormalization end
 
-struct TriangularRestriction{C,M} <: ShortRunRestrictions
+struct TriangularRestriction{C, M} <: ShortRunRestrictions
     R::C
     normalization::M
     function TriangularRestriction(v::VectorAutoRegression, ::UnitEffect)
         Aldl = ldl(v.Sigma_e)
-        return new{typeof(Aldl),UnitEffect}(Aldl, UnitEffect())
+        return new{typeof(Aldl), UnitEffect}(Aldl, UnitEffect())
     end
 
     function TriangularRestriction(v::VectorAutoRegression, ::UnitStd)
         Achol = cholesky(v.Sigma_e)
-        return new{typeof(Achol),UnitStd}(Achol, UnitStd())
+        return new{typeof(Achol), UnitStd}(Achol, UnitStd())
     end
 end
 
 TriangularRestriction(v::VectorAutoRegression) = new(v, UnitEffect())
 
-identifyingmatrix(r::TriangularRestriction{T}) where {T<:Cholesky} = r.R.L
-function identifyingmatrix(r::TriangularRestriction{T}) where {T<:LDLFactorizations.LDLFactorization}
+identifyingmatrix(r::TriangularRestriction{T}) where {T <: Cholesky} = r.R.L
+function identifyingmatrix(r::TriangularRestriction{T}) where {T <:
+                                                               LDLFactorizations.LDLFactorization}
     return Matrix(r.R.L) + I
 end
 
@@ -480,7 +481,7 @@ future values of all variables in the system.
 
 abstract type AbstractIRF end
 
-struct VARIRF{F,T,L} <: AbstractIRF
+struct VARIRF{F, T, L} <: AbstractIRF
     irf::T
     R::F
     σ::T
@@ -489,7 +490,7 @@ struct VARIRF{F,T,L} <: AbstractIRF
     ql::L
     qu::L
     H::Int
-    varsizes::@NamedTuple{nobs::Int64,nlags::Int64,nvars::Int64}
+    varsizes::@NamedTuple{nobs::Int64, nlags::Int64, nvars::Int64}
     coverage::Array{Float64}
     names::Vector{Symbol}
     boundsmethod::NamedTuple
@@ -504,13 +505,13 @@ Base.size(virf::VARIRF) = size(virf.irf)
 impulseresponse(virf::VARIRF) = virf.irf
 
 function impulseresponse(v::VectorAutoRegression,
-                         r::TriangularRestriction;
-                         horizon::Int=24,
-                         ci_type=:wildbootstrap,
-                         bootreps=999,
-                         block_width=10,
-                         coverage::Vector=[0.68, 0.90, 0.95],
-                         initialvalues=:initialobs)
+        r::TriangularRestriction;
+        horizon::Int = 24,
+        ci_type = :wildbootstrap,
+        bootreps = 999,
+        block_width = 10,
+        coverage::Vector = [0.68, 0.90, 0.95],
+        initialvalues = :initialobs)
     if any(coverage .> 1) && all(coverage .< 0)
         throw(ArgumentError("Coverage probabilities must be in the range [0, 1]"))
     end
@@ -527,21 +528,23 @@ function impulseresponse(v::VectorAutoRegression,
     elseif ci_type == :wildbootstrap
         θᵇ = irfwildboot(v, r, horizon, bootreps, initialvalues)
         lb, ub, ql, qu = calculatebounds_boot(θᵇ, θ, coverage)
-        σ = similar(θ, (0,0,0))
+        σ = similar(θ, (0, 0, 0))
     elseif ci_type == :bootstrap
         θᵇ = irfboot(v, r, horizon, bootreps, initialvalues)
         lb, ub, ql, qu = calculatebounds_boot(θᵇ, θ, coverage)
-        σ = similar(θ, (0,0,0))
+        σ = similar(θ, (0, 0, 0))
     elseif ci_type == :blockbootstrap
         θᵇ = irfblockboot(v, r, block_width, horizon, bootreps, initialvalues)
         lb, ub, ql, qu = calculatebounds_boot(θᵇ, θ, coverage)
-        σ = similar(θ, (0,0,0))
+        σ = similar(θ, (0, 0, 0))
     else
         throw(ArgumentError("Unknown CI type. CI ∈ [:wildbootstrap, :bootstrap, :blockbootstrap]"))
     end
-    boundsmethod = (ci_type=ci_type, rep=bootreps, block_width=block_width, H=horizon)
-    return VARIRF(θ, r, σ, lb, ub, ql, qu, horizon, (nobs=nobs(v), nlags=nlags(v), nvars=nvars(v)),
-                  coverage, varnames(v), boundsmethod)
+    boundsmethod = (
+        ci_type = ci_type, rep = bootreps, block_width = block_width, H = horizon)
+    return VARIRF(θ, r, σ, lb, ub, ql, qu, horizon,
+        (nobs = nobs(v), nlags = nlags(v), nvars = nvars(v)),
+        coverage, varnames(v), boundsmethod)
 end
 
 """
@@ -571,14 +574,14 @@ dimension.
 The function returns two 3-dimensional arrays `lb` and `ub`, representing the lower and
 upper bounds for each quantile.
 """
-function calculatebounds_boot(θ, θ̂, coverage=[0.67, 0.90, 0.95])
+function calculatebounds_boot(θ, θ̂, coverage = [0.67, 0.90, 0.95])
     ## Note: θ is the bootstrapped irf [h, m^2, rep]
     ## thetahat is the IRF estimated on the sample
     ## Transform coverage into q_{1-γ/2} and q_{γ/2}
     α = (1 .- coverage) ./ 2
-    Z = mapslices(x -> x .- θ̂, θ; dims=(2, 3, 4))
-    ql = map(g -> dropdims(mapslices(x -> quantile(x, g), Z; dims=1); dims = 1), α)
-    qu = map(g -> dropdims(mapslices(x -> quantile(x, 1 .- g), Z; dims=1); dims = 1), α)
+    Z = mapslices(x -> x .- θ̂, θ; dims = (2, 3, 4))
+    ql = map(g -> dropdims(mapslices(x -> quantile(x, g), Z; dims = 1); dims = 1), α)
+    qu = map(g -> dropdims(mapslices(x -> quantile(x, 1 .- g), Z; dims = 1); dims = 1), α)
     lb = map(x -> θ̂ + x, ql)
     ub = map(x -> θ̂ + x, qu)
     #return map(x->dropdims(x, dims=1), lb), map(x->dropdims(x, dims=1), ub)
@@ -594,10 +597,10 @@ function calculatebounds_se(θ̂, σ, coverage)
 end
 
 @propagate_inbounds function irfwildboot(var::VAR,
-                                         r::ShortRunRestrictions,
-                                         H=24,
-                                         bootreps=100,
-                                         initialvalues=:initialobs)
+        r::ShortRunRestrictions,
+        H = 24,
+        bootreps = 100,
+        initialvalues = :initialobs)
     m = nvars(var)
     wvar = deepcopy(var)
     u = residuals(var)
@@ -608,7 +611,7 @@ end
     𝕐 = similar(var.Y)
     ## Container to be passed to irf!
     out[1, :, :] .= init(r)
-    for j ∈ 1:bootreps
+    for j in 1:bootreps
         randn!(ω)
         ū .= ω .* u
         bootsimulate!(𝕐, ū, var, initialvalues)
@@ -619,8 +622,9 @@ end
     return cirf
 end
 
-@propagate_inbounds function irfblockboot(var::VAR, r::ShortRunRestrictions, block_width=10,
-                                          H=24, bootreps=999, initialvalues=:longrunmean)
+@propagate_inbounds function irfblockboot(
+        var::VAR, r::ShortRunRestrictions, block_width = 10,
+        H = 24, bootreps = 999, initialvalues = :longrunmean)
     T, m = nobs(var), nvars(var)
     wvar = deepcopy(var)
     ℓ = block_width
@@ -633,15 +637,15 @@ end
     uᵇ = similar(u, (N * ℓ, m))
     out = similar(u, (H + 1, m, m))
     out[1, :, :] .= init(r)
-    for jj ∈ 1:bootreps
+    for jj in 1:bootreps
         rand!(𝒰, 𝒾)
-        for j ∈ 1:N
+        for j in 1:N
             i = 𝒾[j]
             uᵇ[(1 + ℓ * (j - 1)):(j * ℓ), :] .= @view u[(i + 1):(i + ℓ), :]
         end
-        for j ∈ 0:(N - 1)
-            for s ∈ 1:ℓ
-                uᵇ[j * ℓ + s, :] .-= vec(mean(view(u, s:(s + T - ℓ), :); dims=1))
+        for j in 0:(N - 1)
+            for s in 1:ℓ
+                uᵇ[j * ℓ + s, :] .-= vec(mean(view(u, s:(s + T - ℓ), :); dims = 1))
             end
         end
         # Simulate the VAR
@@ -653,7 +657,8 @@ end
     return cirf
 end
 
-function irfboot(var::VAR, r::ShortRunRestrictions, H=24, bootreps=100, initialvalues=:mean)
+function irfboot(
+        var::VAR, r::ShortRunRestrictions, H = 24, bootreps = 100, initialvalues = :mean)
     n, m = nobs(var), nvars(var)
     wvar = deepcopy(var)
     𝕐 = similar(var.Y)
@@ -661,12 +666,12 @@ function irfboot(var::VAR, r::ShortRunRestrictions, H=24, bootreps=100, initialv
     cirf = similar(u, (bootreps, H + 1, m, m))
     out = similar(u, (H + 1, m, m))
     ū = similar(u)
-    ω = Array{Int64,1}(undef, size(u, 1))
+    ω = Array{Int64, 1}(undef, size(u, 1))
     out[1, :, :] .= init(r)
-    for j ∈ 1:bootreps
+    for j in 1:bootreps
         sample!(1:n, ω)
-        for j ∈ Base.axes(ū, 2)
-            for i ∈ Base.axes(ū, 1)
+        for j in Base.axes(ū, 2)
+            for i in Base.axes(ū, 1)
                 ū[i, j] = u[ω[i], j]
             end
         end
@@ -678,7 +683,7 @@ function irfboot(var::VAR, r::ShortRunRestrictions, H=24, bootreps=100, initialv
     return cirf
 end
 
-function irf(v::VectorAutoRegression, r::ShortRunRestrictions, H::Int=24)
+function irf(v::VectorAutoRegression, r::ShortRunRestrictions, H::Int = 24)
     m = nvars(v)
     out = similar(companionmatrix(v), (H + 1, m, m))
     out[1, :, :] .= init(r)
@@ -686,23 +691,24 @@ function irf(v::VectorAutoRegression, r::ShortRunRestrictions, H::Int=24)
     return out
 end
 
-function irf!(out, v::VectorAutoRegression, r::ShortRunRestrictions, H::Int=24)
+function irf!(out, v::VectorAutoRegression, r::ShortRunRestrictions, H::Int = 24)
     _, p, m = sizes(v)
     R = identifyingmatrix(r)
     F = companionmatrix(v)
     tmp = diagm(0 => ones(eltype(F), m * p))
-    @inbounds @fastmath for j ∈ 1:H
+    @inbounds @fastmath for j in 1:H
         tmp = tmp * F
-        mygemm!(view(out, j + 1, :, :), tmp, R)
+        mygemm!(view(out,(j + 1),:,:), tmp, R)
     end
 end
 
 function mygemm!(C, A, B)
     m = size(B, 1)
     ix = Base.axes(A, 1)[1:m]
-    @inbounds @fastmath for m ∈ ix, n ∈ Base.axes(B, 2)
+    @inbounds @fastmath for m in ix, n in Base.axes(B, 2)
+
         Cmn = zero(eltype(C))
-        for k ∈ ix
+        for k in ix
             Cmn += A[m, k] * B[k, n]
         end
         C[m, n] = Cmn
@@ -734,7 +740,7 @@ series analysis, particularly for preparing lagged predictors in autoregressive 
     the start of the series are filled with `NaN`.
 """
 function delag(X, nlags)
-    delagged = map(j -> map(x -> lag(x, j; default=NaN), eachcol(X)), 1:nlags)
+    delagged = map(j -> map(x -> lag(x, j; default = NaN), eachcol(X)), 1:nlags)
     return reduce(hcat, collect(Base.Iterators.flatten(delagged)))
 end
 
@@ -759,12 +765,12 @@ constructing autoregressive models.
 
 For each column `j` in `X`, and for each lag `ℓ` from `1` to `p`, the function shifts the elements in column `j` downwards by `ℓ` positions in the corresponding section of `Xₗ`. It effectively copies the value from `X[t-ℓ, j]` to `Xₗ[t, m*(ℓ-1)+j]` for each time point `t` in `X`, starting from `1+ℓ` to `n`, where `n` is the number of observations and `m` is the number of variables in `X`.
 """
-Base.@propagate_inbounds function delag!(dest, Y, p::Int64, addintercept::Bool=true)
+Base.@propagate_inbounds function delag!(dest, Y, p::Int64, addintercept::Bool = true)
     n, m = size(Y, 1), size(Y, 2)
     offset = addintercept ? 1 : 0
-    for j ∈ Base.axes(Y, 2)
-        for ℓ ∈ 1:p
-            for t ∈ (1 + ℓ):n
+    for j in Base.axes(Y, 2)
+        for ℓ in 1:p
+            for t in (1 + ℓ):n
                 dest[t, offset + m * (ℓ - 1) + j] = Y[t - ℓ, j]
             end
         end
@@ -792,9 +798,9 @@ this column mean from every element within the respective column.
 ```
 """
 @propagate_inbounds function demean!(Y::Matrix)
-    μ = mean(Y; dims=1)
-    for j ∈ Base.axes(Y, 2)
-        for t ∈ Base.axes(Y, 1)
+    μ = mean(Y; dims = 1)
+    for j in Base.axes(Y, 2)
+        for t in Base.axes(Y, 1)
             Y[t, j] -= μ[j]
         end
     end
@@ -807,9 +813,9 @@ Subtracts the mean of each column from the corresponding elements in the matrix 
 and write in `dest`.
 """
 @propagate_inbounds function demean!(dest::Matrix, Y::Matrix)
-    μ = mean(Y; dims=1)
-    for j ∈ Base.axes(Y, 2)
-        for t ∈ Base.axes(Y, 1)
+    μ = mean(Y; dims = 1)
+    for j in Base.axes(Y, 2)
+        for t in Base.axes(Y, 1)
             dest[t, j] = Y[t, j] - μ[j]
         end
     end
@@ -823,9 +829,9 @@ from the corresponding elements in the matrix `Y`.
 """
 @propagate_inbounds function demean_from_p!(Y::Matrix, p)
     Yv = @view Y[(p + 1):end, :]
-    μ = mean(Yv; dims=1)
-    for j ∈ Base.axes(Y, 2)
-        for t ∈ Base.axes(Yv, 1)
+    μ = mean(Yv; dims = 1)
+    for j in Base.axes(Y, 2)
+        for t in Base.axes(Yv, 1)
             Yv[t, j] -= μ[j]
         end
     end
@@ -869,8 +875,8 @@ function G(v::VAR, ir)
     _, p, m = sizes(v)
     H = size(ir, 1)
     F = companionmatrix(v)
-    memoization = Dict{Int,Matrix{eltype(ir)}}()
-    for h ∈ 0:H
+    memoization = Dict{Int, Matrix{eltype(ir)}}()
+    for h in 0:H
         memoization[h] = ((F')^h)
     end
     J = zeros(eltype(ir), (m, p * m))
@@ -878,7 +884,7 @@ function G(v::VAR, ir)
     ## Calculate G_i
     function G_i(i::Int, ir, memoization)
         G = zeros(eltype(ir), (m^2, p * m^2))
-        for j ∈ 0:(i - 1)
+        for j in 0:(i - 1)
             A = memoization[i - 1 - j]
             G += J * A ⊗ view(F^j, 1:m, 1:m)
         end
@@ -916,13 +922,13 @@ function effect_cov(v::VAR, R, ir)
     A = Array{eltype(ir)}(undef, horizons, m^2, m^2)
     A[1, :, :] .= zero(eltype(ir))
     B = similar(A)
-    for h ∈ 1:horizons
+    for h in 1:horizons
         if h > 1
-            Cᵢ = (P' ⊗ Iₘ)*𝔾[h-1]
+            Cᵢ = (P' ⊗ Iₘ)*𝔾[h - 1]
             A[h, :, :] .= Cᵢ * Σα * Cᵢ'
         end
         C̄ᵢ = (Iₘ ⊗ (ir[h, :, :]*P⁻¹)) * H
-        B[h, :, :] .= C̄ᵢ * Σσ * C̄ᵢ'./nobs(v)
+        B[h, :, :] .= C̄ᵢ * Σσ * C̄ᵢ' ./ nobs(v)
     end
     return A .+ B
 end
@@ -933,7 +939,7 @@ function irf_se_asy(v::VAR, R, ir)
     ## V[h, :, :] is the variance of the IRF at horizon h
     ## The standard error is the square root of the diagonal
     ## elements of V[h, :, :]
-    return mapslices(x -> reshape(sqrt.(diag(x)), (m, m)), V; dims=(2, 3))
+    return mapslices(x -> reshape(sqrt.(diag(x)), (m, m)), V; dims = (2, 3))
 end
 
 function Base.summary(v::VAR)
@@ -948,11 +954,11 @@ function Base.summary(v::VAR)
         tt = α ./ se
         pv = 2 * (1 .- StatsFuns.normcdf.(abs.(tt)))
         return CoefTable(hcat(α, se, tt, pv),
-                         ["Coef.", "Std. Error", "t", "Pr(>|z|)"], nms, 4, 3)
+            ["Coef.", "Std. Error", "t", "Pr(>|z|)"], nms, 4, 3)
     end
     stbl = map(j -> tbl(j, A, σ, nms), 1:m)
     hl_pv = Highlighter((data, i, j) -> j == 5 && data.cols[i][j - 2] < 0.05,
-                        crayon"bg:white fg:blue")
+        crayon"bg:white fg:blue")
     #hl_lags = Highlighter(data, i,j) -> j == 1 ? "background-color: #f44336; color: white" : ""
 
     # return map(x -> pretty_table(DataFrames.DataFrame(x);
