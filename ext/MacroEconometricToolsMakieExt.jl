@@ -87,10 +87,10 @@ to the correct variable/shock combination but **not** yet scaled.
 """
 function _plot_irf_panel!(ax, xvals, y, lb, ub, cvgs;
         irf_scale = 1.0,
-        drawzero = true, zerolinecolor = :gray70, zerolinestyle = :dash,
-        bandcolor = :red, bandalpha = 0.25,
+        drawzero = true, zerolinecolor = :gray60, zerolinestyle = :dash,
+        bandcolor = :steelblue, bandalpha = 0.2,
         linecolor = :black, linewidth = 2.0,
-        xtickstep = 6, flipshock = false)
+        xtickstep = 4, flipshock = false)
 
     sign = flipshock ? -1 : 1
     Makie.xlims!(ax, xvals[1] - 0.4, xvals[end] + 0.4)
@@ -100,7 +100,6 @@ function _plot_irf_panel!(ax, xvals, y, lb, ub, cvgs;
 
     # Bands — widest (highest coverage) first so narrower bands paint on top
     if !isempty(cvgs) && !isempty(lb)
-        n_cvg = length(cvgs)
         order = sortperm(cvgs; rev = true)          # widest first
         for (draw_order, ci) in enumerate(order)
             lower = lb[ci] .* (irf_scale * sign)
@@ -146,12 +145,6 @@ end
 # Figure / layout helpers
 # ============================================================================
 
-"""
-    _make_figure(; figure, size, title, title_fontsize, title_font)
-
-Create a `Figure` with optional super-title.  Returns `(fig, offset)` where
-`offset` is the first available row for axes (1 if no title, 2 if title).
-"""
 function _make_figure(; figure = (;), size = nothing, title = nothing,
         title_fontsize = 20, title_font = :bold)
     fig_kw = Dict{Symbol,Any}(pairs(figure)...)
@@ -159,21 +152,13 @@ function _make_figure(; figure = (;), size = nothing, title = nothing,
         fig_kw[:size] = size
     end
     fig = Makie.Figure(; fig_kw...)
-    offset = 0
     if title !== nothing
         Makie.Label(fig[0, :]; text = title, fontsize = title_fontsize,
             font = title_font)
-        offset = 0   # row 0 used by title; axes start at row 1
     end
     return fig
 end
 
-"""
-    _configure_axes!(fig, axes_matrix, nrows, ncols;
-        linkxaxes, linkyaxes, colgap, rowgap)
-
-Link axes across the grid and set gap sizes.
-"""
 function _configure_axes!(fig, axes_matrix, nrows, ncols;
         linkxaxes = true, linkyaxes = :row,
         colgap = 10, rowgap = 10)
@@ -509,7 +494,7 @@ Makie.@recipe(MCMCTrace, samples) do scene
     Makie.Theme(;
         linewidth = 1.5,
         alpha = 0.7,
-        chain_colors = nothing,
+        chain_colors = nothing
     )
 end
 
@@ -538,7 +523,7 @@ end
 Makie.@recipe(MCMCDensity, samples) do scene
     Makie.Theme(;
         linewidth = 2.0,
-        combined_color = :black,
+        combined_color = :black
     )
 end
 
