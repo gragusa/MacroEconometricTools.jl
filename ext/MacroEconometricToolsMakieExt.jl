@@ -91,7 +91,6 @@ function _plot_irf_panel!(ax, xvals, y, lb, ub, cvgs;
         bandcolor = :steelblue, bandalpha = 0.2,
         linecolor = :black, linewidth = 2.0,
         xtickstep = 4, flipshock = false)
-
     sign = flipshock ? -1 : 1
     Makie.xlims!(ax, xvals[1] - 0.4, xvals[end] + 0.4)
     if xtickstep > 0
@@ -147,7 +146,7 @@ end
 
 function _make_figure(; figure = (;), size = nothing, title = nothing,
         title_fontsize = 20, title_font = :bold)
-    fig_kw = Dict{Symbol,Any}(pairs(figure)...)
+    fig_kw = Dict{Symbol, Any}(pairs(figure)...)
     if size !== nothing
         fig_kw[:size] = size
     end
@@ -179,10 +178,11 @@ function _configure_axes!(fig, axes_matrix, nrows, ncols;
     end
     # Hide decorations on interior panels
     for r in 1:nrows, c in 1:ncols
+
         ax = axes_matrix[r, c]
-        c > 1     && (ax.yticklabelsvisible = false; ax.ylabelvisible = false)
+        c > 1 && (ax.yticklabelsvisible = false; ax.ylabelvisible = false)
         r < nrows && (ax.xticklabelsvisible = false; ax.xlabelvisible = false)
-        r > 1     && (ax.titlevisible = false)
+        r > 1 && (ax.titlevisible = false)
     end
     # Force equal column widths
     for c in 1:ncols
@@ -216,7 +216,6 @@ function irfplot(irf::_IRFResult;
         linkxaxes = true, linkyaxes = :row,
         colgap = 10, rowgap = 10,
         kwargs...)
-
     setup = _prepare_irf_plot(irf;
         vars = vars, shocks = shocks,
         pretty_vars = pretty_vars, pretty_shocks = pretty_shocks)
@@ -232,6 +231,7 @@ function irfplot(irf::_IRFResult;
     axes_matrix = Matrix{Makie.Axis}(undef, nrows, ncols)
 
     for (ri, vi) in enumerate(setup.idxvars), (ci, si) in enumerate(setup.idxshocks)
+
         ax = Makie.Axis(fig[ri, ci];
             title = setup.shock_labels[ci],
             ylabel = setup.var_labels[ri],
@@ -277,7 +277,6 @@ function irfplot(irf::_SignRestrictedIRFResult;
         linkxaxes = true, linkyaxes = :row,
         colgap = 10, rowgap = 10,
         kwargs...)
-
     setup = _prepare_irf_plot(irf;
         vars = vars, shocks = shocks,
         pretty_vars = pretty_vars, pretty_shocks = pretty_shocks)
@@ -293,6 +292,7 @@ function irfplot(irf::_SignRestrictedIRFResult;
     axes_matrix = Matrix{Makie.Axis}(undef, nrows, ncols)
 
     for (ri, vi) in enumerate(setup.idxvars), (ci, si) in enumerate(setup.idxshocks)
+
         ax = Makie.Axis(fig[ri, ci];
             title = setup.shock_labels[ci],
             ylabel = setup.var_labels[ri],
@@ -355,7 +355,6 @@ function irfplot(irf::_BayesianIRFResult;
         linkxaxes = true, linkyaxes = :row,
         colgap = 10, rowgap = 10,
         kwargs...)
-
     var_axis = AxisArrays.axes(irf.data, Axis{:variable})
     shock_axis = AxisArrays.axes(irf.data, Axis{:shock})
     horizon_axis = AxisArrays.axes(irf.data, Axis{:horizon})
@@ -371,7 +370,7 @@ function irfplot(irf::_BayesianIRFResult;
 
     var_labels = pretty_vars === nothing ? string.(all_vars[idxvars]) : pretty_vars
     shock_labels = pretty_shocks === nothing ?
-        string.(all_shocks[idxshocks]) .* " shock" : pretty_shocks
+                   string.(all_shocks[idxshocks]) .* " shock" : pretty_shocks
 
     xvals = horizons
     lb_all = lowerbounds(irf)
@@ -387,6 +386,7 @@ function irfplot(irf::_BayesianIRFResult;
     data_arr = Array(irf.data)   # materialise once
 
     for (ri, vi) in enumerate(idxvars), (ci, si) in enumerate(idxshocks)
+
         ax = Makie.Axis(fig[ri, ci];
             title = shock_labels[ci],
             ylabel = var_labels[ri],
@@ -445,7 +445,6 @@ function irfplot(irf::_LocalProjectionIRFResult;
         linkxaxes = true, linkyaxes = :row,
         colgap = 10, rowgap = 10,
         kwargs...)
-
     response_axis = AxisArrays.axes(irf.data, Axis{:response})
     shock_axis = AxisArrays.axes(irf.data, Axis{:shock})
     horizon_axis = AxisArrays.axes(irf.data, Axis{:horizon})
@@ -466,6 +465,7 @@ function irfplot(irf::_LocalProjectionIRFResult;
     axes_matrix = Matrix{Makie.Axis}(undef, nrows, ncols)
 
     for (ri, response) in enumerate(responses), (ci, shock) in enumerate(shocks)
+
         ax = Makie.Axis(fig[ri, ci];
             title = string(shock) * " shock",
             ylabel = string(response),
@@ -532,7 +532,8 @@ function Makie.plot!(plot::MCMCDensity)
     attrs = plot.attributes
     lw = Makie.to_value(attrs[:linewidth])
     combined_color = Makie.to_color(Makie.to_value(attrs[:combined_color]))
-    all_samples = samples isa AbstractVector{<:AbstractVector} ? vcat(samples...) : collect(samples)
+    all_samples = samples isa AbstractVector{<:AbstractVector} ? vcat(samples...) :
+                  collect(samples)
     Makie.density!(plot, all_samples; color = combined_color, linewidth = lw)
     return plot
 end
@@ -555,7 +556,8 @@ function Makie.plot!(plot::MCMCHistogram)
     kde_linewidth = Makie.to_value(attrs[:kde_linewidth])
     color = Makie.to_color(Makie.to_value(attrs[:color]))
     kde_color = Makie.to_color(Makie.to_value(attrs[:kde_color]))
-    all_samples = samples isa AbstractVector{<:AbstractVector} ? vcat(samples...) : collect(samples)
+    all_samples = samples isa AbstractVector{<:AbstractVector} ? vcat(samples...) :
+                  collect(samples)
     Makie.hist!(plot, all_samples; bins = bins,
         color = Makie.RGBAf(color, 0.6f0), normalization = :pdf)
     if show_kde
