@@ -55,6 +55,14 @@ include("parallel.jl")
 # Plotting recipes (will work when Plots.jl is loaded)
 include("plots_recipes.jl")
 
+# Stub functions for Makie extension
+"""
+    irfplot(irf; kwargs...)
+
+Plot impulse response functions using Makie. Requires a Makie backend (e.g., CairoMakie) to be loaded.
+"""
+function irfplot end
+
 # Export main types
 export AbstractVARSpec, OLSVAR, BayesianVAR, IVSVAR, LocalProjection
 export VARModel, VARCoefficients
@@ -87,5 +95,6 @@ export variance_decomposition, historical_decomposition
 export cumulative_irf
 export is_stable, long_run_effect, long_run_mean
 export confidence_bands
+export irfplot
 
 end # module
