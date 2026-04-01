@@ -83,7 +83,7 @@ end
 # IRFPlotMakie Recipe for IRFResult
 # ============================================================================
 
-Makie.@recipe(IRFPlotMakie, irf::_IRFResult) do plot
+Makie.@recipe(IRFPlotMakie, irf) do plot
     Makie.Attributes(
         vars = :all,
         shocks = :all,
