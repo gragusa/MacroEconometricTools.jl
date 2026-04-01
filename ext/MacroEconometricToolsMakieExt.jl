@@ -137,7 +137,6 @@ function irfplot(irf::_IRFResult;
         bandcolor = :red, bandalpha = 0.25, linecolor = :black,
         linewidth = 2.0, xtickstep = 6,
         figure = (;), kwargs...)
-
     setup = _prepare_irf_plot(irf;
         vars = vars, shocks = shocks,
         pretty_vars = pretty_vars, pretty_shocks = pretty_shocks)
@@ -188,7 +187,6 @@ function irfplot(irf::_SignRestrictedIRFResult;
         path_alpha = 0.02, path_color = :gray,
         linecolor = :black, linewidth = 2.0, xtickstep = 6,
         figure = (;), kwargs...)
-
     setup = _prepare_irf_plot(irf;
         vars = vars, shocks = shocks,
         pretty_vars = pretty_vars, pretty_shocks = pretty_shocks)
@@ -265,7 +263,6 @@ function irfplot(irf::_BayesianIRFResult;
         path_alpha = 0.02, path_color = :gray,
         linecolor = :black, linewidth = 2.0, xtickstep = 6,
         figure = (;), kwargs...)
-
     var_axis = AxisArrays.axes(irf.data, Axis{:variable})
     shock_axis = AxisArrays.axes(irf.data, Axis{:shock})
     horizon_axis = AxisArrays.axes(irf.data, Axis{:horizon})
@@ -354,7 +351,6 @@ function irfplot(irf::_LocalProjectionIRFResult;
         bandcolor = :blue, bandalpha = 0.25, linecolor = :black,
         linewidth = 2.0, xtickstep = 6,
         figure = (;), kwargs...)
-
     response_axis = AxisArrays.axes(irf.data, Axis{:response})
     shock_axis = AxisArrays.axes(irf.data, Axis{:shock})
     horizon_axis = AxisArrays.axes(irf.data, Axis{:horizon})
@@ -382,8 +378,10 @@ function irfplot(irf::_LocalProjectionIRFResult;
                 xlabelvisible = row_idx == nrows,
                 ylabelvisible = col_idx == 1)
 
-            lb_panel = [Array(lb_all[ci])[row_idx, col_idx, :] for ci in eachindex(reverse(cvgs))]
-            ub_panel = [Array(ub_all[ci])[row_idx, col_idx, :] for ci in eachindex(reverse(cvgs))]
+            lb_panel = [Array(lb_all[ci])[row_idx, col_idx, :]
+                        for ci in eachindex(reverse(cvgs))]
+            ub_panel = [Array(ub_all[ci])[row_idx, col_idx, :]
+                        for ci in eachindex(reverse(cvgs))]
             y = pt_data[row_idx, col_idx, :]
 
             _plot_irf_panel!(ax, xvals, y, lb_panel, ub_panel, cvgs;
@@ -405,7 +403,7 @@ Makie.@recipe(MCMCTrace, samples) do scene
     Makie.Theme(;
         linewidth = 1.5,
         alpha = 0.7,
-        chain_colors = nothing,
+        chain_colors = nothing
     )
 end
 
@@ -423,11 +421,13 @@ function Makie.plot!(plot::MCMCTrace)
         end
         for (i, chain) in enumerate(samples)
             color = Makie.RGBAf(Makie.to_color(chain_colors[mod1(i, length(chain_colors))]), Float32(alpha))
-            Makie.lines!(plot, 1:length(chain), collect(chain); color = color, linewidth = lw)
+            Makie.lines!(
+                plot, 1:length(chain), collect(chain); color = color, linewidth = lw)
         end
     else
         color = Makie.RGBAf(Makie.to_color(:blue), Float32(alpha))
-        Makie.lines!(plot, 1:length(samples), collect(samples); color = color, linewidth = lw)
+        Makie.lines!(
+            plot, 1:length(samples), collect(samples); color = color, linewidth = lw)
     end
 
     return plot
@@ -436,7 +436,7 @@ end
 Makie.@recipe(MCMCDensity, samples) do scene
     Makie.Theme(;
         linewidth = 2.0,
-        combined_color = :black,
+        combined_color = :black
     )
 end
 
@@ -447,7 +447,8 @@ function Makie.plot!(plot::MCMCDensity)
     lw = Makie.to_value(attrs[:linewidth])
     combined_color = Makie.to_color(Makie.to_value(attrs[:combined_color]))
 
-    all_samples = samples isa AbstractVector{<:AbstractVector} ? vcat(samples...) : collect(samples)
+    all_samples = samples isa AbstractVector{<:AbstractVector} ? vcat(samples...) :
+                  collect(samples)
 
     Makie.density!(plot, all_samples; color = combined_color, linewidth = lw)
 
@@ -474,7 +475,8 @@ function Makie.plot!(plot::MCMCHistogram)
     color = Makie.to_color(Makie.to_value(attrs[:color]))
     kde_color = Makie.to_color(Makie.to_value(attrs[:kde_color]))
 
-    all_samples = samples isa AbstractVector{<:AbstractVector} ? vcat(samples...) : collect(samples)
+    all_samples = samples isa AbstractVector{<:AbstractVector} ? vcat(samples...) :
+                  collect(samples)
 
     Makie.hist!(plot, all_samples; bins = bins,
         color = Makie.RGBAf(color, 0.6f0), normalization = :pdf)
