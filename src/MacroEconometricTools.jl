@@ -55,6 +55,68 @@ include("parallel.jl")
 # Plotting recipes (will work when Plots.jl is loaded)
 include("plots_recipes.jl")
 
+# Stub functions for Makie extension
+"""
+    irfplot(irf::AbstractIRFResult; kwargs...) -> Figure
+
+Plot impulse response functions using Makie.  Returns a `Makie.Figure`.
+Requires a Makie backend (e.g., `CairoMakie` or `GLMakie`) to be loaded.
+
+# Selection
+- `vars = :all`: variables to plot (`:all`, or `Vector{Symbol}`)
+- `shocks = :all`: shocks to plot
+- `pretty_vars = nothing`: custom labels for variables
+- `pretty_shocks = nothing`: custom labels for shocks
+
+# Scaling & orientation
+- `irf_scale = 1.0`: multiply IRF values (use `100` for percentage points)
+- `flipshock = false`: flip sign of the response (useful for sign normalisation)
+
+# Appearance
+- `bandcolor = :steelblue`: fill colour for confidence / credible bands
+- `bandalpha = 0.2`: base opacity for the widest band (narrower bands are darker)
+- `linecolor = :black`: colour of the point-estimate line
+- `linewidth = 2.0`: width of the point-estimate line
+- `drawzero = true`: draw a dashed zero reference line
+- `zerolinecolor = :gray60`: colour of the zero line
+- `zerolinestyle = :dash`: line style of the zero line
+- `xtickstep = 4`: spacing of x-axis ticks (set `0` to disable)
+
+# Paths (SignRestrictedIRFResult, BayesianIRFResult only)
+- `plot_type = :quantiles`: `:quantiles`, `:paths`, or `:both`
+- `path_alpha = 0.02`: opacity of individual draw lines
+- `path_color = :gray`: colour of individual draw lines
+- `path_linewidth = 0.5`: width of individual draw lines
+
+# Layout
+- `figure = (;)`: keyword arguments forwarded to `Makie.Figure`
+- `size = nothing`: shorthand for figure size, e.g. `(900, 600)`
+- `title = nothing`: super-title above the grid
+- `title_fontsize = 20`: super-title font size
+- `linkxaxes = true`: link x-axes across all panels
+- `linkyaxes = :row`: link y-axes (`:row`, `:all`, or `false`)
+- `colgap = 10`: horizontal gap between panels
+- `rowgap = 10`: vertical gap between panels
+
+# Examples
+```julia
+using MacroEconometricTools, CairoMakie
+
+# Basic usage
+fig = irfplot(result)
+
+# Percentage points, custom labels, larger figure
+fig = irfplot(result;
+    irf_scale = 100,
+    pretty_vars  = ["Output", "Prices"],
+    pretty_shocks = ["Demand", "Supply"],
+    size = (1000, 700),
+    title = "Structural IRFs")
+save("irfs.pdf", fig)
+```
+"""
+function irfplot end
+
 # Export main types
 export AbstractVARSpec, OLSVAR, BayesianVAR, IVSVAR, LocalProjection
 export VARModel, VARCoefficients
@@ -87,5 +149,6 @@ export variance_decomposition, historical_decomposition
 export cumulative_irf
 export is_stable, long_run_effect, long_run_mean
 export confidence_bands
+export irfplot
 
 end # module

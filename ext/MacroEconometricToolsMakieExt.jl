@@ -4,13 +4,14 @@ using Makie
 using MacroEconometricTools
 using AxisArrays: AxisArrays, Axis
 
+import MacroEconometricTools: irfplot
+
 const _IRFResult = MacroEconometricTools.IRFResult
 const _SignRestrictedIRFResult = MacroEconometricTools.SignRestrictedIRFResult
 const _BayesianIRFResult = MacroEconometricTools.BayesianIRFResult
 const _LocalProjectionIRFResult = MacroEconometricTools.LocalProjectionIRFResult
 const _AbstractIRFResult = MacroEconometricTools.AbstractIRFResult
 
-# Use accessors from MacroEconometricTools
 const lowerbounds = MacroEconometricTools.lowerbounds
 const upperbounds = MacroEconometricTools.upperbounds
 const coverages = MacroEconometricTools.coverages
@@ -18,49 +19,33 @@ const point_estimate = MacroEconometricTools.point_estimate
 const n_draws = MacroEconometricTools.n_draws
 
 # ============================================================================
-# Helper functions for IRFResult (non-AxisArray based)
+# Name / index resolution helpers
 # ============================================================================
 
-function _var_names(irf::_IRFResult)
+function _var_names(irf::Union{_IRFResult, _SignRestrictedIRFResult})
     if haskey(irf.metadata, :names)
-        names = irf.metadata.names
-        return Symbol.(names)
-    else
-        return [Symbol("Y_$i") for i in 1:MacroEconometricTools.n_vars(irf)]
-    end
-end
-
-function _var_names(irf::_SignRestrictedIRFResult)
-    if haskey(irf.metadata, :names)
-        names = irf.metadata.names
-        return Symbol.(names)
+        return Symbol.(irf.metadata.names)
     else
         return [Symbol("Y_$i") for i in 1:MacroEconometricTools.n_vars(irf)]
     end
 end
 
 function _resolve_indices(nms::Vector{Symbol}, selection, label)
-    if selection === :all
-        return collect(1:length(nms))
-    elseif selection isa AbstractVector{Symbol}
+    selection === :all && return collect(1:length(nms))
+    if selection isa AbstractVector{Symbol}
         idx = findall(x -> x ∈ selection, nms)
         length(idx) == length(selection) ||
             error("At least one $(label) entry is not present in the IRF names")
         return idx
-    else
-        error("`$(label)` must be either a vector of symbols or :all, got $(selection)")
     end
+    error("`$(label)` must be either a vector of symbols or :all, got $(selection)")
 end
 
 function _resolve_labels(labels, nms::Vector{Symbol}, suffix::AbstractString)
-    if labels === nothing
-        base = String.(nms)
-        return suffix === "" ? base : base .* suffix
-    elseif length(labels) != length(nms)
+    labels === nothing && return (suffix == "" ? String.(nms) : String.(nms) .* suffix)
+    length(labels) == length(nms) ||
         error("Label vector must have the same length as the number of variables in the IRF")
-    else
-        return labels
-    end
+    return labels
 end
 
 function _prepare_irf_plot(
@@ -72,591 +57,10 @@ function _prepare_irf_plot(
     var_labels_full = _resolve_labels(pretty_vars, nms, "")
     shock_labels_full = _resolve_labels(pretty_shocks, nms, " shock")
     return (
-        idxvars = idxvars,
-        idxshocks = idxshocks,
+        idxvars = idxvars, idxshocks = idxshocks,
         var_labels = var_labels_full[idxvars],
-        shock_labels = shock_labels_full[idxshocks]
-    )
+        shock_labels = shock_labels_full[idxshocks])
 end
-
-# ============================================================================
-# IRFPlotMakie Recipe for IRFResult
-# ============================================================================
-
-Makie.@recipe(IRFPlotMakie, irf::_IRFResult) do plot
-    Makie.Attributes(
-        vars = :all,
-        shocks = :all,
-        pretty_shocks = nothing,
-        pretty_vars = nothing,
-        irf_scale = 1.0,
-        drawzero = true,
-        zerolinecolor = :gray70,
-        bandcolor = :red,
-        bandalpha = 0.25,
-        linecolor = :black,
-        linewidth = 2.0,
-        xtickstep = 6
-    )
-end
-
-function Makie.plot!(plot::IRFPlotMakie)
-    irf = Makie.to_value(plot[1])
-    attrs = plot.attributes
-
-    setup = _prepare_irf_plot(irf;
-        vars = Makie.to_value(attrs[:vars]),
-        shocks = Makie.to_value(attrs[:shocks]),
-        pretty_vars = Makie.to_value(attrs[:pretty_vars]),
-        pretty_shocks = Makie.to_value(attrs[:pretty_shocks])
-    )
-
-    irf_scale = Makie.to_value(attrs[:irf_scale])
-    drawzero = Makie.to_value(attrs[:drawzero])
-    zerolinecolor = Makie.to_color(Makie.to_value(attrs[:zerolinecolor]))
-    bandcolor = Makie.to_color(Makie.to_value(attrs[:bandcolor]))
-    bandalpha = Makie.to_value(attrs[:bandalpha])
-    linecolor = Makie.to_color(Makie.to_value(attrs[:linecolor]))
-    linewidth = Makie.to_value(attrs[:linewidth])
-    xtickstep = Makie.to_value(attrs[:xtickstep])
-
-    xvals = collect(0:MacroEconometricTools.horizon(irf))
-    lb = lowerbounds(irf)
-    ub = upperbounds(irf)
-    cvgs = coverages(irf)
-    nrows = length(setup.idxvars)
-    ncols = length(setup.idxshocks)
-
-    for (row_idx, var_idx) in enumerate(setup.idxvars)
-        for (col_idx, shock_idx) in enumerate(setup.idxshocks)
-            ax = Makie.Axis(plot; row = row_idx, col = col_idx)
-            ax.title[] = setup.shock_labels[col_idx]
-            ax.ylabel[] = col_idx == 1 ? setup.var_labels[row_idx] : ""
-            ax.xlabel[] = row_idx == nrows ? "Horizon" : ""
-            ax.xlabelvisible[] = row_idx == nrows
-            ax.ylabelvisible[] = col_idx == 1
-            Makie.xlims!(ax, -0.2, xvals[end])
-            if xtickstep > 0
-                Makie.xticks!(ax, 0:xtickstep:xvals[end])
-            end
-
-            if !isempty(cvgs) && !isempty(lb)
-                for (cov_idx, _) in enumerate(cvgs)
-                    lower = lb[cov_idx][:, var_idx, shock_idx] .* irf_scale
-                    upper = ub[cov_idx][:, var_idx, shock_idx] .* irf_scale
-                    alpha = clamp(bandalpha / cov_idx, 0.0f0, 1.0f0)
-                    color = RGBAf0(bandcolor, alpha)
-                    Makie.band!(plot, xvals, lower, upper; axis = ax, color = color)
-                end
-            end
-
-            y = irf.irf[:, var_idx, shock_idx] .* irf_scale
-            Makie.lines!(
-                plot, xvals, y; axis = ax, color = linecolor, linewidth = linewidth)
-            if drawzero
-                Makie.hlines!(plot, [0.0]; axis = ax, color = zerolinecolor,
-                    linewidth = 1, linestyle = :dash)
-            end
-        end
-    end
-
-    return plot
-end
-
-function Makie.irfplot(irf::_IRFResult; kwargs...)
-    Makie.plot(IRFPlotMakie(irf; kwargs...))
-end
-
-# ============================================================================
-# SignRestrictedIRFPlotMakie Recipe
-# ============================================================================
-
-Makie.@recipe(SignRestrictedIRFPlotMakie, irf::_SignRestrictedIRFResult) do plot
-    Makie.Attributes(
-        vars = :all,
-        shocks = :all,
-        pretty_shocks = nothing,
-        pretty_vars = nothing,
-        irf_scale = 1.0,
-        plot_type = :quantiles,
-        drawzero = true,
-        zerolinecolor = :gray70,
-        bandcolor = :red,
-        bandalpha = 0.25,
-        path_alpha = 0.02,
-        path_color = :gray,
-        linecolor = :black,
-        linewidth = 2.0,
-        xtickstep = 6
-    )
-end
-
-function Makie.plot!(plot::SignRestrictedIRFPlotMakie)
-    irf = Makie.to_value(plot[1])
-    attrs = plot.attributes
-
-    setup = _prepare_irf_plot(irf;
-        vars = Makie.to_value(attrs[:vars]),
-        shocks = Makie.to_value(attrs[:shocks]),
-        pretty_vars = Makie.to_value(attrs[:pretty_vars]),
-        pretty_shocks = Makie.to_value(attrs[:pretty_shocks])
-    )
-
-    irf_scale = Makie.to_value(attrs[:irf_scale])
-    plot_type = Makie.to_value(attrs[:plot_type])
-    drawzero = Makie.to_value(attrs[:drawzero])
-    zerolinecolor = Makie.to_color(Makie.to_value(attrs[:zerolinecolor]))
-    bandcolor = Makie.to_color(Makie.to_value(attrs[:bandcolor]))
-    bandalpha = Makie.to_value(attrs[:bandalpha])
-    path_alpha = Makie.to_value(attrs[:path_alpha])
-    path_color = Makie.to_color(Makie.to_value(attrs[:path_color]))
-    linecolor = Makie.to_color(Makie.to_value(attrs[:linecolor]))
-    linewidth = Makie.to_value(attrs[:linewidth])
-    xtickstep = Makie.to_value(attrs[:xtickstep])
-
-    xvals = collect(0:MacroEconometricTools.horizon(irf))
-    lb = lowerbounds(irf)
-    ub = upperbounds(irf)
-    cvgs = coverages(irf)
-    nrows = length(setup.idxvars)
-    ncols = length(setup.idxshocks)
-
-    for (row_idx, var_idx) in enumerate(setup.idxvars)
-        for (col_idx, shock_idx) in enumerate(setup.idxshocks)
-            ax = Makie.Axis(plot; row = row_idx, col = col_idx)
-            ax.title[] = setup.shock_labels[col_idx]
-            ax.ylabel[] = col_idx == 1 ? setup.var_labels[row_idx] : ""
-            ax.xlabel[] = row_idx == nrows ? "Horizon" : ""
-            ax.xlabelvisible[] = row_idx == nrows
-            ax.ylabelvisible[] = col_idx == 1
-            Makie.xlims!(ax, -0.2, xvals[end])
-            if xtickstep > 0
-                Makie.xticks!(ax, 0:xtickstep:xvals[end])
-            end
-
-            # Draw paths if requested
-            if plot_type ∈ [:paths, :both]
-                n_drw = size(irf.irf_draws, 1)
-                for draw_idx in 1:n_drw
-                    y_path = irf.irf_draws[draw_idx, :, var_idx, shock_idx] .* irf_scale
-                    Makie.lines!(plot, xvals, y_path; axis = ax,
-                        color = RGBAf0(path_color, path_alpha), linewidth = 0.5)
-                end
-            end
-
-            # Draw quantile bands
-            if plot_type ∈ [:quantiles, :both] && !isempty(cvgs) && !isempty(lb)
-                for (cov_idx, _) in enumerate(cvgs)
-                    lower = lb[cov_idx][:, var_idx, shock_idx] .* irf_scale
-                    upper = ub[cov_idx][:, var_idx, shock_idx] .* irf_scale
-                    alpha = clamp(bandalpha / cov_idx, 0.0f0, 1.0f0)
-                    color = RGBAf0(bandcolor, alpha)
-                    Makie.band!(plot, xvals, lower, upper; axis = ax, color = color)
-                end
-            end
-
-            # Median line
-            y = irf.irf_median[:, var_idx, shock_idx] .* irf_scale
-            Makie.lines!(
-                plot, xvals, y; axis = ax, color = linecolor, linewidth = linewidth)
-
-            if drawzero
-                Makie.hlines!(plot, [0.0]; axis = ax, color = zerolinecolor,
-                    linewidth = 1, linestyle = :dash)
-            end
-        end
-    end
-
-    return plot
-end
-
-# ============================================================================
-# BayesianIRFPlotMakie Recipe (AxisArray-based)
-# ============================================================================
-
-Makie.@recipe(BayesianIRFPlotMakie, irf::_BayesianIRFResult) do plot
-    Makie.Attributes(
-        vars = :all,
-        shocks = :all,
-        pretty_shocks = nothing,
-        pretty_vars = nothing,
-        irf_scale = 1.0,
-        plot_type = :quantiles,
-        drawzero = true,
-        zerolinecolor = :gray70,
-        bandcolor = :red,
-        bandalpha = 0.25,
-        path_alpha = 0.02,
-        path_color = :gray,
-        linecolor = :black,
-        linewidth = 2.0,
-        xtickstep = 6
-    )
-end
-
-function Makie.plot!(plot::BayesianIRFPlotMakie)
-    irf = Makie.to_value(plot[1])
-    attrs = plot.attributes
-
-    # Get variable and shock names from AxisArray axes
-    var_axis = AxisArrays.axes(irf.data, Axis{:variable})
-    shock_axis = AxisArrays.axes(irf.data, Axis{:shock})
-    horizon_axis = AxisArrays.axes(irf.data, Axis{:horizon})
-
-    all_vars = collect(AxisArrays.axisvalues(var_axis)[1])
-    all_shocks = collect(AxisArrays.axisvalues(shock_axis)[1])
-    horizons = collect(AxisArrays.axisvalues(horizon_axis)[1])
-
-    vars_sel = Makie.to_value(attrs[:vars])
-    shocks_sel = Makie.to_value(attrs[:shocks])
-
-    idxvars = vars_sel === :all ? collect(1:length(all_vars)) :
-              _resolve_indices_generic(all_vars, vars_sel)
-    idxshocks = shocks_sel === :all ? collect(1:length(all_shocks)) :
-                _resolve_indices_generic(all_shocks, shocks_sel)
-
-    pretty_vars = Makie.to_value(attrs[:pretty_vars])
-    pretty_shocks = Makie.to_value(attrs[:pretty_shocks])
-    var_labels = pretty_vars === nothing ? string.(all_vars[idxvars]) : pretty_vars
-    shock_labels = pretty_shocks === nothing ? string.(all_shocks[idxshocks]) .* " shock" :
-                   pretty_shocks
-
-    irf_scale = Makie.to_value(attrs[:irf_scale])
-    plot_type = Makie.to_value(attrs[:plot_type])
-    drawzero = Makie.to_value(attrs[:drawzero])
-    zerolinecolor = Makie.to_color(Makie.to_value(attrs[:zerolinecolor]))
-    bandcolor = Makie.to_color(Makie.to_value(attrs[:bandcolor]))
-    bandalpha = Makie.to_value(attrs[:bandalpha])
-    path_alpha = Makie.to_value(attrs[:path_alpha])
-    path_color = Makie.to_color(Makie.to_value(attrs[:path_color]))
-    linecolor = Makie.to_color(Makie.to_value(attrs[:linecolor]))
-    linewidth = Makie.to_value(attrs[:linewidth])
-    xtickstep = Makie.to_value(attrs[:xtickstep])
-
-    xvals = horizons
-    lb = lowerbounds(irf)
-    ub = upperbounds(irf)
-    cvgs = coverages(irf)
-    pt_est = point_estimate(irf)
-    nrows = length(idxvars)
-    ncols = length(idxshocks)
-
-    for (row_idx, var_idx) in enumerate(idxvars)
-        for (col_idx, shock_idx) in enumerate(idxshocks)
-            ax = Makie.Axis(plot; row = row_idx, col = col_idx)
-            ax.title[] = shock_labels[col_idx]
-            ax.ylabel[] = col_idx == 1 ? var_labels[row_idx] : ""
-            ax.xlabel[] = row_idx == nrows ? "Horizon" : ""
-            ax.xlabelvisible[] = row_idx == nrows
-            ax.ylabelvisible[] = col_idx == 1
-            Makie.xlims!(ax, -0.2, xvals[end])
-            if xtickstep > 0
-                Makie.xticks!(ax, 0:xtickstep:xvals[end])
-            end
-
-            # Draw paths if requested
-            if plot_type ∈ [:paths, :both]
-                n_drw = n_draws(irf)
-                data_arr = Array(irf.data)
-                for draw_idx in 1:n_drw
-                    y_path = data_arr[draw_idx, var_idx, shock_idx, :] .* irf_scale
-                    Makie.lines!(plot, xvals, y_path; axis = ax,
-                        color = RGBAf0(path_color, path_alpha), linewidth = 0.5)
-                end
-            end
-
-            # Draw quantile bands (widest first)
-            if plot_type ∈ [:quantiles, :both] && !isempty(cvgs) && !isempty(lb)
-                for (cov_idx, _) in enumerate(reverse(cvgs))
-                    rev_idx = length(cvgs) - cov_idx + 1
-                    lower = Array(lb[rev_idx])[var_idx, shock_idx, :] .* irf_scale
-                    upper = Array(ub[rev_idx])[var_idx, shock_idx, :] .* irf_scale
-                    alpha = clamp(bandalpha * 0.8^(cov_idx-1), 0.0f0, 1.0f0)
-                    color = RGBAf0(bandcolor, alpha)
-                    Makie.band!(plot, xvals, lower, upper; axis = ax, color = color)
-                end
-            end
-
-            # Median line
-            y = Array(pt_est)[var_idx, shock_idx, :] .* irf_scale
-            Makie.lines!(
-                plot, xvals, y; axis = ax, color = linecolor, linewidth = linewidth)
-
-            if drawzero
-                Makie.hlines!(plot, [0.0]; axis = ax, color = zerolinecolor,
-                    linewidth = 1, linestyle = :dash)
-            end
-        end
-    end
-
-    return plot
-end
-
-# ============================================================================
-# LocalProjectionIRFPlotMakie Recipe (AxisArray-based)
-# ============================================================================
-
-Makie.@recipe(LocalProjectionIRFPlotMakie, irf::_LocalProjectionIRFResult) do plot
-    Makie.Attributes(
-        irf_scale = 1.0,
-        drawzero = true,
-        zerolinecolor = :gray70,
-        bandcolor = :blue,
-        bandalpha = 0.25,
-        linecolor = :black,
-        linewidth = 2.0,
-        xtickstep = 6
-    )
-end
-
-function Makie.plot!(plot::LocalProjectionIRFPlotMakie)
-    irf = Makie.to_value(plot[1])
-    attrs = plot.attributes
-
-    # Get dimensions from AxisArray axes
-    response_axis = AxisArrays.axes(irf.data, Axis{:response})
-    shock_axis = AxisArrays.axes(irf.data, Axis{:shock})
-    horizon_axis = AxisArrays.axes(irf.data, Axis{:horizon})
-
-    responses = collect(AxisArrays.axisvalues(response_axis)[1])
-    shocks = collect(AxisArrays.axisvalues(shock_axis)[1])
-    horizons = collect(AxisArrays.axisvalues(horizon_axis)[1])
-
-    irf_scale = Makie.to_value(attrs[:irf_scale])
-    drawzero = Makie.to_value(attrs[:drawzero])
-    zerolinecolor = Makie.to_color(Makie.to_value(attrs[:zerolinecolor]))
-    bandcolor = Makie.to_color(Makie.to_value(attrs[:bandcolor]))
-    bandalpha = Makie.to_value(attrs[:bandalpha])
-    linecolor = Makie.to_color(Makie.to_value(attrs[:linecolor]))
-    linewidth = Makie.to_value(attrs[:linewidth])
-    xtickstep = Makie.to_value(attrs[:xtickstep])
-
-    xvals = horizons
-    lb = lowerbounds(irf)
-    ub = upperbounds(irf)
-    cvgs = coverages(irf)
-    pt_data = Array(irf.data)
-    nrows = length(responses)
-    ncols = length(shocks)
-
-    for (row_idx, response) in enumerate(responses)
-        for (col_idx, shock) in enumerate(shocks)
-            ax = Makie.Axis(plot; row = row_idx, col = col_idx)
-            ax.title[] = string(shock) * " shock"
-            ax.ylabel[] = col_idx == 1 ? string(response) : ""
-            ax.xlabel[] = row_idx == nrows ? "Horizon" : ""
-            ax.xlabelvisible[] = row_idx == nrows
-            ax.ylabelvisible[] = col_idx == 1
-            Makie.xlims!(ax, -0.2, xvals[end])
-            if xtickstep > 0
-                Makie.xticks!(ax, 0:xtickstep:xvals[end])
-            end
-
-            # Draw confidence bands (widest first)
-            if !isempty(cvgs) && !isempty(lb)
-                for (cov_idx, _) in enumerate(reverse(cvgs))
-                    rev_idx = length(cvgs) - cov_idx + 1
-                    lower = Array(lb[rev_idx])[row_idx, col_idx, :] .* irf_scale
-                    upper = Array(ub[rev_idx])[row_idx, col_idx, :] .* irf_scale
-                    alpha = clamp(bandalpha * 0.8^(cov_idx-1), 0.0f0, 1.0f0)
-                    color = RGBAf0(bandcolor, alpha)
-                    Makie.band!(plot, xvals, lower, upper; axis = ax, color = color)
-                end
-            end
-
-            # Point estimate line
-            y = pt_data[row_idx, col_idx, :] .* irf_scale
-            Makie.lines!(
-                plot, xvals, y; axis = ax, color = linecolor, linewidth = linewidth)
-
-            if drawzero
-                Makie.hlines!(plot, [0.0]; axis = ax, color = zerolinecolor,
-                    linewidth = 1, linestyle = :dash)
-            end
-        end
-    end
-
-    return plot
-end
-
-# ============================================================================
-# MCMC Diagnostic Plots (from BayesianVAR integration)
-# ============================================================================
-
-"""
-    mcmctrace(samples; kwargs...)
-
-Plot MCMC trace for posterior samples.
-
-# Arguments
-- `samples::AbstractVector`: Vector of MCMC samples
-
-# Keyword Arguments
-- `linewidth=1.5`: Line width
-- `alpha=0.7`: Line alpha
-- `chain_colors=nothing`: Colors for multiple chains
-- `show_legend=true`: Whether to show legend
-"""
-Makie.@recipe(MCMCTrace, samples) do plot
-    Makie.Attributes(
-        linewidth = 1.5,
-        alpha = 0.7,
-        chain_colors = nothing,
-        show_legend = true
-    )
-end
-
-function Makie.plot!(plot::MCMCTrace)
-    samples = Makie.to_value(plot[1])
-    attrs = plot.attributes
-
-    linewidth = Makie.to_value(attrs[:linewidth])
-    alpha = Makie.to_value(attrs[:alpha])
-
-    ax = Makie.Axis(plot)
-    ax.xlabel[] = "Iteration"
-    ax.ylabel[] = "Value"
-
-    # Handle single chain or multiple chains
-    if samples isa AbstractVector{<:AbstractVector}
-        # Multiple chains
-        chain_colors = Makie.to_value(attrs[:chain_colors])
-        if chain_colors === nothing
-            chain_colors = Makie.wong_colors()
-        end
-        for (i, chain) in enumerate(samples)
-            color = RGBAf0(Makie.to_color(chain_colors[mod1(i, length(chain_colors))]), alpha)
-            Makie.lines!(plot, 1:length(chain), chain; axis = ax,
-                color = color, linewidth = linewidth,
-                label = "Chain $i")
-        end
-        if Makie.to_value(attrs[:show_legend])
-            Makie.axislegend(ax)
-        end
-    else
-        # Single chain
-        color = RGBAf0(Makie.to_color(:blue), alpha)
-        Makie.lines!(plot, 1:length(samples), samples; axis = ax,
-            color = color, linewidth = linewidth)
-    end
-
-    return plot
-end
-
-"""
-    mcmcdensity(samples; kwargs...)
-
-Plot posterior density estimate.
-
-# Keyword Arguments
-- `linewidth=2.0`: Line width
-- `bandwidth=nothing`: KDE bandwidth (auto if nothing)
-- `show_prior=true`: Whether to show prior (if provided)
-- `prior_color=:red`: Prior line color
-- `prior_linestyle=:dash`: Prior line style
-"""
-Makie.@recipe(MCMCDensity, samples) do plot
-    Makie.Attributes(
-        linewidth = 2.0,
-        bandwidth = nothing,
-        show_chains = true,
-        show_combined = true,
-        combined_color = :black,
-        chain_colors = nothing,
-        prior = nothing,
-        prior_color = :red,
-        prior_linestyle = :dash
-    )
-end
-
-function Makie.plot!(plot::MCMCDensity)
-    samples = Makie.to_value(plot[1])
-    attrs = plot.attributes
-
-    linewidth = Makie.to_value(attrs[:linewidth])
-    combined_color = Makie.to_color(Makie.to_value(attrs[:combined_color]))
-
-    ax = Makie.Axis(plot)
-    ax.xlabel[] = "Value"
-    ax.ylabel[] = "Density"
-
-    # Combine all samples for density estimation
-    all_samples = samples isa AbstractVector{<:AbstractVector} ? vcat(samples...) : samples
-
-    # Simple kernel density estimate using Makie's density
-    Makie.density!(
-        plot, all_samples; axis = ax, color = combined_color, linewidth = linewidth)
-
-    # Show prior if provided
-    prior = Makie.to_value(attrs[:prior])
-    if prior !== nothing
-        prior_color = Makie.to_color(Makie.to_value(attrs[:prior_color]))
-        prior_linestyle = Makie.to_value(attrs[:prior_linestyle])
-        xrange = range(minimum(all_samples), maximum(all_samples), length = 200)
-        # Assume prior has a pdf method
-        if hasmethod(pdf, Tuple{typeof(prior), eltype(xrange)})
-            prior_y = [pdf(prior, x) for x in xrange]
-            Makie.lines!(plot, xrange, prior_y; axis = ax, color = prior_color,
-                linewidth = linewidth, linestyle = prior_linestyle, label = "Prior")
-        end
-    end
-
-    return plot
-end
-
-"""
-    mcmchistogram(samples; kwargs...)
-
-Plot histogram of posterior samples with optional KDE overlay.
-
-# Keyword Arguments
-- `bins=50`: Number of bins
-- `show_kde=true`: Whether to show KDE overlay
-- `kde_linewidth=2.0`: KDE line width
-"""
-Makie.@recipe(MCMCHistogram, samples) do plot
-    Makie.Attributes(
-        bins = 50,
-        show_kde = true,
-        kde_linewidth = 2.0,
-        color = :blue,
-        kde_color = :black
-    )
-end
-
-function Makie.plot!(plot::MCMCHistogram)
-    samples = Makie.to_value(plot[1])
-    attrs = plot.attributes
-
-    bins = Makie.to_value(attrs[:bins])
-    show_kde = Makie.to_value(attrs[:show_kde])
-    kde_linewidth = Makie.to_value(attrs[:kde_linewidth])
-    color = Makie.to_color(Makie.to_value(attrs[:color]))
-    kde_color = Makie.to_color(Makie.to_value(attrs[:kde_color]))
-
-    ax = Makie.Axis(plot)
-    ax.xlabel[] = "Value"
-    ax.ylabel[] = "Frequency"
-
-    # Combine samples if multiple chains
-    all_samples = samples isa AbstractVector{<:AbstractVector} ? vcat(samples...) : samples
-
-    # Histogram
-    Makie.hist!(plot, all_samples; axis = ax, bins = bins,
-        color = RGBAf0(color, 0.6), normalization = :pdf)
-
-    # KDE overlay
-    if show_kde
-        Makie.density!(
-            plot, all_samples; axis = ax, color = kde_color, linewidth = kde_linewidth)
-    end
-
-    return plot
-end
-
-# ============================================================================
-# Helper functions
-# ============================================================================
 
 function _resolve_indices_generic(all_names, selection)
     if selection isa AbstractVector{Symbol}
@@ -668,17 +72,498 @@ function _resolve_indices_generic(all_names, selection)
     end
 end
 
-# Convenience functions
-function Makie.irfplot(irf::_SignRestrictedIRFResult; kwargs...)
-    Makie.plot(SignRestrictedIRFPlotMakie(irf; kwargs...))
+# ============================================================================
+# Shared panel-drawing core
+# ============================================================================
+
+"""
+    _plot_irf_panel!(ax, xvals, y, lb, ub, cvgs; <keyword arguments>)
+
+Draw a single IRF panel: confidence/credible bands (widest first), point
+estimate line, and optional zero reference line.
+
+`lb` and `ub` are vectors of vectors (one per coverage level), already sliced
+to the correct variable/shock combination but **not** yet scaled.
+"""
+function _plot_irf_panel!(ax, xvals, y, lb, ub, cvgs;
+        irf_scale = 1.0,
+        drawzero = true, zerolinecolor = :gray60, zerolinestyle = :dash,
+        bandcolor = :steelblue, bandalpha = 0.2,
+        linecolor = :black, linewidth = 2.0,
+        xtickstep = 4, flipshock = false)
+    sign = flipshock ? -1 : 1
+    Makie.xlims!(ax, xvals[1] - 0.4, xvals[end] + 0.4)
+    if xtickstep > 0
+        ax.xticks = xvals[1]:xtickstep:xvals[end]
+    end
+
+    # Bands — widest (highest coverage) first so narrower bands paint on top
+    if !isempty(cvgs) && !isempty(lb)
+        order = sortperm(cvgs; rev = true)          # widest first
+        for (draw_order, ci) in enumerate(order)
+            lower = lb[ci] .* (irf_scale * sign)
+            upper = ub[ci] .* (irf_scale * sign)
+            if flipshock
+                lower, upper = min.(lower, upper), max.(lower, upper)
+            end
+            # Darker for narrower bands
+            alpha = clamp(bandalpha + 0.12f0 * (draw_order - 1), 0.0f0, 0.9f0)
+            color = Makie.RGBAf(Makie.to_color(bandcolor), alpha)
+            Makie.band!(ax, xvals, lower, upper; color = color)
+        end
+    end
+
+    # Point estimate
+    Makie.lines!(ax, xvals, y .* (irf_scale * sign);
+        color = linecolor, linewidth = linewidth)
+
+    # Zero reference
+    if drawzero
+        Makie.hlines!(ax, [0.0]; color = zerolinecolor,
+            linewidth = 1, linestyle = zerolinestyle)
+    end
 end
 
-function Makie.irfplot(irf::_BayesianIRFResult; kwargs...)
-    Makie.plot(BayesianIRFPlotMakie(irf; kwargs...))
+"""
+    _plot_paths!(ax, xvals, draws; irf_scale, path_alpha, path_color, flipshock)
+
+Overlay individual IRF draws as faint lines (sign-restricted / Bayesian).
+"""
+function _plot_paths!(ax, xvals, draws::AbstractMatrix;
+        irf_scale = 1.0, path_alpha = 0.02, path_color = :gray,
+        path_linewidth = 0.5, flipshock = false)
+    sign = flipshock ? -1 : 1
+    col = Makie.RGBAf(Makie.to_color(path_color), Float32(path_alpha))
+    for i in axes(draws, 1)
+        Makie.lines!(ax, xvals, view(draws, i, :) .* (irf_scale * sign);
+            color = col, linewidth = path_linewidth)
+    end
 end
 
-function Makie.irfplot(irf::_LocalProjectionIRFResult; kwargs...)
-    Makie.plot(LocalProjectionIRFPlotMakie(irf; kwargs...))
+# ============================================================================
+# Figure / layout helpers
+# ============================================================================
+
+function _make_figure(; figure = (;), size = nothing, title = nothing,
+        title_fontsize = 20, title_font = :bold)
+    fig_kw = Dict{Symbol, Any}(pairs(figure)...)
+    if size !== nothing
+        fig_kw[:size] = size
+    end
+    fig = Makie.Figure(; fig_kw...)
+    if title !== nothing
+        Makie.Label(fig[0, :]; text = title, fontsize = title_fontsize,
+            font = title_font)
+    end
+    return fig
+end
+
+function _configure_axes!(fig, axes_matrix, nrows, ncols;
+        linkxaxes = true, linkyaxes = :row,
+        colgap = 10, rowgap = 10)
+    # Link x-axes across all panels
+    if linkxaxes
+        all_axes = vec(axes_matrix)
+        length(all_axes) > 1 && Makie.linkxaxes!(all_axes...)
+    end
+    # Link y-axes per row
+    if linkyaxes === :row
+        for r in 1:nrows
+            row_axes = axes_matrix[r, :]
+            length(row_axes) > 1 && Makie.linkyaxes!(row_axes...)
+        end
+    elseif linkyaxes === true || linkyaxes === :all
+        all_axes = vec(axes_matrix)
+        length(all_axes) > 1 && Makie.linkyaxes!(all_axes...)
+    end
+    # Hide decorations on interior panels
+    for r in 1:nrows, c in 1:ncols
+
+        ax = axes_matrix[r, c]
+        c > 1 && (ax.yticklabelsvisible = false; ax.ylabelvisible = false)
+        r < nrows && (ax.xticklabelsvisible = false; ax.xlabelvisible = false)
+        r > 1 && (ax.titlevisible = false)
+    end
+    # Force equal column widths
+    for c in 1:ncols
+        Makie.colsize!(fig.layout, c, Makie.Relative(1 / ncols))
+    end
+    Makie.colgap!(fig.layout, colgap)
+    Makie.rowgap!(fig.layout, rowgap)
+end
+
+# ============================================================================
+# irfplot — IRFResult  (point-identified, bootstrap / analytic bands)
+# ============================================================================
+
+function irfplot(irf::_IRFResult;
+        # Variable / shock selection
+        vars = :all, shocks = :all,
+        pretty_vars = nothing, pretty_shocks = nothing,
+        # Scaling & orientation
+        irf_scale = 1.0, flipshock = false,
+        # Bands
+        bandcolor = :steelblue, bandalpha = 0.2,
+        # Line
+        linecolor = :black, linewidth = 2.0,
+        # Zero line
+        drawzero = true, zerolinecolor = :gray60, zerolinestyle = :dash,
+        # Ticks
+        xtickstep = 4,
+        # Layout
+        figure = (;), size = nothing,
+        title = nothing, title_fontsize = 20, title_font = :bold,
+        linkxaxes = true, linkyaxes = :row,
+        colgap = 10, rowgap = 10,
+        kwargs...)
+    setup = _prepare_irf_plot(irf;
+        vars = vars, shocks = shocks,
+        pretty_vars = pretty_vars, pretty_shocks = pretty_shocks)
+
+    xvals = collect(0:MacroEconometricTools.horizon(irf))
+    lb_all = lowerbounds(irf)
+    ub_all = upperbounds(irf)
+    cvgs = coverages(irf)
+    nrows = length(setup.idxvars)
+    ncols = length(setup.idxshocks)
+
+    fig = _make_figure(; figure, size, title, title_fontsize, title_font)
+    axes_matrix = Matrix{Makie.Axis}(undef, nrows, ncols)
+
+    for (ri, vi) in enumerate(setup.idxvars), (ci, si) in enumerate(setup.idxshocks)
+
+        ax = Makie.Axis(fig[ri, ci];
+            title = setup.shock_labels[ci],
+            ylabel = setup.var_labels[ri],
+            xlabel = "Horizon")
+        axes_matrix[ri, ci] = ax
+
+        lb_panel = [lb_all[k][:, vi, si] for k in eachindex(cvgs)]
+        ub_panel = [ub_all[k][:, vi, si] for k in eachindex(cvgs)]
+        y = irf.irf[:, vi, si]
+
+        _plot_irf_panel!(ax, xvals, y, lb_panel, ub_panel, cvgs;
+            irf_scale, drawzero, zerolinecolor, zerolinestyle,
+            bandcolor, bandalpha, linecolor, linewidth, xtickstep, flipshock)
+    end
+
+    _configure_axes!(fig, axes_matrix, nrows, ncols;
+        linkxaxes, linkyaxes, colgap, rowgap)
+    return fig
+end
+
+# ============================================================================
+# irfplot — SignRestrictedIRFResult
+# ============================================================================
+
+function irfplot(irf::_SignRestrictedIRFResult;
+        vars = :all, shocks = :all,
+        pretty_vars = nothing, pretty_shocks = nothing,
+        irf_scale = 1.0, flipshock = false,
+        # Plot type
+        plot_type = :quantiles,  # :quantiles, :paths, :both
+        # Bands
+        bandcolor = :steelblue, bandalpha = 0.2,
+        # Paths
+        path_alpha = 0.02, path_color = :gray, path_linewidth = 0.5,
+        # Line
+        linecolor = :black, linewidth = 2.0,
+        # Zero
+        drawzero = true, zerolinecolor = :gray60, zerolinestyle = :dash,
+        xtickstep = 4,
+        # Layout
+        figure = (;), size = nothing,
+        title = nothing, title_fontsize = 20, title_font = :bold,
+        linkxaxes = true, linkyaxes = :row,
+        colgap = 10, rowgap = 10,
+        kwargs...)
+    setup = _prepare_irf_plot(irf;
+        vars = vars, shocks = shocks,
+        pretty_vars = pretty_vars, pretty_shocks = pretty_shocks)
+
+    xvals = collect(0:MacroEconometricTools.horizon(irf))
+    lb_all = lowerbounds(irf)
+    ub_all = upperbounds(irf)
+    cvgs = coverages(irf)
+    nrows = length(setup.idxvars)
+    ncols = length(setup.idxshocks)
+
+    fig = _make_figure(; figure, size, title, title_fontsize, title_font)
+    axes_matrix = Matrix{Makie.Axis}(undef, nrows, ncols)
+
+    for (ri, vi) in enumerate(setup.idxvars), (ci, si) in enumerate(setup.idxshocks)
+
+        ax = Makie.Axis(fig[ri, ci];
+            title = setup.shock_labels[ci],
+            ylabel = setup.var_labels[ri],
+            xlabel = "Horizon")
+        axes_matrix[ri, ci] = ax
+
+        Makie.xlims!(ax, xvals[1] - 0.4, xvals[end] + 0.4)
+        if xtickstep > 0
+            ax.xticks = xvals[1]:xtickstep:xvals[end]
+        end
+
+        # Individual draws
+        if plot_type ∈ (:paths, :both)
+            draws = irf.irf_draws[:, :, vi, si]   # (n_draws, horizon)
+            _plot_paths!(ax, xvals, draws;
+                irf_scale, path_alpha, path_color, path_linewidth, flipshock)
+        end
+
+        # Quantile bands
+        if plot_type ∈ (:quantiles, :both) && !isempty(cvgs)
+            lb_panel = [lb_all[k][:, vi, si] for k in eachindex(cvgs)]
+            ub_panel = [ub_all[k][:, vi, si] for k in eachindex(cvgs)]
+            _plot_irf_panel!(ax, xvals, irf.irf_median[:, vi, si],
+                lb_panel, ub_panel, cvgs;
+                irf_scale, drawzero, zerolinecolor, zerolinestyle,
+                bandcolor, bandalpha, linecolor, linewidth, xtickstep, flipshock)
+        else
+            # Median line only (paths mode without bands)
+            sign = flipshock ? -1 : 1
+            Makie.lines!(ax, xvals, irf.irf_median[:, vi, si] .* (irf_scale * sign);
+                color = linecolor, linewidth = linewidth)
+            if drawzero
+                Makie.hlines!(ax, [0.0]; color = zerolinecolor,
+                    linewidth = 1, linestyle = zerolinestyle)
+            end
+        end
+    end
+
+    _configure_axes!(fig, axes_matrix, nrows, ncols;
+        linkxaxes, linkyaxes, colgap, rowgap)
+    return fig
+end
+
+# ============================================================================
+# irfplot — BayesianIRFResult  (AxisArray-based)
+# ============================================================================
+
+function irfplot(irf::_BayesianIRFResult;
+        vars = :all, shocks = :all,
+        pretty_vars = nothing, pretty_shocks = nothing,
+        irf_scale = 1.0, flipshock = false,
+        plot_type = :quantiles,
+        bandcolor = :steelblue, bandalpha = 0.2,
+        path_alpha = 0.02, path_color = :gray, path_linewidth = 0.5,
+        linecolor = :black, linewidth = 2.0,
+        drawzero = true, zerolinecolor = :gray60, zerolinestyle = :dash,
+        xtickstep = 4,
+        figure = (;), size = nothing,
+        title = nothing, title_fontsize = 20, title_font = :bold,
+        linkxaxes = true, linkyaxes = :row,
+        colgap = 10, rowgap = 10,
+        kwargs...)
+    var_axis = AxisArrays.axes(irf.data, Axis{:variable})
+    shock_axis = AxisArrays.axes(irf.data, Axis{:shock})
+    horizon_axis = AxisArrays.axes(irf.data, Axis{:horizon})
+
+    all_vars = collect(AxisArrays.axisvalues(var_axis)[1])
+    all_shocks = collect(AxisArrays.axisvalues(shock_axis)[1])
+    horizons = collect(AxisArrays.axisvalues(horizon_axis)[1])
+
+    idxvars = vars === :all ? collect(1:length(all_vars)) :
+              _resolve_indices_generic(all_vars, vars)
+    idxshocks = shocks === :all ? collect(1:length(all_shocks)) :
+                _resolve_indices_generic(all_shocks, shocks)
+
+    var_labels = pretty_vars === nothing ? string.(all_vars[idxvars]) : pretty_vars
+    shock_labels = pretty_shocks === nothing ?
+                   string.(all_shocks[idxshocks]) .* " shock" : pretty_shocks
+
+    xvals = horizons
+    lb_all = lowerbounds(irf)
+    ub_all = upperbounds(irf)
+    cvgs = coverages(irf)
+    pt_est = point_estimate(irf)
+    nrows = length(idxvars)
+    ncols = length(idxshocks)
+
+    fig = _make_figure(; figure, size, title, title_fontsize, title_font)
+    axes_matrix = Matrix{Makie.Axis}(undef, nrows, ncols)
+
+    data_arr = Array(irf.data)   # materialise once
+
+    for (ri, vi) in enumerate(idxvars), (ci, si) in enumerate(idxshocks)
+
+        ax = Makie.Axis(fig[ri, ci];
+            title = shock_labels[ci],
+            ylabel = var_labels[ri],
+            xlabel = "Horizon")
+        axes_matrix[ri, ci] = ax
+
+        Makie.xlims!(ax, xvals[1] - 0.4, xvals[end] + 0.4)
+        if xtickstep > 0
+            ax.xticks = xvals[1]:xtickstep:xvals[end]
+        end
+
+        # Paths
+        if plot_type ∈ (:paths, :both)
+            draws = data_arr[:, vi, si, :]   # (n_draws, horizon)
+            _plot_paths!(ax, xvals, draws;
+                irf_scale, path_alpha, path_color, path_linewidth, flipshock)
+        end
+
+        # Bands + median
+        lb_panel = [Array(lb_all[k])[vi, si, :] for k in eachindex(cvgs)]
+        ub_panel = [Array(ub_all[k])[vi, si, :] for k in eachindex(cvgs)]
+        y = Array(pt_est)[vi, si, :]
+
+        if plot_type ∈ (:quantiles, :both)
+            _plot_irf_panel!(ax, xvals, y, lb_panel, ub_panel, cvgs;
+                irf_scale, drawzero, zerolinecolor, zerolinestyle,
+                bandcolor, bandalpha, linecolor, linewidth, xtickstep, flipshock)
+        else
+            sign = flipshock ? -1 : 1
+            Makie.lines!(ax, xvals, y .* (irf_scale * sign);
+                color = linecolor, linewidth = linewidth)
+            if drawzero
+                Makie.hlines!(ax, [0.0]; color = zerolinecolor,
+                    linewidth = 1, linestyle = zerolinestyle)
+            end
+        end
+    end
+
+    _configure_axes!(fig, axes_matrix, nrows, ncols;
+        linkxaxes, linkyaxes, colgap, rowgap)
+    return fig
+end
+
+# ============================================================================
+# irfplot — LocalProjectionIRFResult  (AxisArray-based)
+# ============================================================================
+
+function irfplot(irf::_LocalProjectionIRFResult;
+        irf_scale = 1.0, flipshock = false,
+        bandcolor = :steelblue, bandalpha = 0.2,
+        linecolor = :black, linewidth = 2.0,
+        drawzero = true, zerolinecolor = :gray60, zerolinestyle = :dash,
+        xtickstep = 4,
+        figure = (;), size = nothing,
+        title = nothing, title_fontsize = 20, title_font = :bold,
+        linkxaxes = true, linkyaxes = :row,
+        colgap = 10, rowgap = 10,
+        kwargs...)
+    response_axis = AxisArrays.axes(irf.data, Axis{:response})
+    shock_axis = AxisArrays.axes(irf.data, Axis{:shock})
+    horizon_axis = AxisArrays.axes(irf.data, Axis{:horizon})
+
+    responses = collect(AxisArrays.axisvalues(response_axis)[1])
+    shocks = collect(AxisArrays.axisvalues(shock_axis)[1])
+    horizons = collect(AxisArrays.axisvalues(horizon_axis)[1])
+
+    xvals = horizons
+    lb_all = lowerbounds(irf)
+    ub_all = upperbounds(irf)
+    cvgs = coverages(irf)
+    pt_data = Array(irf.data)
+    nrows = length(responses)
+    ncols = length(shocks)
+
+    fig = _make_figure(; figure, size, title, title_fontsize, title_font)
+    axes_matrix = Matrix{Makie.Axis}(undef, nrows, ncols)
+
+    for (ri, response) in enumerate(responses), (ci, shock) in enumerate(shocks)
+
+        ax = Makie.Axis(fig[ri, ci];
+            title = string(shock) * " shock",
+            ylabel = string(response),
+            xlabel = "Horizon")
+        axes_matrix[ri, ci] = ax
+
+        lb_panel = [Array(lb_all[k])[ri, ci, :] for k in eachindex(cvgs)]
+        ub_panel = [Array(ub_all[k])[ri, ci, :] for k in eachindex(cvgs)]
+        y = pt_data[ri, ci, :]
+
+        _plot_irf_panel!(ax, xvals, y, lb_panel, ub_panel, cvgs;
+            irf_scale, drawzero, zerolinecolor, zerolinestyle,
+            bandcolor, bandalpha, linecolor, linewidth, xtickstep, flipshock)
+    end
+
+    _configure_axes!(fig, axes_matrix, nrows, ncols;
+        linkxaxes, linkyaxes, colgap, rowgap)
+    return fig
+end
+
+# ============================================================================
+# MCMC Diagnostic Recipes
+# ============================================================================
+
+Makie.@recipe(MCMCTrace, samples) do scene
+    Makie.Theme(;
+        linewidth = 1.5,
+        alpha = 0.7,
+        chain_colors = nothing
+    )
+end
+
+function Makie.plot!(plot::MCMCTrace)
+    samples = Makie.to_value(plot[1])
+    attrs = plot.attributes
+    lw = Makie.to_value(attrs[:linewidth])
+    alpha = Makie.to_value(attrs[:alpha])
+
+    if samples isa AbstractVector{<:AbstractVector}
+        chain_colors = Makie.to_value(attrs[:chain_colors])
+        if chain_colors === nothing
+            chain_colors = Makie.wong_colors()
+        end
+        for (i, chain) in enumerate(samples)
+            col = Makie.RGBAf(Makie.to_color(chain_colors[mod1(i, length(chain_colors))]), Float32(alpha))
+            Makie.lines!(plot, 1:length(chain), collect(chain); color = col, linewidth = lw)
+        end
+    else
+        col = Makie.RGBAf(Makie.to_color(:blue), Float32(alpha))
+        Makie.lines!(plot, 1:length(samples), collect(samples); color = col, linewidth = lw)
+    end
+    return plot
+end
+
+Makie.@recipe(MCMCDensity, samples) do scene
+    Makie.Theme(;
+        linewidth = 2.0,
+        combined_color = :black
+    )
+end
+
+function Makie.plot!(plot::MCMCDensity)
+    samples = Makie.to_value(plot[1])
+    attrs = plot.attributes
+    lw = Makie.to_value(attrs[:linewidth])
+    combined_color = Makie.to_color(Makie.to_value(attrs[:combined_color]))
+    all_samples = samples isa AbstractVector{<:AbstractVector} ? vcat(samples...) :
+                  collect(samples)
+    Makie.density!(plot, all_samples; color = combined_color, linewidth = lw)
+    return plot
+end
+
+Makie.@recipe(MCMCHistogram, samples) do scene
+    Makie.Theme(;
+        bins = 50,
+        show_kde = true,
+        kde_linewidth = 2.0,
+        color = :blue,
+        kde_color = :black
+    )
+end
+
+function Makie.plot!(plot::MCMCHistogram)
+    samples = Makie.to_value(plot[1])
+    attrs = plot.attributes
+    bins = Makie.to_value(attrs[:bins])
+    show_kde = Makie.to_value(attrs[:show_kde])
+    kde_linewidth = Makie.to_value(attrs[:kde_linewidth])
+    color = Makie.to_color(Makie.to_value(attrs[:color]))
+    kde_color = Makie.to_color(Makie.to_value(attrs[:kde_color]))
+    all_samples = samples isa AbstractVector{<:AbstractVector} ? vcat(samples...) :
+                  collect(samples)
+    Makie.hist!(plot, all_samples; bins = bins,
+        color = Makie.RGBAf(color, 0.6f0), normalization = :pdf)
+    if show_kde
+        Makie.density!(plot, all_samples; color = kde_color, linewidth = kde_linewidth)
+    end
+    return plot
 end
 
 end # module
