@@ -204,9 +204,11 @@ end
                   0.3349185 0.02241009 0.09080965 -0.0422615;
                   0.28186308 0.08576363 0.18062521 0.728898]
 
-        @test irf_result.irf[1, :, :] ≈ i0_ref
-        @test irf_result.irf[2, :, :] ≈ i1_ref
-        @test irf_result.irf[3, :, :] ≈ i2_ref
+        # AxisArray layout is (variable, shock, horizon)
+        irf_data = Array(irf_result.irf)
+        @test irf_data[:, :, 1] ≈ i0_ref
+        @test irf_data[:, :, 2] ≈ i1_ref
+        @test irf_data[:, :, 3] ≈ i2_ref
     end
 
     println("✓ All estimation correctness tests passed!")

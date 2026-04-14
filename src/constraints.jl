@@ -1,8 +1,8 @@
 # ============================================================================
 # Constraint System for VAR Estimation
 # ============================================================================
-
-abstract type AbstractConstraint end
+# Note: `abstract type AbstractConstraint end` is defined in types.jl
+# to resolve load-order dependencies with VARCoefficients.
 
 """
     ZeroConstraint <: AbstractConstraint

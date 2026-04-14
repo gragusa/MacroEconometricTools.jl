@@ -336,23 +336,21 @@ end
 """
     rotation_matrix(model::VARModel, id::IVIdentification)
 
-Identification via instrumental variables.
+SVAR-IV identification via external instruments (Stock & Watson 2018).
 
-For IV-SVAR models, identification is performed during estimation.
-This function extracts the identified structural rotation matrix.
+When `id` carries an instrument, 2SLS identification is performed on the model's
+residuals. When `id` has no instrument (backward compat `IVIdentification()`),
+the structural impact matrix is extracted from an IVSVAR model's metadata.
 """
-function rotation_matrix(model::VARModel, id::IVIdentification)
-    # Check if model was estimated with IV
-    if !(model.spec isa IVSVAR)
-        throw(ArgumentError("IV identification requires model estimated with IVSVAR"))
-    end
+function rotation_matrix(model::VARModel{T}, id::IVIdentification) where {T}
+    resolved = _resolve_iv(model, id)
+    inst = resolved.instrument
 
-    # Extract structural impact from model metadata
-    if haskey(model.metadata, :structural_impact)
-        return model.metadata.structural_impact
-    else
-        throw(ErrorException("Structural impact matrix not found in model metadata"))
-    end
+    # Perform 2SLS identification
+    ν = residuals(model)
+    Z, target = _extract_instrument(inst, size(ν, 1), n_lags(model), model.names)
+    β_iv, _, _ = _iv_identify(ν, Z, target)
+    return _build_full_impact_matrix(β_iv, target, Matrix(vcov(model)))
 end
 
 # ============================================================================
@@ -429,21 +427,30 @@ Compute moving average (MA) representation matrices Φ_h = F^h.
 - Array of size (n_vars, n_vars, horizon+1) with MA coefficients
 """
 function compute_ma_matrices(F::Matrix{T}, horizon::Int, n_vars::Int, n_lags::Int) where {T}
+    n_comp = n_vars * n_lags
+
     # Preallocate
     Φ = zeros(T, n_vars, n_vars, horizon + 1)
 
     # Φ_0 = I
-    Φ[:, :, 1] = Matrix{T}(I, n_vars, n_vars)
+    for i in 1:n_vars
+        Φ[i, i, 1] = one(T)
+    end
 
-    # Selection matrix to extract first n_vars rows
-    J = zeros(T, n_vars, n_vars * n_lags)
-    J[:, 1:n_vars] = Matrix{T}(I, n_vars, n_vars)
-
-    # Φ_h = J * F^h * J' (but F is already in companion form)
+    # Since J selects the first n_vars rows and J' selects the first n_vars columns,
+    # Φ_h = F_power[1:n_vars, 1:n_vars]. No need to form J explicitly.
     F_power = copy(F)
+    F_power_buf = similar(F)
+
     for h in 1:horizon
-        Φ[:, :, h + 1] = J * F_power * J'
-        F_power = F_power * F
+        # Extract Φ_h = F^h[1:n_vars, 1:n_vars]
+        @inbounds for j in 1:n_vars, i in 1:n_vars
+
+            Φ[i, j, h + 1] = F_power[i, j]
+        end
+        # F_power <- F_power * F  (in-place via buffer swap)
+        mul!(F_power_buf, F_power, F)
+        F_power, F_power_buf = F_power_buf, F_power
     end
 
     return Φ

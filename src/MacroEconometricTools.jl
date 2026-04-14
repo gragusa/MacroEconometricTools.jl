@@ -44,6 +44,8 @@ include("var/irfs.jl")
 include("ivsvar/instruments.jl")
 include("ivsvar/estimation.jl")
 include("ivsvar/diagnostics.jl")
+include("ivsvar/bootstrap.jl")
+include("ivsvar/msw.jl")
 
 # Simulation and bootstrap
 include("simulation.jl")
@@ -131,7 +133,8 @@ export point_estimate, mean_estimate, has_draws, n_draws, get_draws
 export lowerbounds, upperbounds, coverages, horizon
 
 # Export inference types
-export InferenceType, Analytic, WildBootstrap, Bootstrap, BlockBootstrap
+export InferenceType, Analytic, WildBootstrap, Bootstrap, BlockBootstrap, ProxySVARMBB
+export AbstractNormalization, UnitStd, UnitEffect
 
 # Export main functions
 export fit
@@ -140,7 +143,7 @@ export coef, vcov, residuals, fitted
 export n_vars, n_lags, effective_obs, varnames, intercept
 # StatsBase methods (not exported, use via StatsBase): nobs, dof, dof_residual, modelmatrix, rss
 export log_likelihood, aic, bic, hqic
-export bootstrap_irf
+export bootstrap_irf, bootstrap_irf_wild, bootstrap_irf_standard, bootstrap_irf_block
 export forecast
 export rotation_matrix, normalize, normalize!
 export lag, create_lags, create_lags!
@@ -150,5 +153,6 @@ export cumulative_irf
 export is_stable, long_run_effect, long_run_mean
 export confidence_bands
 export irfplot
+export first_stage_F, iv_summary, refit_for_bootstrap
 
 end # module

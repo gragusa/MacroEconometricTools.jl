@@ -67,27 +67,29 @@ const IRFResult = MacroEconometricTools.IRFResult
 
         # Check structure
         @test irf_delta isa IRFResult
-        @test size(irf_delta.irf) == (horizon + 1, n_v, n_v)
-        @test size(irf_delta.stderr) == (horizon + 1, n_v, n_v)
+        # AxisArray layout is (variable, shock, horizon)
+        @test size(irf_delta.irf) == (n_v, n_v, horizon + 1)
+        @test size(irf_delta.stderr) == (n_v, n_v, horizon + 1)
         @test length(irf_delta.lower) == 3  # Default coverage levels
         @test length(irf_delta.upper) == 3
 
         # Check all elements are finite
-        @test all(isfinite.(irf_delta.irf))
-        @test all(isfinite.(irf_delta.stderr))
+        @test all(isfinite.(Array(irf_delta.irf)))
+        @test all(isfinite.(Array(irf_delta.stderr)))
 
         # Standard errors should be positive
-        @test all(irf_delta.stderr .>= 0)
+        @test all(Array(irf_delta.stderr) .>= 0)
 
         # Confidence bands should bracket the point estimate
         for i in 1:length(irf_delta.coverage)
-            @test all(irf_delta.lower[i] .<= irf_delta.irf)
-            @test all(irf_delta.upper[i] .>= irf_delta.irf)
+            @test all(Array(irf_delta.lower[i]) .<= Array(irf_delta.irf))
+            @test all(Array(irf_delta.upper[i]) .>= Array(irf_delta.irf))
         end
 
         # Standard errors should generally increase with horizon
         # (This is a statistical property, not guaranteed, so we just check trend)
-        avg_stderr_by_horizon = [mean(irf_delta.stderr[h, :, :]) for h in 1:(horizon + 1)]
+        irf_stderr_data = Array(irf_delta.stderr)  # (n_v, n_v, horizon+1)
+        avg_stderr_by_horizon = [mean(irf_stderr_data[:, :, h]) for h in 1:(horizon + 1)]
         # At least monotonically non-decreasing for first few horizons
         @test all(diff(avg_stderr_by_horizon[1:5]) .>= -1e-10)
     end
@@ -102,11 +104,11 @@ const IRFResult = MacroEconometricTools.IRFResult
             rng = StableRNG(789))
 
         # Both should give similar point estimates (same identification)
-        @test irf_delta.irf ≈ irf_boot.irf rtol=1e-10
+        @test Array(irf_delta.irf) ≈ Array(irf_boot.irf) rtol=1e-10
 
         # Just check both methods produce finite standard errors
         # We can't reliably compare magnitudes with low bootstrap reps
-        @test all(isfinite.(irf_boot.stderr))
+        @test all(isfinite.(Array(irf_boot.stderr)))
         @test all(irf_boot.stderr .>= 0)  # Allow zero at impact horizon
         @test all(isfinite.(irf_delta.stderr))
         @test all(irf_delta.stderr .>= 0)  # Allow zero at impact horizon
