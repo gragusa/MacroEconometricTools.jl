@@ -154,30 +154,38 @@ function irf_jacobian_matrices(model::VARModel{T, OLSVAR}, irf_point::Array{T, 3
         horizon::Int) where {T}
     n_vars_val = n_vars(model)
     n_lags_val = n_lags(model)
+    n_comp = n_vars_val * n_lags_val
     F = model.companion
 
-    # Memoize F^h computations
-    F_powers = Dict{Int, Matrix{T}}()
-    for h in 0:horizon
-        F_powers[h] = (F')^h
+    # Pre-compute all needed powers of F' and F
+    # Ft_powers[h] = (F')^h, F_powers[h] = F^h
+    Ft_powers = Vector{Matrix{T}}(undef, horizon + 1)
+    F_powers = Vector{Matrix{T}}(undef, horizon + 1)
+    Ft_powers[1] = Matrix{T}(I, n_comp, n_comp)
+    F_powers[1] = Matrix{T}(I, n_comp, n_comp)
+    for h in 1:horizon
+        Ft_powers[h + 1] = Ft_powers[h] * F'
+        F_powers[h + 1] = F_powers[h] * F
     end
 
     # Selection matrix J: extracts first n_vars rows from companion form
-    J = zeros(T, n_vars_val, n_lags_val * n_vars_val)
-    J[1:n_vars_val, 1:n_vars_val] .= I(n_vars_val)
+    J = zeros(T, n_vars_val, n_comp)
+    for i in 1:n_vars_val
+        J[i, i] = one(T)
+    end
 
     # Compute G_h for each horizon
     function compute_G_h(h::Int)
         G = zeros(T, n_vars_val^2, n_lags_val * n_vars_val^2)
 
         for j in 0:(h - 1)
-            # F^(h-1-j)
-            A_power = F_powers[h - 1 - j]
+            # (F')^(h-1-j) — 1-indexed: h-1-j corresponds to index h-j
+            A_power = Ft_powers[h - j]
 
-            # Φ_j = F^j[1:n_vars, 1:n_vars]
-            Φ_j = (F ^ j)[1:n_vars_val, 1:n_vars_val]
+            # Φ_j = F^j[1:n_vars, 1:n_vars] — 1-indexed: j corresponds to index j+1
+            Φ_j = F_powers[j + 1][1:n_vars_val, 1:n_vars_val]
 
-            # G_h += J * F^(h-1-j) ⊗ Φ_j
+            # G_h += (J * (F')^(h-1-j)) ⊗ Φ_j
             G .+= kron(J * A_power, Φ_j)
         end
 

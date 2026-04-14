@@ -1,0 +1,6 @@
+parameter,value
+nBoot,500
+blocksize,4
+norm_scale,-1.0
+seed,12345
+msw_ok,0

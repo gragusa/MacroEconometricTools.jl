@@ -1,18 +1,25 @@
 # see documentation at https://juliadocs.github.io/Documenter.jl/stable/
 
-using Documenter, IRFs
+using Documenter, MacroEconometricTools
 
 makedocs(
-    modules = [IRFs],
+    modules = [MacroEconometricTools],
     format = Documenter.HTML(; prettyurls = get(ENV, "CI", nothing) == "true"),
     authors = "Giuseppe Ragusa",
-    sitename = "IRFs.jl",
-    pages = Any["index.md"]    # strict = true,    # clean = true,    # checkdocs = :exports,
+    sitename = "MacroEconometricTools.jl",
+    pages = [
+        "Home" => "index.md",
+        "Tutorials" => [
+            "tutorials/getting_started.md",
+            "tutorials/svar_iv.md",
+            "tutorials/sign_restrictions.md",
+            "tutorials/parallel_computing.md"
+        ],
+        "Mathematical Theory" => "mathematical/theory.md"
+    ]
 )
 
-# Some setup is needed for documentation deployment, see “Hosting Documentation” and
-# deploydocs() in the Documenter manual for more information.
 deploydocs(
-    repo = "github.com/gragusa/IRFs.jl.git",
+    repo = "github.com/gragusa/MacroEconometricTools.jl.git",
     push_preview = true
 )

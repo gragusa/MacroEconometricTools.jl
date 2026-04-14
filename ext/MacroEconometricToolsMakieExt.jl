@@ -238,9 +238,9 @@ function irfplot(irf::_IRFResult;
             xlabel = "Horizon")
         axes_matrix[ri, ci] = ax
 
-        lb_panel = [lb_all[k][:, vi, si] for k in eachindex(cvgs)]
-        ub_panel = [ub_all[k][:, vi, si] for k in eachindex(cvgs)]
-        y = irf.irf[:, vi, si]
+        lb_panel = [lb_all[k][vi, si, :] for k in eachindex(cvgs)]
+        ub_panel = [ub_all[k][vi, si, :] for k in eachindex(cvgs)]
+        y = irf.irf[vi, si, :]
 
         _plot_irf_panel!(ax, xvals, y, lb_panel, ub_panel, cvgs;
             irf_scale, drawzero, zerolinecolor, zerolinestyle,
@@ -306,23 +306,23 @@ function irfplot(irf::_SignRestrictedIRFResult;
 
         # Individual draws
         if plot_type ∈ (:paths, :both)
-            draws = irf.irf_draws[:, :, vi, si]   # (n_draws, horizon)
+            draws = irf.irf_draws[:, vi, si, :]   # (n_draws, horizon)
             _plot_paths!(ax, xvals, draws;
                 irf_scale, path_alpha, path_color, path_linewidth, flipshock)
         end
 
         # Quantile bands
         if plot_type ∈ (:quantiles, :both) && !isempty(cvgs)
-            lb_panel = [lb_all[k][:, vi, si] for k in eachindex(cvgs)]
-            ub_panel = [ub_all[k][:, vi, si] for k in eachindex(cvgs)]
-            _plot_irf_panel!(ax, xvals, irf.irf_median[:, vi, si],
+            lb_panel = [lb_all[k][vi, si, :] for k in eachindex(cvgs)]
+            ub_panel = [ub_all[k][vi, si, :] for k in eachindex(cvgs)]
+            _plot_irf_panel!(ax, xvals, irf.irf_median[vi, si, :],
                 lb_panel, ub_panel, cvgs;
                 irf_scale, drawzero, zerolinecolor, zerolinestyle,
                 bandcolor, bandalpha, linecolor, linewidth, xtickstep, flipshock)
         else
             # Median line only (paths mode without bands)
             sign = flipshock ? -1 : 1
-            Makie.lines!(ax, xvals, irf.irf_median[:, vi, si] .* (irf_scale * sign);
+            Makie.lines!(ax, xvals, irf.irf_median[vi, si, :] .* (irf_scale * sign);
                 color = linecolor, linewidth = linewidth)
             if drawzero
                 Makie.hlines!(ax, [0.0]; color = zerolinecolor,

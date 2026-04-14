@@ -152,16 +152,19 @@ using Distributed
             var, id; horizon = horizon, n_draws = n_draws, rng = StableRNG(333))
 
         @test irf_result isa SignRestrictedIRFResult
-        @test size(irf_result.irf_median) == (horizon+1, n_v, n_v)
-        @test size(irf_result.irf_draws) == (n_draws, horizon+1, n_v, n_v)
-        @test irf_result.irf_median[1, 1, 1] > 0  # Median should satisfy restriction
-        @test all(irf_result.irf_draws[:, 1, 1, 1] .> 0)  # All draws should satisfy restriction
+        # AxisArray layout: (variable, shock, horizon) and (draw, variable, shock, horizon)
+        @test size(irf_result.irf_median) == (n_v, n_v, horizon+1)
+        @test size(irf_result.irf_draws) == (n_draws, n_v, n_v, horizon+1)
+        median_data = Array(irf_result.irf_median)
+        draws_data = Array(irf_result.irf_draws)
+        @test median_data[1, 1, 1] > 0  # Median should satisfy restriction
+        @test all(draws_data[:, 1, 1, 1] .> 0)  # All draws should satisfy restriction
 
         # Test reproducibility
         irf_result2 = irf(
             var, id; horizon = horizon, n_draws = n_draws, rng = StableRNG(333))
-        @test irf_result.irf_median ≈ irf_result2.irf_median
-        @test irf_result.irf_draws ≈ irf_result2.irf_draws
+        @test Array(irf_result.irf_median) ≈ Array(irf_result2.irf_median)
+        @test Array(irf_result.irf_draws) ≈ Array(irf_result2.irf_draws)
     end
 
     println("✓ All sign restriction tests passed!")

@@ -13,11 +13,14 @@ using AxisArrays: AxisArrays, Axis
 # They work on any AbstractIRFResult
 
 function _var_names(irf::AbstractIRFResult)
-    if haskey(irf.metadata, :names)
-        names = irf.metadata.names
-        return Symbol.(names)
-    else
-        return [Symbol("Y_$i") for i in 1:MacroEconometricTools.n_vars(irf)]
+    try
+        return varnames(irf)
+    catch
+        if haskey(irf.metadata, :names)
+            return Symbol.(irf.metadata.names)
+        else
+            return [Symbol("Y_$i") for i in 1:MacroEconometricTools.n_vars(irf)]
+        end
     end
 end
 
@@ -89,17 +92,22 @@ RecipesBase.@recipe function f(irf::IRFResult;
     ub = upperbounds(irf)
     coverages = irf.coverage
 
+    # Materialize AxisArrays to plain arrays for indexing
+    irf_data = Array(irf.irf)       # (variable, shock, horizon)
+    lb_data = [Array(l) for l in lb]
+    ub_data = [Array(u) for u in ub]
+
     for (row_idx, var_idx) in enumerate(info.idxvars)
         for (col_idx, shock_idx) in enumerate(info.idxshocks)
-            y = irf.irf[:, var_idx, shock_idx]
+            y = irf_data[var_idx, shock_idx, :]
             x = 0:(length(y) - 1)
             title := info.shock_labels[col_idx]
             yguide := col_idx == 1 ? info.var_labels[row_idx] : ""
             xticks := (0:6:length(y), 0:6:length(y))
             xlims := (-0.2, length(y))
             for (cv_idx, _) in enumerate(coverages)
-                lb_slice = lb[cv_idx][:, var_idx, shock_idx]
-                ub_slice = ub[cv_idx][:, var_idx, shock_idx]
+                lb_slice = lb_data[cv_idx][var_idx, shock_idx, :]
+                ub_slice = ub_data[cv_idx][var_idx, shock_idx, :]
                 @series begin
                     subplot := subplot
                     linecolor := nothing
@@ -178,9 +186,15 @@ RecipesBase.@recipe function f(irf::SignRestrictedIRFResult;
     ub = irf.upper
     coverages = irf.coverage
 
+    # Materialize AxisArrays to plain arrays for indexing
+    median_data = Array(irf.irf_median)   # (variable, shock, horizon)
+    draws_data = Array(irf.irf_draws)     # (draw, variable, shock, horizon)
+    lb_data = [Array(l) for l in lb]
+    ub_data = [Array(u) for u in ub]
+
     for (row_idx, var_idx) in enumerate(idxvars)
         for (col_idx, shock_idx) in enumerate(idxshocks)
-            y_median = irf.irf_median[:, var_idx, shock_idx]
+            y_median = median_data[var_idx, shock_idx, :]
             x = 0:(length(y_median) - 1)
             title := shock_labels_full[col_idx]
             yguide := col_idx == 1 ? var_labels_full[row_idx] : ""
@@ -189,9 +203,9 @@ RecipesBase.@recipe function f(irf::SignRestrictedIRFResult;
 
             # Draw paths if requested
             if plot_type ∈ [:paths, :both]
-                n_draws = size(irf.irf_draws, 1)
-                for draw_idx in 1:n_draws
-                    y_path = irf.irf_draws[draw_idx, :, var_idx, shock_idx]
+                nd = size(draws_data, 1)
+                for draw_idx in 1:nd
+                    y_path = draws_data[draw_idx, var_idx, shock_idx, :]
                     @series begin
                         subplot := subplot
                         linecolor := path_color
@@ -205,8 +219,8 @@ RecipesBase.@recipe function f(irf::SignRestrictedIRFResult;
             # Draw quantile bands if requested
             if plot_type ∈ [:quantiles, :both]
                 for (cv_idx, _) in enumerate(coverages)
-                    lb_slice = lb[cv_idx][:, var_idx, shock_idx]
-                    ub_slice = ub[cv_idx][:, var_idx, shock_idx]
+                    lb_slice = lb_data[cv_idx][var_idx, shock_idx, :]
+                    ub_slice = ub_data[cv_idx][var_idx, shock_idx, :]
                     @series begin
                         subplot := subplot
                         linecolor := nothing

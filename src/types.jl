@@ -118,25 +118,39 @@ struct NormalWishartPrior <: AbstractPrior end
 # ============================================================================
 
 """
-    ExternalInstrument{T} <: AbstractInstrument
+    ExternalInstrument{T, S} <: AbstractInstrument
 
 External instrumental variable for identification.
 
 # Fields
 - `Z::Matrix{T}`: Instrument matrix (T × k)
-- `target_shock::Int`: Index of the shock to be identified
+- `target_shock::S`: Shock to identify — `Int` (index) or `Symbol` (variable name)
 - `method::Symbol`: Estimation method (`:tsls`, `:liml`, `:fuller`)
+
+# Constructors
+```julia
+ExternalInstrument(Z)                           # default: target_shock=1
+ExternalInstrument(Z, target_shock=:logIP)      # by variable name
+ExternalInstrument(Z, target_shock=4)           # by index
+ExternalInstrument(Z, 4)                        # positional (backward compat)
+```
+
+Accepts vectors or matrices for `Z` (vectors are auto-reshaped to T×1 matrices).
+The `Symbol` target is resolved against `model.names` at estimation time.
 """
-struct ExternalInstrument{T <: AbstractFloat} <: AbstractInstrument
+struct ExternalInstrument{T <: AbstractFloat, S <: Union{Int, Symbol}} <: AbstractInstrument
     Z::Matrix{T}
-    target_shock::Int
+    target_shock::S
     method::Symbol
 
-    function ExternalInstrument(Z::Matrix{T}, target_shock::Int; method::Symbol = :tsls) where {T}
+    function ExternalInstrument(Z::Matrix{T}, target_shock::Union{Int, Symbol};
+            method::Symbol = :tsls) where {T}
         method ∈ [:tsls, :liml, :fuller] ||
             throw(ArgumentError("method must be :tsls, :liml, or :fuller"))
-        target_shock > 0 || throw(ArgumentError("target_shock must be positive"))
-        return new{T}(Z, target_shock, method)
+        if target_shock isa Int
+            target_shock > 0 || throw(ArgumentError("target_shock must be positive"))
+        end
+        return new{T, typeof(target_shock)}(Z, target_shock, method)
     end
 end
 
@@ -166,27 +180,44 @@ struct ProxyIV{T <: AbstractFloat} <: AbstractInstrument
 end
 
 # ============================================================================
+# Constraint abstract type (concrete subtypes defined in constraints.jl)
+# ============================================================================
+
+"""
+    AbstractConstraint
+
+Abstract type for linear constraints on VAR coefficients.
+Concrete subtypes: `ZeroConstraint`, `FixedConstraint`, `BlockExogeneity`.
+"""
+abstract type AbstractConstraint end
+
+# ============================================================================
 # VAR Coefficient Structure
 # ============================================================================
 
 """
-    VARCoefficients{T}
+    VARCoefficients{T, C}
 
 Storage structure for VAR coefficients with constraint information.
+
+# Type Parameters
+- `T<:AbstractFloat`: Numeric type
+- `C<:Union{Nothing, Vector{<:AbstractConstraint}}`: Constraint type
 
 # Fields
 - `intercept::Vector{T}`: Intercept coefficients (n_vars)
 - `lags::Array{T,3}`: Lag coefficients (n_vars, n_vars, n_lags)
-- `constraints::Any`: Applied constraints (Vector{<:AbstractConstraint} or nothing)
+- `constraints::C`: Applied constraints (Vector{<:AbstractConstraint} or nothing)
 """
-struct VARCoefficients{T <: AbstractFloat}
+struct VARCoefficients{
+    T <: AbstractFloat, C <: Union{Nothing, Vector{<:AbstractConstraint}}}
     intercept::Vector{T}
     lags::Array{T, 3}
-    constraints::Any  # Will be Vector{<:AbstractConstraint} or nothing
+    constraints::C
 end
 
 function VARCoefficients(intercept::Vector{T}, lags::Array{T, 3}) where {T}
-    return VARCoefficients{T}(intercept, lags, nothing)
+    return VARCoefficients{T, Nothing}(intercept, lags, nothing)
 end
 
 # ============================================================================
@@ -265,11 +296,51 @@ struct SignRestriction <: AbstractIdentification
 end
 
 """
-    IVIdentification <: AbstractIdentification
+    IVIdentification{I} <: AbstractIdentification
 
-Identification via instrumental variables (for IV-SVAR).
+Identification via external instruments, also known as SVAR-IV or proxy SVAR
+(Stock & Watson 2018, Mertens & Ravn 2013 — same estimator, different names).
+
+The instrument can be passed directly to `IVIdentification`:
+
+```julia
+id = IVIdentification(proxy_vector, target_shock)
+result = irf(model, id; horizon=20)
+```
+
+For backward compatibility, `IVIdentification()` (no instrument) is accepted
+when the model was estimated with `fit(IVSVAR, ...)`.
+
+# Constructors
+- `IVIdentification(Z, target_shock; method=:tsls)` — Z is a vector or matrix
+- `IVIdentification(instrument::AbstractInstrument)` — wrap an ExternalInstrument or ProxyIV
+- `IVIdentification()` — backward compat (requires IVSVAR model)
 """
-struct IVIdentification <: AbstractIdentification end
+struct IVIdentification{I <: Union{Nothing, AbstractInstrument}} <: AbstractIdentification
+    instrument::I
+end
+
+IVIdentification() = IVIdentification{Nothing}(nothing)
+
+# Keyword-based constructors (new API)
+function IVIdentification(Z::AbstractVecOrMat{T};
+        target_shock::Union{Int, Symbol} = 1,
+        method::Symbol = :tsls) where {T <: AbstractFloat}
+    IVIdentification(ExternalInstrument(Z; target_shock = target_shock, method = method))
+end
+
+# Positional backward compat
+function IVIdentification(Z::AbstractVector{T}, target::Int;
+        method::Symbol = :tsls) where {T <: AbstractFloat}
+    IVIdentification(ExternalInstrument(Z, target; method = method))
+end
+
+function IVIdentification(Z::AbstractMatrix{T}, target::Int;
+        method::Symbol = :tsls) where {T <: AbstractFloat}
+    IVIdentification(ExternalInstrument(Z, target; method = method))
+end
+
+IVIdentification(inst::AbstractInstrument) = IVIdentification{typeof(inst)}(inst)
 
 # ============================================================================
 # Inference Types
@@ -414,6 +485,61 @@ struct BlockBootstrap <: InferenceType
     end
 end
 
+"""
+    ProxySVARMBB <: InferenceType
+
+Jentsch & Lunsford (2022) corrected moving block bootstrap for proxy-SVARs.
+
+Jointly resamples (residuals, proxy) in blocks with position-specific centering.
+This is asymptotically valid under heteroskedasticity and serial correlation,
+unlike the standard wild or block bootstrap applied to proxy-SVARs.
+
+Optionally computes Anderson-Rubin confidence sets (robust to weak instruments)
+via grid-based test inversion.
+
+# Fields
+- `reps::Int`: Number of bootstrap replications (default: 2000)
+- `block_length::Int`: Block size ℓ (default: 4)
+- `compute_ar::Bool`: Compute Anderson-Rubin confidence sets (default: false)
+- `ar_grid::Union{Nothing, Vector{Float64}}`: Grid for AR sets
+- `norm_scale::Float64`: Normalization scale for normalized IRFs (default: -1.0)
+- `save_draws::Bool`: Save all bootstrap draws
+
+# References
+- Jentsch & Lunsford (2022): "Asymptotically Valid Bootstrap Inference for
+  Proxy SVARs"
+- Anderson & Rubin (1949): "Estimation of the parameters of a single equation
+  in a complete system of stochastic equations"
+
+# Example
+```julia
+model = fit(IVSVAR, Y, p; instrument=Z)
+result = irf(model, IVIdentification();
+    inference=ProxySVARMBB(2000; block_length=4))
+```
+"""
+struct ProxySVARMBB <: InferenceType
+    reps::Int
+    block_length::Int
+    compute_ar::Bool
+    ar_grid::Union{Nothing, Vector{Float64}}
+    norm_scale::Float64
+    save_draws::Bool
+
+    function ProxySVARMBB(reps::Int = 2000;
+            block_length::Int = 4,
+            compute_ar::Bool = false,
+            ar_grid::Union{Nothing, Vector{Float64}} = nothing,
+            norm_scale::Float64 = -1.0,
+            save_draws::Bool = false)
+        reps > 0 || throw(ArgumentError("reps must be positive"))
+        block_length > 0 || throw(ArgumentError("block_length must be positive"))
+        # When compute_ar=true and ar_grid=nothing, a default grid [-10, 10] × 201
+        # is applied at runtime in proxy_svar_mbb.
+        return new(reps, block_length, compute_ar, ar_grid, norm_scale, save_draws)
+    end
+end
+
 # ============================================================================
 # IRF Structure
 # ============================================================================
@@ -430,57 +556,93 @@ Concrete subtypes:
 abstract type AbstractIRFResult{T <: AbstractFloat} end
 
 """
-    IRFResult{T}
+    IRFResult{T, A<:AxisArray}
 
 Impulse response function results for point-identified systems.
 
+Data is stored as AxisArray with dimensions:
+- `:variable` - response variable (Symbol)
+- `:shock` - structural shock (Symbol)
+- `:horizon` - IRF horizon (0:H)
+
+# Example Access
+```julia
+irf.irf[:GDP, :MonetaryShock, 0:12]  # GDP response to monetary shock, horizons 0-12
+```
+
 # Fields
-- `irf::Array{T,3}`: IRF array (horizon, n_vars, n_shocks)
-- `stderr::Array{T,3}`: Standard errors (if computed)
-- `bootstrap_draws::Union{Nothing, Array{T,4}}`: Bootstrap IRF draws (reps, horizon, n_vars, n_shocks) if saved
-- `lower::Vector{Array{T,3}}`: Lower confidence bands (one per coverage level)
-- `upper::Vector{Array{T,3}}`: Upper confidence bands
+- `irf::A`: 3D AxisArray (variable × shock × horizon) — point estimates
+- `stderr::A`: Standard errors (same shape)
+- `bootstrap_draws::Union{Nothing, AxisArray}`: Bootstrap IRF draws (draw × variable × shock × horizon)
+- `lower::Vector{A}`: Lower confidence bands (one per coverage level)
+- `upper::Vector{A}`: Upper confidence bands
 - `coverage::Vector{Float64}`: Coverage levels
 - `identification::AbstractIdentification`: Identification scheme used
 - `inference::Union{Nothing, InferenceType}`: Inference method used
 - `metadata::NamedTuple`: Additional information
 """
-struct IRFResult{T <: AbstractFloat} <: AbstractIRFResult{T}
-    irf::Array{T, 3}
-    stderr::Array{T, 3}
-    bootstrap_draws::Union{Nothing, Array{T, 4}}
-    lower::Vector{Array{T, 3}}
-    upper::Vector{Array{T, 3}}
+struct IRFResult{T <: AbstractFloat, A <: AxisArray} <: AbstractIRFResult{T}
+    irf::A
+    stderr::A
+    bootstrap_draws::Union{Nothing, AxisArray}
+    lower::Vector{A}
+    upper::Vector{A}
     coverage::Vector{Float64}
     identification::AbstractIdentification
     inference::Union{Nothing, InferenceType}
     metadata::NamedTuple
 end
 
+# Convenience constructor: infer T from AxisArray element type
+function IRFResult(irf::A, stderr, bootstrap_draws, lower, upper, coverage,
+        identification, inference, metadata) where {A <: AxisArray}
+    T = eltype(irf)
+    IRFResult{T, A}(irf, stderr, bootstrap_draws, lower, upper, coverage,
+        identification, inference, metadata)
+end
+
 """
-    SignRestrictedIRFResult{T}
+    SignRestrictedIRFResult{T, A<:AxisArray}
 
 Impulse response function results for sign restriction identification (set-identified).
 
+Data is stored as AxisArray with dimensions:
+- `:variable` - response variable (Symbol)
+- `:shock` - structural shock (Symbol)
+- `:horizon` - IRF horizon (0:H)
+
+# Example Access
+```julia
+irf.irf_median[:GDP, :MonetaryShock, 0:12]  # Median GDP response, horizons 0-12
+```
+
 # Fields
-- `irf_median::Array{T,3}`: Median IRF across draws (horizon, n_vars, n_shocks)
-- `irf_draws::Array{T,4}`: All drawn IRFs (n_draws, horizon, n_vars, n_shocks)
-- `lower::Vector{Array{T,3}}`: Pointwise lower quantile bands
-- `upper::Vector{Array{T,3}}`: Pointwise upper quantile bands
+- `irf_median::A`: Median IRF across draws — 3D AxisArray (variable × shock × horizon)
+- `irf_draws::AxisArray`: All drawn IRFs — 4D (draw × variable × shock × horizon)
+- `lower::Vector{A}`: Pointwise lower quantile bands
+- `upper::Vector{A}`: Pointwise upper quantile bands
 - `coverage::Vector{Float64}`: Coverage levels for quantile bands
 - `rotation_matrices::Vector{Matrix{T}}`: All rotation matrices satisfying restrictions
 - `identification::SignRestriction`: Identification scheme used
 - `metadata::NamedTuple`: Additional information (n_draws, etc.)
 """
-struct SignRestrictedIRFResult{T <: AbstractFloat} <: AbstractIRFResult{T}
-    irf_median::Array{T, 3}
-    irf_draws::Array{T, 4}
-    lower::Vector{Array{T, 3}}
-    upper::Vector{Array{T, 3}}
+struct SignRestrictedIRFResult{T <: AbstractFloat, A <: AxisArray} <: AbstractIRFResult{T}
+    irf_median::A
+    irf_draws::AxisArray
+    lower::Vector{A}
+    upper::Vector{A}
     coverage::Vector{Float64}
     rotation_matrices::Vector{Matrix{T}}
     identification::SignRestriction
     metadata::NamedTuple
+end
+
+# Convenience constructor: infer T from AxisArray element type
+function SignRestrictedIRFResult(irf_median::A, irf_draws, lower, upper, coverage,
+        rotation_matrices::Vector{Matrix{T}}, identification, metadata) where {
+        T, A <: AxisArray}
+    SignRestrictedIRFResult{T, A}(irf_median, irf_draws, lower, upper, coverage,
+        rotation_matrices, identification, metadata)
 end
 
 # ============================================================================
@@ -793,11 +955,15 @@ coverages(irf::AbstractIRFResult) = irf.coverage
 Maximum horizon of the IRF.
 """
 function horizon(irf::IRFResult)
-    size(irf.irf, 1) - 1
+    ax = AxisArrays.axes(irf.irf, Axis{:horizon})
+    horizons = AxisArrays.axisvalues(ax)[1]
+    return maximum(horizons)
 end
 
 function horizon(irf::SignRestrictedIRFResult)
-    size(irf.irf_median, 1) - 1
+    ax = AxisArrays.axes(irf.irf_median, Axis{:horizon})
+    horizons = AxisArrays.axisvalues(ax)[1]
+    return maximum(horizons)
 end
 
 function horizon(irf::BayesianIRFResult)
@@ -817,8 +983,15 @@ end
 
 Number of variables in the IRF.
 """
-n_vars(irf::IRFResult) = size(irf.irf, 2)
-n_vars(irf::SignRestrictedIRFResult) = size(irf.irf_median, 2)
+function n_vars(irf::IRFResult)
+    ax = AxisArrays.axes(irf.irf, Axis{:variable})
+    return length(AxisArrays.axisvalues(ax)[1])
+end
+
+function n_vars(irf::SignRestrictedIRFResult)
+    ax = AxisArrays.axes(irf.irf_median, Axis{:variable})
+    return length(AxisArrays.axisvalues(ax)[1])
+end
 
 function n_vars(irf::BayesianIRFResult)
     ax = AxisArrays.axes(irf.data, Axis{:variable})
@@ -831,10 +1004,20 @@ function n_vars(irf::LocalProjectionIRFResult)
 end
 
 """
-    varnames(irf::BayesianIRFResult) -> Vector
+    varnames(irf::AbstractIRFResult) -> Vector
 
 Variable names from AxisArray axes.
 """
+function varnames(irf::IRFResult)
+    ax = AxisArrays.axes(irf.irf, Axis{:variable})
+    return collect(AxisArrays.axisvalues(ax)[1])
+end
+
+function varnames(irf::SignRestrictedIRFResult)
+    ax = AxisArrays.axes(irf.irf_median, Axis{:variable})
+    return collect(AxisArrays.axisvalues(ax)[1])
+end
+
 function varnames(irf::BayesianIRFResult)
     ax = AxisArrays.axes(irf.data, Axis{:variable})
     return collect(AxisArrays.axisvalues(ax)[1])
