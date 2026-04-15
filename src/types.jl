@@ -1027,3 +1027,67 @@ function varnames(irf::LocalProjectionIRFResult)
     ax = AxisArrays.axes(irf.data, Axis{:response})
     return collect(AxisArrays.axisvalues(ax)[1])
 end
+
+# ============================================================================
+# Scaling information
+# ============================================================================
+
+"""
+    IRFScale{T, N <: AbstractNormalization}
+
+Describes the scaling state of an IRF result.
+
+# Fields
+- `normalization::N`: normalization scheme (`UnitStd()` or `UnitEffect()`)
+- `scale::Vector{T}`: per-shock multiplicative scale factors applied to the IRF.
+  Entry `j` is the cumulative factor for shock `j`.
+- `impact_diagonal::Vector{T}`: diagonal of the (normalized, unscaled) impact matrix P —
+  the on-impact effect of shock j on variable j before any `scale` multiplication.
+  For `UnitEffect`, these are all ≈ 1 (by construction). For `UnitStd`, each entry is
+  the standard deviation of the structural shock's immediate effect on its own variable.
+  For sign-restricted IRFs, this is the median across accepted draws.
+- `names::Vector{Symbol}`: variable/shock names (same ordering as `impact_diagonal`)
+"""
+struct IRFScale{T <: Real, N <: AbstractNormalization}
+    normalization::N
+    scale::Vector{T}
+    impact_diagonal::Vector{T}
+    names::Vector{Symbol}
+end
+
+function Base.show(io::IO, s::IRFScale)
+    println(io, "IRFScale")
+    println(io, "  normalization: ", s.normalization)
+    println(io, "  per-shock state (impact_diag × scale = effective on-impact):")
+    for (nm, d, sc) in zip(s.names, s.impact_diagonal, s.scale)
+        eff = d * sc
+        println(io, "    ", nm, "  impact_diag = ", round(d; digits = 6),
+            "  scale = ", round(sc; digits = 6),
+            "  effective = ", round(eff; digits = 6))
+    end
+end
+
+"""
+    get_scale(irf::AbstractIRFResult) -> IRFScale
+
+Return the scaling information for an IRF result: the normalization scheme,
+the per-shock `scale` factors, and the on-impact diagonal of the structural
+impact matrix (before scaling).
+
+# Example
+```julia
+s = get_scale(result)
+s.normalization    # UnitStd() or UnitEffect()
+s.scale            # per-shock scale factors [1.0, -1.0, 100.0, ...]
+s.impact_diagonal  # diag(P) — what "1 unit of shock j" means
+s.names            # variable/shock names
+```
+"""
+function get_scale(irf::Union{IRFResult, SignRestrictedIRFResult})
+    md = irf.metadata
+    norm = md.normalization()   # reconstruct instance from stored type
+    T = eltype(md.impact_diagonal)
+    sc = md.scale isa AbstractVector ? T.(md.scale) :
+         fill(T(md.scale), length(md.impact_diagonal))
+    IRFScale{T, typeof(norm)}(norm, sc, md.impact_diagonal, Symbol.(md.names))
+end

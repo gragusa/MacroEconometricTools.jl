@@ -64,15 +64,14 @@ include("plots_recipes.jl")
 Plot impulse response functions using Makie.  Returns a `Makie.Figure`.
 Requires a Makie backend (e.g., `CairoMakie` or `GLMakie`) to be loaded.
 
+All scaling should be applied to the IRF result *before* plotting
+using `rescale` / `rescale!`.
+
 # Selection
 - `vars = :all`: variables to plot (`:all`, or `Vector{Symbol}`)
 - `shocks = :all`: shocks to plot
 - `pretty_vars = nothing`: custom labels for variables
 - `pretty_shocks = nothing`: custom labels for shocks
-
-# Scaling & orientation
-- `irf_scale = 1.0`: multiply IRF values (use `100` for percentage points)
-- `flipshock = false`: flip sign of the response (useful for sign normalisation)
 
 # Appearance
 - `bandcolor = :steelblue`: fill colour for confidence / credible bands
@@ -107,9 +106,9 @@ using MacroEconometricTools, CairoMakie
 # Basic usage
 fig = irfplot(result)
 
-# Percentage points, custom labels, larger figure
-fig = irfplot(result;
-    irf_scale = 100,
+# Rescale to percentage points, then plot with custom labels
+result_pct = rescale(result, 100)
+fig = irfplot(result_pct;
     pretty_vars  = ["Output", "Prices"],
     pretty_shocks = ["Demand", "Supply"],
     size = (1000, 700),
@@ -118,6 +117,40 @@ save("irfs.pdf", fig)
 ```
 """
 function irfplot end
+
+"""
+    irfplot!(ax, irf::AbstractIRFResult; var::Symbol, shock::Symbol, kwargs...)
+
+Draw a single IRF panel (one variable–shock pair) onto an existing `Makie.Axis`.
+Returns `ax`.  Requires a Makie backend (e.g., `CairoMakie` or `GLMakie`).
+
+All scaling should be applied to the IRF result *before* plotting
+using `rescale` / `rescale!`.
+
+Use this to compose custom multi-panel figures:
+
+```julia
+using CairoMakie, MacroEconometricTools
+
+result_pct = rescale(result, 100)
+fig = Figure(size = (1200, 400))
+ax1 = Axis(fig[1, 1]; title = "GDP")
+ax2 = Axis(fig[1, 2]; title = "Inflation")
+irfplot!(ax1, result_pct; var = :GDP, shock = :MP, bandcolor = :steelblue)
+irfplot!(ax2, result_pct; var = :Inflation, shock = :MP, bandcolor = :indianred)
+linkxaxes!(ax1, ax2)
+save("composed.pdf", fig)
+```
+
+Accepts the same appearance keywords as `irfplot`:
+`bandcolor`, `bandalpha`, `linecolor`, `linewidth`,
+`drawzero`, `zerolinecolor`, `zerolinestyle`, `xtickstep`.
+
+For set-identified / Bayesian results, also accepts:
+`plot_type` (`:quantiles`, `:paths`, `:both`), `path_alpha`, `path_color`,
+`path_linewidth`.
+"""
+function irfplot! end
 
 # Export main types
 export AbstractVARSpec, OLSVAR, BayesianVAR, IVSVAR, LocalProjection
@@ -131,6 +164,7 @@ export BayesianIRFResult, LocalProjectionIRFResult
 export NarrativeShockRestriction, NarrativeRestriction
 export point_estimate, mean_estimate, has_draws, n_draws, get_draws
 export lowerbounds, upperbounds, coverages, horizon
+export IRFScale, get_scale, rescale, rescale!
 
 # Export inference types
 export InferenceType, Analytic, WildBootstrap, Bootstrap, BlockBootstrap, ProxySVARMBB
@@ -152,7 +186,7 @@ export variance_decomposition, historical_decomposition
 export cumulative_irf
 export is_stable, long_run_effect, long_run_mean
 export confidence_bands
-export irfplot
+export irfplot, irfplot!
 export first_stage_F, iv_summary, refit_for_bootstrap
 
 end # module
