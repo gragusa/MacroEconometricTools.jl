@@ -1029,6 +1029,31 @@ function varnames(irf::LocalProjectionIRFResult)
 end
 
 # ============================================================================
+# Normalization (needed here so IRFScale can reference AbstractNormalization)
+# ============================================================================
+
+"""
+    AbstractNormalization
+
+Abstract type for shock normalization schemes.
+"""
+abstract type AbstractNormalization end
+
+"""
+    UnitStd <: AbstractNormalization
+
+Normalize shocks to have unit variance (standard normalization).
+"""
+struct UnitStd <: AbstractNormalization end
+
+"""
+    UnitEffect <: AbstractNormalization
+
+Normalize shocks to have unit effect on diagonal (on impact).
+"""
+struct UnitEffect <: AbstractNormalization end
+
+# ============================================================================
 # Scaling information
 # ============================================================================
 

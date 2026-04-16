@@ -354,29 +354,9 @@ function rotation_matrix(model::VARModel{T}, id::IVIdentification) where {T}
 end
 
 # ============================================================================
-# Normalization
+# Normalization functions
+# (AbstractNormalization, UnitStd, UnitEffect are defined in types.jl)
 # ============================================================================
-
-"""
-    AbstractNormalization
-
-Abstract type for shock normalization schemes.
-"""
-abstract type AbstractNormalization end
-
-"""
-    UnitStd <: AbstractNormalization
-
-Normalize shocks to have unit variance (standard normalization).
-"""
-struct UnitStd <: AbstractNormalization end
-
-"""
-    UnitEffect <: AbstractNormalization
-
-Normalize shocks to have unit effect on diagonal (on impact).
-"""
-struct UnitEffect <: AbstractNormalization end
 
 """
     normalize!(P::Matrix, norm::AbstractNormalization)
