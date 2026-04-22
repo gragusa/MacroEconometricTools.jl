@@ -32,8 +32,9 @@ function msw_confidence_set(model::VARModel{T}, id::IVIdentification;
         horizon::Int = 20) where {T}
     resolved = _resolve_iv(model, id)
     ν = model.residuals
-    Z, _ = _extract_instrument(resolved.instrument, size(ν, 1), n_lags(model), model.names)
-    return _msw_impl(model, vec(Z); norm_scale = norm_scale, horizon = horizon)
+    Z,
+    target = _extract_instrument(resolved.instrument, size(ν, 1), n_lags(model), model.names)
+    return _msw_impl(model, vec(Z), target; norm_scale = norm_scale, horizon = horizon)
 end
 
 # Backward compat: instrument in model
@@ -44,7 +45,7 @@ function msw_confidence_set(model::VARModel{T, <:IVSVAR};
         norm_scale = norm_scale, horizon = horizon)
 end
 
-function _msw_impl(model::VARModel{T}, proxy::Vector{T};
+function _msw_impl(model::VARModel{T}, proxy::Vector{T}, target::Int;
         norm_scale::Float64 = -1.0,
         horizon::Int = 20) where {T}
     ν = model.residuals
@@ -152,14 +153,14 @@ function _msw_impl(model::VARModel{T}, proxy::Vector{T};
     end
 
     # ── Step 5: Wald statistic and critical values ────────────────────────
-    wald = TT * γ_est[1]^2 / V33[1, 1]
+    wald = TT * γ_est[target]^2 / V33[target, target]
 
     crit68 = 0.9889   # χ²(1) at 68%
     crit95 = 3.8415   # χ²(1) at 95%
 
     # ── Step 6: Solve quadratic for each (variable, horizon) ──────────────
-    aa68 = TT * γ_est[1]^2 - crit68 * V33[1, 1]
-    aa95 = TT * γ_est[1]^2 - crit95 * V33[1, 1]
+    aa68 = TT * γ_est[target]^2 - crit68 * V33[target, target]
+    aa95 = TT * γ_est[target]^2 - crit95 * V33[target, target]
 
     bounded68 = aa68 > 0
     bounded95 = aa95 > 0
@@ -178,8 +179,9 @@ function _msw_impl(model::VARModel{T}, proxy::Vector{T};
             temp2 = Mkron * G[:, :, h]
 
             # b coefficient
-            bpart1 = -TT * temp1 * γ_est[1]
-            bpart2 = (temp2 * V31[1:1, :]')[1] + (Φ_h[k:k, :] * V33[:, 1:1])[1]
+            bpart1 = -TT * temp1 * γ_est[target]
+            bpart2 = (temp2 * V31[target:target, :]')[1] +
+                     (Φ_h[k:k, :] * V33[:, target:target])[1]
             bb68 = 2 * s * (bpart1 + crit68 * bpart2)
             bb95 = 2 * s * (bpart1 + crit95 * bpart2)
 
@@ -197,18 +199,18 @@ function _msw_impl(model::VARModel{T}, proxy::Vector{T};
         end
     end
 
-    # Normalization at impact
+    # Normalization at impact (target variable's IRF equals `s` by construction)
     if bounded68
-        cs68[:, 1, 1] .= s
+        cs68[:, 1, target] .= s
     else
-        cs68[1:2, 1, 1] .= s
-        cs68[3:4, 1, 1] .= 0
+        cs68[1:2, 1, target] .= s
+        cs68[3:4, 1, target] .= 0
     end
     if bounded95
-        cs95[:, 1, 1] .= s
+        cs95[:, 1, target] .= s
     else
-        cs95[1:2, 1, 1] .= s
-        cs95[3:4, 1, 1] .= 0
+        cs95[1:2, 1, target] .= s
+        cs95[3:4, 1, target] .= 0
     end
 
     return (

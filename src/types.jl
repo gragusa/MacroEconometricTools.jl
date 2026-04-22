@@ -155,27 +155,40 @@ struct ExternalInstrument{T <: AbstractFloat, S <: Union{Int, Symbol}} <: Abstra
 end
 
 """
-    ProxyIV{T} <: AbstractInstrument
+    ProxyIV{T, S} <: AbstractInstrument
 
 Proxy instrumental variable for identification (Mertens-Ravn, Stock-Watson).
 
+Currently only single-shock identification is supported.
+
 # Fields
 - `proxies::Matrix{T}`: Proxy variables (T × k)
-- `target_shocks::Vector{Int}`: Indices of shocks to be identified
+- `target_shock::S`: Index (`Int`) or name (`Symbol`) of the shock to identify
 - `relevance_threshold::Float64`: Threshold for weak instrument testing
+
+# Constructors
+```julia
+ProxyIV(proxies)                                # default: target_shock=1
+ProxyIV(proxies, target_shock=:logIP)           # by variable name
+ProxyIV(proxies, target_shock=2)                # by index
+ProxyIV(proxies, 2)                             # positional (backward compat)
+```
+
+Accepts vectors or matrices for `proxies` (vectors are auto-reshaped to T×1 matrices).
 """
-struct ProxyIV{T <: AbstractFloat} <: AbstractInstrument
+struct ProxyIV{T <: AbstractFloat, S <: Union{Int, Symbol}} <: AbstractInstrument
     proxies::Matrix{T}
-    target_shocks::Vector{Int}
+    target_shock::S
     relevance_threshold::Float64
 
-    function ProxyIV(proxies::Matrix{T}, target_shocks::Vector{Int};
+    function ProxyIV(proxies::Matrix{T}, target_shock::Union{Int, Symbol};
             relevance_threshold::Float64 = 10.0) where {T}
-        all(target_shocks .> 0) ||
-            throw(ArgumentError("All target_shocks must be positive"))
+        if target_shock isa Int
+            target_shock > 0 || throw(ArgumentError("target_shock must be positive"))
+        end
         relevance_threshold > 0 ||
             throw(ArgumentError("relevance_threshold must be positive"))
-        return new{T}(proxies, target_shocks, relevance_threshold)
+        return new{T, typeof(target_shock)}(proxies, target_shock, relevance_threshold)
     end
 end
 

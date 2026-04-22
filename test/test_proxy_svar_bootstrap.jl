@@ -31,7 +31,7 @@ const BDATA = joinpath(@__DIR__, "data")
     n_imp = 21;
     s = -1.0
 
-    dyn = MacroEconometricTools.proxy_svar_dynamics(A_est, covUU, covUM, H1, p, s, n_imp)
+    dyn = MacroEconometricTools.proxy_svar_dynamics(A_est, covUU, covUM, H1, p, s, n_imp, 1)
 
     @testset "IRFs match" begin
         for k in 1:K, h in 1:n_imp
@@ -63,9 +63,9 @@ const BDATA = joinpath(@__DIR__, "data")
 end
 
 # ============================================================================
-# Test 2: estimate_proxy_svar_python matches Python estimate_proxy_svar
+# Test 2: estimate_proxy_svar matches Python reference
 # ============================================================================
-@testset "estimate_proxy_svar_python matches Python" begin
+@testset "estimate_proxy_svar matches Python reference" begin
     Y = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_Y.csv"), DataFrame))
     proxy = vec(Matrix(CSV.read(joinpath(BDATA, "jl_crossval_proxy.csv"), DataFrame)))
     A_est_py = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_A_est.csv"), DataFrame; header = false))
@@ -85,7 +85,7 @@ end
     mm = proxy[(p + 1):end]
 
     A_est, U_est, Σ_uu, Σ_um,
-    H1 = MacroEconometricTools.estimate_proxy_svar_python(yy, xx, mm)
+    H1 = MacroEconometricTools.estimate_proxy_svar(yy, xx, mm)
 
     @test A_est ≈ A_est_py atol=1e-10
     @test U_est ≈ U_est_py atol=1e-8
@@ -365,7 +365,7 @@ end
 
     # Re-estimate (must match Python exactly)
     A_est, U_est, Σ_uu, Σ_um,
-    H1 = MacroEconometricTools.estimate_proxy_svar_python(yy, xx, mm)
+    H1 = MacroEconometricTools.estimate_proxy_svar(yy, xx, mm)
 
     @test A_est ≈ A_est_py atol=1e-10
 
@@ -444,11 +444,11 @@ end
         A_star, U_star,
         Σ_uu_star,
         Σ_um_star,
-        H1_star = MacroEconometricTools.estimate_proxy_svar_python(y_star, x_star, m_star)
+        H1_star = MacroEconometricTools.estimate_proxy_svar(y_star, x_star, m_star)
 
         # Compute bootstrap dynamics
         dyn = MacroEconometricTools.proxy_svar_dynamics(
-            A_star, Σ_uu_star, Σ_um_star, H1_star, p, s, n_imp)
+            A_star, Σ_uu_star, Σ_um_star, H1_star, p, s, n_imp, 1)
 
         irf_norm_store[:, :, boot] .= dyn.irf_norm
     end

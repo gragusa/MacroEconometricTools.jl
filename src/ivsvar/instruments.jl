@@ -27,14 +27,26 @@ end
 
 # --- ProxyIV constructors ----------------------------------------------------
 
-"""
-    ProxyIV(proxy::AbstractVector, target_shock; relevance_threshold=10.0)
-
-Convenience constructor for a single proxy variable.
-"""
-function ProxyIV(proxy::AbstractVector{T}, target_shock::Int;
+# Keyword-only: matrix input (default target_shock=1)
+function ProxyIV(proxies::AbstractMatrix{T};
+        target_shock::Union{Int, Symbol} = 1,
         relevance_threshold::Float64 = 10.0) where {T <: AbstractFloat}
-    return ProxyIV(reshape(proxy, :, 1), [target_shock];
+    return ProxyIV(Matrix{T}(proxies), target_shock;
+        relevance_threshold = relevance_threshold)
+end
+
+# Keyword-only: vector input (auto-reshape to T×1)
+function ProxyIV(proxy::AbstractVector{T};
+        target_shock::Union{Int, Symbol} = 1,
+        relevance_threshold::Float64 = 10.0) where {T <: AbstractFloat}
+    return ProxyIV(reshape(proxy, :, 1), target_shock;
+        relevance_threshold = relevance_threshold)
+end
+
+# Positional backward compat: vector input
+function ProxyIV(proxy::AbstractVector{T}, target_shock::Union{Int, Symbol};
+        relevance_threshold::Float64 = 10.0) where {T <: AbstractFloat}
+    return ProxyIV(reshape(proxy, :, 1), target_shock;
         relevance_threshold = relevance_threshold)
 end
 

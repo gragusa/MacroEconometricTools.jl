@@ -19,26 +19,27 @@
 # ============================================================================
 
 """
-    proxy_svar_dynamics(A_est, Σ_uu, Σ_um, H1, p, norm_scale, n_imp)
+    proxy_svar_dynamics(A_est, Σ_uu, Σ_um, H1, p, norm_scale, n_imp, target)
 
 Compute IRFs, normalized IRFs, FEVD, and structural VMA from estimated
-proxy-SVAR parameters. Follows the Python `make_dynamics()` exactly.
+proxy-SVAR parameters.
 
 # Arguments
 - `A_est`: (K, 1+K*p) coefficient matrix [intercept | A₁ | ... | Aₚ] (row = equation)
 - `Σ_uu`: (K, K) residual covariance (no df correction)
 - `Σ_um`: (K,) covariance of residuals with proxy
-- `H1`: (K,) first column of structural impact matrix
+- `H1`: (K,) identified column of structural impact matrix
 - `p`: number of VAR lags
-- `norm_scale`: normalization for IRF (typically -1.0, so impact = -1)
+- `norm_scale`: normalization for IRF (typically -1.0, so impact on target = -1)
 - `n_imp`: number of horizons (including 0)
+- `target`: index of the instrumented variable (normalization is on `H1[target]`)
 
 # Returns
 Named tuple: `(irf, irf_norm, fevd, svma)`, each (K, n_imp) matrix.
 """
 function proxy_svar_dynamics(A_est::AbstractMatrix{T}, Σ_uu::AbstractMatrix{T},
         Σ_um::AbstractVector{T}, H1::AbstractVector{T},
-        p::Int, norm_scale::Float64, n_imp::Int) where {T}
+        p::Int, norm_scale::Float64, n_imp::Int, target::Int) where {T}
     K = length(H1)
 
     # Companion matrix
@@ -63,9 +64,10 @@ function proxy_svar_dynamics(A_est::AbstractMatrix{T}, Σ_uu::AbstractMatrix{T},
     end
     svma[:, 1] .= Σ_um
 
-    # Normalized IRF at horizon 0
+    # Normalized IRF at horizon 0 (normalize by impact on target variable)
+    inv_H1_t = norm_scale / H1[target]
     for k in 1:K
-        irf_norm[k, 1] = norm_scale * H1[k] / H1[1]
+        irf_norm[k, 1] = inv_H1_t * H1[k]
     end
 
     # Higher horizons
@@ -92,9 +94,8 @@ function proxy_svar_dynamics(A_est::AbstractMatrix{T}, Σ_uu::AbstractMatrix{T},
         irf_out[:, h] .= irf_h
 
         # Normalized IRF
-        inv_H1_1 = norm_scale / H1[1]
         @inbounds for k in 1:K
-            irf_norm[k, h] = inv_H1_1 * irf_h[k]
+            irf_norm[k, h] = inv_H1_t * irf_h[k]
         end
 
         # FEVD
@@ -115,14 +116,134 @@ function proxy_svar_dynamics(A_est::AbstractMatrix{T}, Σ_uu::AbstractMatrix{T},
     return (irf = irf_out, irf_norm = irf_norm, fevd = fevd, svma = svma)
 end
 
+"""
+    ProxyDynamicsBuffers{T}
+
+Pre-allocated workspace for `proxy_svar_dynamics!`. Holds output matrices and
+scratch arrays for the companion-form recursion.
+"""
+struct ProxyDynamicsBuffers{T}
+    irf::Matrix{T}           # (K, n_imp)
+    irf_norm::Matrix{T}      # (K, n_imp)
+    fevd::Matrix{T}          # (K, n_imp)
+    svma::Matrix{T}          # (K, n_imp)
+    comp::Matrix{T}          # (K*p, K*p) — companion matrix
+    comp_power::Matrix{T}    # (K*p, K*p)
+    comp_power_buf::Matrix{T} # (K*p, K*p)
+    denom::Matrix{T}         # (K, K)
+    Φ_Σ::Matrix{T}           # (K, K)
+    numer::Vector{T}         # (K,)
+    irf_h::Vector{T}         # (K,)
+end
+
+function ProxyDynamicsBuffers{T}(K::Int, p::Int, n_imp::Int) where {T}
+    Kp = K * p
+    ProxyDynamicsBuffers{T}(
+        Matrix{T}(undef, K, n_imp),
+        Matrix{T}(undef, K, n_imp),
+        Matrix{T}(undef, K, n_imp),
+        Matrix{T}(undef, K, n_imp),
+        zeros(T, Kp, Kp),
+        Matrix{T}(undef, Kp, Kp),
+        Matrix{T}(undef, Kp, Kp),
+        Matrix{T}(undef, K, K),
+        Matrix{T}(undef, K, K),
+        Vector{T}(undef, K),
+        Vector{T}(undef, K)
+    )
+end
+
+"""
+    proxy_svar_dynamics!(buf, A_est, Σ_uu, Σ_um, H1, p, norm_scale, n_imp, target)
+
+In-place variant of `proxy_svar_dynamics`. Writes results into `buf`'s output
+matrices (`buf.irf`, `buf.irf_norm`, `buf.fevd`, `buf.svma`) and returns `buf`.
+"""
+function proxy_svar_dynamics!(buf::ProxyDynamicsBuffers{T},
+        A_est::AbstractMatrix{T}, Σ_uu::AbstractMatrix{T},
+        Σ_um::AbstractVector{T}, H1::AbstractVector{T},
+        p::Int, norm_scale::Float64, n_imp::Int, target::Int) where {T}
+    K = length(H1)
+    Kp = K * p
+
+    # Companion matrix (reset to zero; reused buffer)
+    fill!(buf.comp, zero(T))
+    if p == 1
+        buf.comp[:, :] .= view(A_est, :, 2:(K + 1))
+    else
+        buf.comp[1:K, :] .= view(A_est, :, 2:(K * p + 1))
+        @inbounds for j in 1:(K * (p - 1))
+            buf.comp[K + j, j] = one(T)
+        end
+    end
+
+    irf_out = buf.irf
+    irf_norm = buf.irf_norm
+    fevd = buf.fevd
+    svma = buf.svma
+
+    # Horizon 0
+    @inbounds for k in 1:K
+        irf_out[k, 1] = H1[k]
+        fevd[k, 1] = H1[k]^2 / Σ_uu[k, k]
+        svma[k, 1] = Σ_um[k]
+    end
+
+    # Normalized IRF at horizon 0
+    inv_H1_t = norm_scale / H1[target]
+    @inbounds for k in 1:K
+        irf_norm[k, 1] = inv_H1_t * H1[k]
+    end
+
+    # comp_power starts as I; use local bindings so we can pointer-swap safely
+    # (swap only affects this call — the struct fields stay unchanged).
+    comp_power = buf.comp_power
+    comp_power_buf = buf.comp_power_buf
+    fill!(comp_power, zero(T))
+    @inbounds for i in 1:Kp
+        comp_power[i, i] = one(T)
+    end
+
+    @inbounds for k in 1:K
+        buf.numer[k] = H1[k]^2
+    end
+    copyto!(buf.denom, Σ_uu)
+
+    @inbounds for h in 2:n_imp
+        mul!(comp_power_buf, comp_power, buf.comp)
+        comp_power, comp_power_buf = comp_power_buf, comp_power
+        Φ_h = view(comp_power, 1:K, 1:K)
+
+        # IRF
+        mul!(buf.irf_h, Φ_h, H1)
+        @inbounds for k in 1:K
+            irf_out[k, h] = buf.irf_h[k]
+            irf_norm[k, h] = inv_H1_t * buf.irf_h[k]
+            buf.numer[k] += buf.irf_h[k]^2
+        end
+
+        # FEVD denominator: denom += Φ_h * Σ_uu * Φ_h'
+        mul!(buf.Φ_Σ, Φ_h, Σ_uu)
+        mul!(buf.denom, buf.Φ_Σ, Φ_h', one(T), one(T))
+        @inbounds for k in 1:K
+            fevd[k, h] = buf.numer[k] / buf.denom[k, k]
+        end
+
+        # Structural VMA
+        mul!(view(svma, :, h), Φ_h, Σ_um)
+    end
+
+    return buf
+end
+
 # ============================================================================
-# estimate_proxy_svar_python — match Python's identification formula exactly
+# estimate_proxy_svar
 # ============================================================================
 
 """
-    estimate_proxy_svar_python(yy, xx, mm)
+    estimate_proxy_svar(yy, xx, mm)
 
-Estimate proxy-SVAR using the exact Jentsch & Lunsford formula:
+Estimate proxy-SVAR using the Jentsch & Lunsford (2022) formula:
   Σ_uu = U'U / T  (no df correction)
   Σ_um = U'm / T
   φ = √(Σ_um' Σ_uu⁻¹ Σ_um)
@@ -135,7 +256,7 @@ Returns: (A_est, U_est, Σ_uu, Σ_um, H1)
 - Σ_um: (K,) covariance with proxy
 - H1: (K,) identified impact column
 """
-function estimate_proxy_svar_python(yy::AbstractMatrix{T},
+function estimate_proxy_svar(yy::AbstractMatrix{T},
         xx::AbstractMatrix{T},
         mm::AbstractVector{T}) where {T}
     TT, KK = size(yy)
@@ -146,7 +267,7 @@ function estimate_proxy_svar_python(yy::AbstractMatrix{T},
     # Residuals
     U_est = yy - xx * A_est_raw
 
-    # Covariance matrices (NO df correction — matches Python)
+    # Covariance matrices (no df correction)
     Σ_uu = (U_est' * U_est) ./ TT
     Σ_um = vec((U_est' * mm) ./ TT)
 
@@ -155,10 +276,93 @@ function estimate_proxy_svar_python(yy::AbstractMatrix{T},
     φ = sqrt(φ²)
     H1 = Σ_um ./ φ
 
-    # Transpose A to (K, 1+K*p) — row = equation (matches Python convention)
+    # Transpose A to (K, 1+K*p) — row = equation
     A_est = A_est_raw'
 
     return A_est, U_est, Σ_uu, Σ_um, H1
+end
+
+"""
+    ProxySvarBuffers{T}
+
+Pre-allocated workspace for `estimate_proxy_svar!`. Reused across bootstrap
+draws to avoid per-draw allocations.
+"""
+struct ProxySvarBuffers{T}
+    A_raw::Matrix{T}      # (d, K)  — raw coefficients (d = 1 + K*p)
+    A_est::Matrix{T}      # (K, d)  — transposed
+    U_est::Matrix{T}      # (TT, K) — residuals
+    Σ_uu::Matrix{T}       # (K, K)
+    Σ_um::Vector{T}       # (K,)
+    H1::Vector{T}         # (K,)
+    XtX::Matrix{T}        # (d, d) — normal equations LHS
+    XtY::Matrix{T}        # (d, K) — normal equations RHS
+    Σ_uu_work::Matrix{T}  # (K, K) — scratch for factorization
+    Σ_um_work::Vector{T}  # (K,)   — scratch for `Σ_uu \ Σ_um`
+end
+
+function ProxySvarBuffers{T}(TT::Int, KK::Int, d::Int) where {T}
+    ProxySvarBuffers{T}(
+        Matrix{T}(undef, d, KK),
+        Matrix{T}(undef, KK, d),
+        Matrix{T}(undef, TT, KK),
+        Matrix{T}(undef, KK, KK),
+        Vector{T}(undef, KK),
+        Vector{T}(undef, KK),
+        Matrix{T}(undef, d, d),
+        Matrix{T}(undef, d, KK),
+        Matrix{T}(undef, KK, KK),
+        Vector{T}(undef, KK)
+    )
+end
+
+"""
+    estimate_proxy_svar!(buf, yy, xx, mm) -> (A_est, U_est, Σ_uu, Σ_um, H1)
+
+In-place proxy-SVAR estimation using pre-allocated `buf::ProxySvarBuffers`.
+Returns views/aliases into `buf` — do not retain across bootstrap iterations.
+Throws `PosDefException` or `SingularException` on rank-deficient inputs; the
+caller is expected to catch these and record a failed draw.
+"""
+function estimate_proxy_svar!(buf::ProxySvarBuffers{T},
+        yy::AbstractMatrix{T}, xx::AbstractMatrix{T},
+        mm::AbstractVector{T}) where {T}
+    TT, KK = size(yy)
+    d = size(xx, 2)
+
+    # Normal equations: (X'X) A = X'Y  →  solve via Cholesky (X'X is SPD in
+    # non-degenerate bootstrap samples; rank deficiency throws → caught upstream).
+    mul!(buf.XtX, xx', xx)
+    mul!(buf.XtY, xx', yy)
+    F = cholesky!(Symmetric(buf.XtX))  # in-place factorization
+    copyto!(buf.A_raw, buf.XtY)
+    ldiv!(F, buf.A_raw)                # A_raw = (X'X) \ (X'Y)
+
+    # Residuals: U = Y - X * A_raw
+    copyto!(buf.U_est, yy)
+    mul!(buf.U_est, xx, buf.A_raw, -one(T), one(T))
+
+    # Σ_uu = U'U / T ; Σ_um = U'm / T
+    mul!(buf.Σ_uu, buf.U_est', buf.U_est)
+    buf.Σ_uu ./= TT
+    mul!(buf.Σ_um, buf.U_est', mm)
+    buf.Σ_um ./= TT
+
+    # φ² = Σ_um' * (Σ_uu \ Σ_um) ; H1 = Σ_um / √φ²
+    copyto!(buf.Σ_uu_work, buf.Σ_uu)
+    copyto!(buf.Σ_um_work, buf.Σ_um)
+    Fuu = cholesky!(Symmetric(buf.Σ_uu_work))
+    ldiv!(Fuu, buf.Σ_um_work)          # Σ_um_work = Σ_uu \ Σ_um
+    φ² = dot(buf.Σ_um, buf.Σ_um_work)
+    φ = sqrt(φ²)
+    @inbounds for k in 1:KK
+        buf.H1[k] = buf.Σ_um[k] / φ
+    end
+
+    # A_est = A_raw' (row = equation)
+    transpose!(buf.A_est, buf.A_raw)
+
+    return buf.A_est, buf.U_est, buf.Σ_uu, buf.Σ_um, buf.H1
 end
 
 # ============================================================================
@@ -191,7 +395,7 @@ function proxy_svar_mbb(model::VARModel{T}, id::IVIdentification,
     resolved = _resolve_iv(model, id)
     ν = model.residuals
     TT = size(ν, 1)
-    Z, _ = _extract_instrument(resolved.instrument, TT, n_lags(model), model.names)
+    Z, target = _extract_instrument(resolved.instrument, TT, n_lags(model), model.names)
     proxy = vec(Z)
 
     # Default AR grid when compute_ar=true but no grid specified
@@ -203,7 +407,7 @@ function proxy_svar_mbb(model::VARModel{T}, id::IVIdentification,
         inf
     end
 
-    return _proxy_svar_mbb_impl(model, proxy, horizon, inf_resolved; rng = rng)
+    return _proxy_svar_mbb_impl(model, proxy, horizon, inf_resolved, target; rng = rng)
 end
 
 # Backward compat: instrument in model
@@ -218,7 +422,7 @@ end
 Internal implementation of the Jentsch-Lunsford MBB. Called by `proxy_svar_mbb`.
 """
 function _proxy_svar_mbb_impl(model::VARModel{T}, proxy::Vector{T},
-        horizon::Int, inf::ProxySVARMBB;
+        horizon::Int, inf::ProxySVARMBB, target::Int;
         rng::AbstractRNG = Random.default_rng()) where {T}
     ν = model.residuals
     TT, KK = size(ν)
@@ -301,7 +505,11 @@ function _proxy_svar_mbb_impl(model::VARModel{T}, proxy::Vector{T},
     m_temp = zeros(T, n_resample * ℓ)
     x_star = zeros(T, TT, dim_state)
     y_star = Matrix{T}(undef, TT, KK)
-    xt_buf = Vector{T}(undef, KK)  # buffer for mul!
+    xt_buf = Vector{T}(undef, KK)
+
+    # Workspace for the inner estimator and dynamics (reused across draws)
+    est_buf = ProxySvarBuffers{T}(TT, KK, dim_state)
+    dyn_buf = ProxyDynamicsBuffers{T}(KK, p_val, n_imp)
 
     for b in 1:n_boot
         # 4a: Resample blocks with replacement
@@ -351,30 +559,29 @@ function _proxy_svar_mbb_impl(model::VARModel{T}, proxy::Vector{T},
             end
         end
 
-        # 4e: Re-estimate proxy-SVAR on bootstrap sample
+        # 4e: Re-estimate proxy-SVAR on bootstrap sample (in-place)
         try
-            A_star, U_star,
-            Σ_uu_star,
-            Σ_um_star, H1_star = estimate_proxy_svar_python(y_star, x_star, collect(m_star))
+            A_star, U_star, Σ_uu_star,
+            Σ_um_star, H1_star = estimate_proxy_svar!(est_buf, y_star, x_star, m_star)
 
-            # 4f: Compute bootstrap dynamics
-            dyn = proxy_svar_dynamics(A_star, Σ_uu_star, Σ_um_star, H1_star,
-                p_val, s, n_imp)
+            # 4f: Compute bootstrap dynamics (in-place)
+            proxy_svar_dynamics!(dyn_buf, A_star, Σ_uu_star, Σ_um_star, H1_star,
+                p_val, s, n_imp, target)
 
-            irf_store[:, :, b] .= dyn.irf
-            irf_norm_store[:, :, b] .= dyn.irf_norm
-            fevd_store[:, :, b] .= dyn.fevd
+            irf_store[:, :, b] .= dyn_buf.irf
+            irf_norm_store[:, :, b] .= dyn_buf.irf_norm
+            fevd_store[:, :, b] .= dyn_buf.fevd
 
-            # 4g: AR statistics
+            # 4g: AR statistics — anchor on target variable's impact
             if inf.compute_ar
-                svma_star = dyn.svma
-                svma_11 = svma_star[1, 1]
+                svma_star = dyn_buf.svma
+                svma_target = svma_star[target, 1]
                 @inbounds for g in eachindex(inf.ar_grid)
                     grid_g = inf.ar_grid[g]
                     for h in 1:n_imp
                         for k in 1:KK
                             ar_store[k, h, g, b] = s * svma_star[k, h] -
-                                                   svma_11 * grid_g
+                                                   svma_target * grid_g
                         end
                     end
                 end
@@ -403,14 +610,14 @@ function _proxy_svar_mbb_impl(model::VARModel{T}, proxy::Vector{T},
     H1_point = Σ_um_point ./ φ_point
 
     dyn_point = proxy_svar_dynamics(A_est, Σ_uu_point, Σ_um_point, H1_point,
-        p_val, s, n_imp)
+        p_val, s, n_imp, target)
 
     halls68_irf_norm = _halls_intervals(ci68_irf_norm, dyn_point.irf_norm)
     halls95_irf_norm = _halls_intervals(ci95_irf_norm, dyn_point.irf_norm)
 
     # ── Step 7: AR confidence sets ────────────────────────────────────────
     ar_result = if inf.compute_ar
-        _ar_confidence_sets(ar_store, inf.ar_grid, s, n_boot)
+        _ar_confidence_sets(ar_store, inf.ar_grid, s, n_boot, target)
     else
         nothing
     end
@@ -508,19 +715,20 @@ end
 # ============================================================================
 
 """
-    _ar_confidence_sets(ar_store, grid, scale, n_boot)
+    _ar_confidence_sets(ar_store, grid, scale, n_boot, target)
 
 Compute Anderson-Rubin confidence sets from bootstrap test statistics.
 
 For each grid point g, compute the proportion of bootstrap draws where
 the test statistic T_b(g) ≤ 0. Include g in the confidence set if this
-proportion is within the critical region.
+proportion is within the critical region. The target shock's own-variable
+impact at h=1 is always included (equals `scale` by construction).
 
 Returns named tuple with `index68`, `index90`, `index95` (boolean arrays)
 and `grid`.
 """
 function _ar_confidence_sets(ar_store::Array{T, 4},
-        grid::Vector{Float64}, scale::Float64, n_boot::Int) where {T}
+        grid::Vector{Float64}, scale::Float64, n_boot::Int, target::Int) where {T}
     KK, n_imp, n_grid, _ = size(ar_store)
 
     # Compute rejection rates: P(T_b(g) ≤ 0)
@@ -541,8 +749,9 @@ function _ar_confidence_sets(ar_store::Array{T, 4},
     index95 = falses(n_grid, n_imp, KK)
 
     for k in 1:KK, h in 1:n_imp, g in 1:n_grid
-        # Special case: impact of identified shock (always included)
-        if grid[g] ≈ scale && h == 1 && k == 1
+        # Special case: target shock's own-variable impact equals `scale` by
+        # construction — always include it at (h=1, k=target).
+        if grid[g] ≈ scale && h == 1 && k == target
             index68[g, h, k] = true
             index90[g, h, k] = true
             index95[g, h, k] = true
@@ -583,6 +792,9 @@ function compute_inference_bands(
         rng::AbstractRNG) where {T}
     horizon = size(irf_point, 1) - 1
     id = _resolve_iv(model, identification)
+    _,
+    target = _extract_instrument(id.instrument, size(model.residuals, 1),
+        n_lags(model), model.names)
 
     # Run the full MBB
     mbb = proxy_svar_mbb(model, id, horizon, inf; rng = rng)
@@ -590,23 +802,28 @@ function compute_inference_bands(
     K = n_vars(model)
     n_imp = horizon + 1
 
-    # Construct 4D draws from irf_store (K, n_imp, n_boot) — identified shock only
-    # Normalize to unit-effect scale (same as irf_point)
-    scale_factor = mbb.point_irf[1, 1]
+    # Construct 4D draws from irf_store (K, n_imp, n_boot) — identified shock only.
+    # Normalize by the target variable's impact so the draws align with `irf_point`
+    # (which has the identified column at position `target`).
+    scale_factor = mbb.point_irf[target, 1]
     irf_store = mbb.irf_store  # (K, n_imp, n_boot)
     n_boot = size(irf_store, 3)
 
     draws_4d = zeros(T, n_boot, n_imp, K, K)
-    # Fill identified shock column (column 1 after normalization)
+    # Fill identified shock column at position `target` after normalization
     for b in 1:n_boot
         for h in 1:n_imp, k in 1:K
 
-            draws_4d[b, h, k, 1] = irf_store[k, h, b] / scale_factor
+            draws_4d[b, h, k, target] = irf_store[k, h, b] / scale_factor
         end
     end
     # Non-identified columns: fill with point estimate (no variation)
-    for j in 2:K, h in 1:n_imp, k in 1:K
-        draws_4d[:, h, k, j] .= irf_point[h, k, j]
+    for j in 1:K
+        j == target && continue
+        for h in 1:n_imp, k in 1:K
+
+            draws_4d[:, h, k, j] .= irf_point[h, k, j]
+        end
     end
 
     draws = inf.save_draws ? draws_4d : nothing
@@ -634,11 +851,11 @@ function compute_inference_bands(
 
                 included = ar_idx[:, h, k]
                 if any(included)
-                    lb[h, k, 1] = minimum(grid[included]) / scale_factor
-                    ub[h, k, 1] = maximum(grid[included]) / scale_factor
+                    lb[h, k, target] = minimum(grid[included]) / scale_factor
+                    ub[h, k, target] = maximum(grid[included]) / scale_factor
                 else
-                    lb[h, k, 1] = T(NaN)
-                    ub[h, k, 1] = T(NaN)
+                    lb[h, k, target] = T(NaN)
+                    ub[h, k, target] = T(NaN)
                 end
             end
         else

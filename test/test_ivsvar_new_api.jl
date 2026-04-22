@@ -284,3 +284,198 @@ end
     id4 = IVIdentification()
     @test id4.instrument === nothing
 end
+
+# ============================================================================
+# Permutation invariance: target_shock ≠ 1 must yield results equivalent to
+# target_shock = 1 on reordered data. This catches any remaining hardcoded
+# position-1 assumptions in the identification, bootstrap, or MSW code.
+# ============================================================================
+
+# Reorder Y so the instrumented variable (originally column 1) lives at
+# column `target`. Returns `perm` s.t. `Y_perm = Y[:, perm]`, i.e.
+# `Y_perm[:, new] = Y[:, perm[new]]`. `perm[target] = 1` puts the instrumented
+# var at position `target`; remaining old columns (2..K) fill the other slots.
+function _permute_cols(K::Int, target::Int)
+    other_olds = [k for k in 2:K]   # old columns that are NOT the instrumented one
+    perm = zeros(Int, K)
+    perm[target] = 1
+    fill_pos = 1
+    for old in other_olds
+        while fill_pos == target
+            fill_pos += 1
+        end
+        perm[fill_pos] = old
+        fill_pos += 1
+    end
+    return perm
+end
+
+@testset "Permutation invariance: identified IRF column" begin
+    # IRF axes: (variable, shock, horizon). Y_perm = Y[:, perm], so
+    # r_perm.irf[invperm(perm), target, :] reorders permuted variables back
+    # to original positions for comparison against r_base.irf[:, 1, :].
+    names_base = [:Y1, :Y2, :Y3]
+    model_base = fit(OLSVAR, Y, p_lag; names = names_base)
+    id_base = IVIdentification(ε[:, 1], 1)
+    r_base = irf(model_base, id_base; horizon = 10)
+
+    for target in 2:K
+        perm = _permute_cols(K, target)
+        Y_perm = Y[:, perm]
+        names_perm = names_base[perm]
+        model_perm = fit(OLSVAR, Y_perm, p_lag; names = names_perm)
+
+        id_perm = IVIdentification(ε[:, 1], target)
+        r_perm = irf(model_perm, id_perm; horizon = 10)
+
+        base_id_col = Array(r_base.irf)[:, 1, :]                   # (K, n_imp)
+        perm_id_col = Array(r_perm.irf)[invperm(perm), target, :]  # (K, n_imp)
+        @test perm_id_col ≈ base_id_col atol=1e-10
+
+        # Normalization check (UnitStd default): identified shock's impact
+        # on its target variable in perm equals identified shock's impact on
+        # variable 1 in base.
+        @test r_perm.irf[target, target, 1] ≈ r_base.irf[1, 1, 1] atol=1e-10
+    end
+end
+
+@testset "Permutation invariance: msw_confidence_set" begin
+    names_base = [:Y1, :Y2, :Y3]
+    model_base = fit(OLSVAR, Y, p_lag; names = names_base)
+    id_base = IVIdentification(ε[:, 1], 1)
+    msw_base = msw_confidence_set(model_base, id_base; horizon = 10)
+
+    for target in 2:K
+        perm = _permute_cols(K, target)
+        Y_perm = Y[:, perm]
+        names_perm = names_base[perm]
+        model_perm = fit(OLSVAR, Y_perm, p_lag; names = names_perm)
+        id_perm = IVIdentification(ε[:, 1], target)
+        msw_perm = msw_confidence_set(model_perm, id_perm; horizon = 10)
+
+        # Wald statistic is a scalar: strictly invariant
+        @test msw_perm.wald_stat ≈ msw_base.wald_stat atol=1e-8
+        @test msw_perm.bounded68 == msw_base.bounded68
+        @test msw_perm.bounded95 == msw_base.bounded95
+
+        # Normalization at impact: target variable's CS = {-1.0}
+        @test all(msw_perm.cs68_irf_norm[1:2, 1, target] .≈ -1.0)
+        @test all(msw_perm.cs95_irf_norm[1:2, 1, target] .≈ -1.0)
+
+        # Full confidence sets (n_roots, n_imp, K). Reorder permuted-variable
+        # dim back to original indexing via invperm.
+        cs_perm = msw_perm.cs68_irf_norm[:, :, invperm(perm)]
+        @test cs_perm ≈ msw_base.cs68_irf_norm atol=1e-6
+    end
+end
+
+@testset "Permutation invariance: proxy_svar_mbb point estimates" begin
+    names_base = [:Y1, :Y2, :Y3]
+    seed = 1234
+
+    model_base = fit(OLSVAR, Y, p_lag; names = names_base)
+    id_base = IVIdentification(ε[:, 1], 1)
+    mbb_base = proxy_svar_mbb(model_base, id_base, 8,
+        ProxySVARMBB(80; block_length = 4, norm_scale = -1.0);
+        rng = StableRNG(seed))
+
+    for target in 2:K
+        perm = _permute_cols(K, target)
+        Y_perm = Y[:, perm]
+        names_perm = names_base[perm]
+        model_perm = fit(OLSVAR, Y_perm, p_lag; names = names_perm)
+        id_perm = IVIdentification(ε[:, 1], target)
+        mbb_perm = proxy_svar_mbb(model_perm, id_perm, 8,
+            ProxySVARMBB(80; block_length = 4, norm_scale = -1.0);
+            rng = StableRNG(seed))
+
+        # point_irf shape: (K, n_imp) — single identified column flattened.
+        # Reorder permuted-variable rows back to original via invperm.
+        @test mbb_perm.point_irf[invperm(perm), :] ≈ mbb_base.point_irf atol=1e-10
+        @test mbb_perm.point_irf_norm[invperm(perm), :] ≈ mbb_base.point_irf_norm atol=1e-10
+        # Normalization: target shock's impact on target variable equals norm_scale
+        @test mbb_perm.point_irf_norm[target, 1] ≈ -1.0 atol=1e-10
+    end
+end
+
+@testset "Permutation invariance: irf with ProxySVARMBB bands" begin
+    # axes: (variable, shock, horizon)
+    names_base = [:Y1, :Y2, :Y3]
+    seed = 5678
+
+    model_base = fit(OLSVAR, Y, p_lag; names = names_base)
+    id_base = IVIdentification(ε[:, 1], 1)
+    r_base = irf(model_base, id_base; horizon = 6,
+        inference = ProxySVARMBB(80; block_length = 4, norm_scale = -1.0),
+        rng = StableRNG(seed))
+
+    for target in 2:K
+        perm = _permute_cols(K, target)
+        Y_perm = Y[:, perm]
+        names_perm = names_base[perm]
+        model_perm = fit(OLSVAR, Y_perm, p_lag; names = names_perm)
+        id_perm = IVIdentification(ε[:, 1], target)
+        r_perm = irf(model_perm, id_perm; horizon = 6,
+            inference = ProxySVARMBB(80; block_length = 4, norm_scale = -1.0),
+            rng = StableRNG(seed))
+
+        # Identified shock IRF column under reordering
+        inv_perm = invperm(perm)
+        @test Array(r_perm.irf)[inv_perm, target, :] ≈ Array(r_base.irf)[:, 1, :] atol=1e-10
+        # Bands on the identified column should also match after reordering vars
+        for i in eachindex(r_base.lower)
+            lb_base = Array(r_base.lower[i])[:, 1, :]
+            ub_base = Array(r_base.upper[i])[:, 1, :]
+            lb_perm = Array(r_perm.lower[i])[inv_perm, target, :]
+            ub_perm = Array(r_perm.upper[i])[inv_perm, target, :]
+            @test lb_perm ≈ lb_base atol=1e-8
+            @test ub_perm ≈ ub_base atol=1e-8
+        end
+    end
+end
+
+# ============================================================================
+# Symbol target_shock resolution end-to-end
+# ============================================================================
+@testset "target_shock by Symbol resolves correctly" begin
+    names = [:Y1, :Y2, :Y3]
+    model = fit(OLSVAR, Y, p_lag; names = names)
+
+    # ExternalInstrument by symbol ≡ by index
+    id_sym = IVIdentification(ExternalInstrument(ε[:, 1]; target_shock = :Y2))
+    id_idx = IVIdentification(ExternalInstrument(ε[:, 1]; target_shock = 2))
+
+    r_sym = irf(model, id_sym; horizon = 8)
+    r_idx = irf(model, id_idx; horizon = 8)
+    @test Array(r_sym.irf) ≈ Array(r_idx.irf) atol=1e-12
+
+    # ProxyIV by symbol ≡ by index
+    id_proxy_sym = IVIdentification(ProxyIV(ε[:, 1]; target_shock = :Y3))
+    id_proxy_idx = IVIdentification(ProxyIV(ε[:, 1]; target_shock = 3))
+    r_psym = irf(model, id_proxy_sym; horizon = 8)
+    r_pidx = irf(model, id_proxy_idx; horizon = 8)
+    @test Array(r_psym.irf) ≈ Array(r_pidx.irf) atol=1e-12
+
+    # Non-existent name should throw at estimation time
+    id_bad = IVIdentification(ExternalInstrument(ε[:, 1]; target_shock = :nope))
+    @test_throws ArgumentError irf(model, id_bad; horizon = 8)
+end
+
+# ============================================================================
+# ProxyIV keyword / positional constructors
+# ============================================================================
+@testset "ProxyIV constructors" begin
+    z = randn(100)
+    # Keyword
+    p1 = ProxyIV(z; target_shock = 2)
+    @test p1.target_shock == 2
+    # Positional (backward compat)
+    p2 = ProxyIV(z, 2)
+    @test p2.target_shock == 2
+    # Symbol
+    p3 = ProxyIV(z; target_shock = :GDP)
+    @test p3.target_shock == :GDP
+    # Default
+    p4 = ProxyIV(z)
+    @test p4.target_shock == 1
+end
