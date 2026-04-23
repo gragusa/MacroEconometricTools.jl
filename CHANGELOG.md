@@ -4,6 +4,28 @@
 
 ### Added
 
+- **Shock normalization API**: Two-layer control over IRF units — pick a _scheme_ at estimation time, then (optionally) apply per-shock _rescaling_ afterwards.
+
+  **1. Normalization scheme** — `irf(model, id; normalization=...)` takes an `AbstractNormalization`:
+  - `UnitStd()` (default): shocks have unit variance. Under Cholesky, `P*P' = Σ`; on impact, shock `j` moves variable `j` by one residual standard deviation.
+  - `UnitEffect()`: shocks have unit impact on their own variable — `P[j, j] = 1`. Natural for "1 percentage point of the monetary policy shock" under a recursive ordering.
+
+  The scheme is fixed at estimation time and stored in `metadata.normalization`. `UnitStd` / `UnitEffect` / `AbstractNormalization` are exported, as are the low-level `normalize` / `normalize!` utilities that apply a scheme to an impact matrix `P`.
+
+  **2. Per-shock rescaling** — `rescale(irf, :MP => -1, :Supply => 100)` multiplies each named shock by a scalar; `rescale!` mutates in place. Typical uses: `:MP => -1` flips a sign under `UnitStd` for interpretability; `:MP => 0.25` scales a `UnitEffect` shock to a 25 bp move. Unlisted shocks are unchanged. When bootstrap draws are available (`save_draws=true`), confidence bands are recomputed from rescaled draws (correct); otherwise the bands are rescaled approximately with a warning, and `min`/`max` are applied to handle sign flips. Works on `IRFResult` and `SignRestrictedIRFResult`; for the latter, draws are rescaled and median / quantile bands are recomputed.
+
+  **3. Introspection** — `get_scale(irf)` returns an exported `IRFScale` struct with:
+  - `normalization` — the scheme (`UnitStd()` or `UnitEffect()`),
+  - `scale::Vector` — cumulative per-shock scale factors applied via `rescale`,
+  - `impact_diagonal::Vector` — diagonal of the (normalized, unscaled) impact matrix `P`; i.e. what "1 unit of shock `j`" means for variable `j`. `≈ 1` everywhere under `UnitEffect`; under `UnitStd`, these are the own-variable impact SDs. For sign-restricted IRFs, this is the median across accepted draws.
+  - `names::Vector{Symbol}` — variable/shock labels.
+
+  `IRFScale` has a custom `show` method that prints `impact_diag × scale = effective on-impact` per shock.
+
+- **Per-shock `metadata.scale`**: The `scale` field in IRF metadata is now a `Vector` (one entry per shock) instead of a scalar, tracking per-shock cumulative scale factors composed by successive `rescale` calls.
+
+- **`impact_diagonal` in metadata**: The `irf()` function now stores the diagonal of the normalized impact matrix in `metadata.impact_diagonal`, capturing what "one unit of shock j" means for each variable before any `rescale` is applied.
+
 - **Proxy-SVAR `target_shock` works for any variable position**: `IVIdentification(Z, target)`, `ExternalInstrument(Z; target_shock=...)`, and `ProxyIV(proxies; target_shock=...)` now produce correct IRFs, MSW confidence sets, and Jentsch-Lunsford MBB inference regardless of which variable is instrumented. Previously the instrumented variable had to be ordered first; bootstrap dynamics, AR anchoring, band placement, and MSW quadratic coefficients all hardcoded position 1. The estimation layer was already parametric — the fix propagated `target` through `proxy_svar_dynamics`, `_proxy_svar_mbb_impl`, `_ar_confidence_sets`, the `compute_inference_bands` dispatch, and `msw_confidence_set`.
 
 - **`ProxyIV` constructor parity with `ExternalInstrument`**: `ProxyIV` now accepts `target_shock` as an `Int` or `Symbol` via keyword (`ProxyIV(proxies; target_shock=:FFR)`) or positional (`ProxyIV(proxies, 2)`) arguments, matching `ExternalInstrument`'s surface. The struct is parameterized as `ProxyIV{T, S}` with a scalar `target_shock::S` field (`Vector{Int}` storage dropped; single-shock identification was already enforced downstream).
@@ -16,19 +38,7 @@
 
 - **`vars`/`shocks` selection for `LocalProjectionIRFResult` (Plots.jl)**: The RecipesBase recipe for `LocalProjectionIRFResult` now accepts `vars`, `shocks`, `pretty_vars`, and `pretty_shocks` keyword arguments for subsetting and relabelling.
 
-- **Per-shock `rescale` and `rescale!`**: Rescale IRF results per shock via `Pair{Symbol, Real}` arguments. Example: `rescale(irf, :MP => -1, :Supply => 100)`. Under `UnitStd`, use `=> -1` to fix the sign of a shock. Under `UnitEffect`, use `=> 0.25` for a 25bp shock. When bootstrap draws are available, confidence bands are recomputed from rescaled draws. Works on `IRFResult` and `SignRestrictedIRFResult`.
-
-- **`get_scale` accessor**: Returns an `IRFScale` struct with the normalization scheme, per-shock scale factors, and the impact diagonal (diag of the structural impact matrix P before scaling).
-
-- **`IRFScale` type**: Exported struct with per-shock scaling information.
-
-- **Per-shock `metadata.scale`**: The `scale` field in IRF metadata is now a `Vector` (one entry per shock) instead of a scalar, tracking per-shock cumulative scale factors.
-
-- **`impact_diagonal` in metadata**: The `irf()` function now stores the diagonal of the normalized impact matrix in `metadata.impact_diagonal`, capturing what "one unit of shock j" means for each variable.
-
 ### Changed
-
-- **Renamed `estimate_proxy_svar_python` → `estimate_proxy_svar`**: The `_python` suffix was a stale port artifact. Internal function; no public API impact.
 
 ### Fixed
 
