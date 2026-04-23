@@ -9,6 +9,7 @@ include("test_hub_types.jl")
 include("test_proxy_svar.jl")
 include("test_proxy_svar_crossval.jl")
 include("test_proxy_svar_bootstrap.jl")
+include("test_ivsvar_new_api.jl")
 
 # Aqua.jl quality assurance tests
 include("Aqua.jl")

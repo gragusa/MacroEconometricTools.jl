@@ -4,7 +4,7 @@ using Makie
 using MacroEconometricTools
 using AxisArrays: AxisArrays, Axis
 
-import MacroEconometricTools: irfplot
+import MacroEconometricTools: irfplot, irfplot!
 
 const _IRFResult = MacroEconometricTools.IRFResult
 const _SignRestrictedIRFResult = MacroEconometricTools.SignRestrictedIRFResult
@@ -83,15 +83,14 @@ Draw a single IRF panel: confidence/credible bands (widest first), point
 estimate line, and optional zero reference line.
 
 `lb` and `ub` are vectors of vectors (one per coverage level), already sliced
-to the correct variable/shock combination but **not** yet scaled.
+to the correct variable/shock combination.  All scaling must be applied to the
+data *before* calling this function (use `rescale` / `rescale!`).
 """
 function _plot_irf_panel!(ax, xvals, y, lb, ub, cvgs;
-        irf_scale = 1.0,
         drawzero = true, zerolinecolor = :gray60, zerolinestyle = :dash,
         bandcolor = :steelblue, bandalpha = 0.2,
         linecolor = :black, linewidth = 2.0,
-        xtickstep = 4, flipshock = false)
-    sign = flipshock ? -1 : 1
+        xtickstep = 4)
     Makie.xlims!(ax, xvals[1] - 0.4, xvals[end] + 0.4)
     if xtickstep > 0
         ax.xticks = xvals[1]:xtickstep:xvals[end]
@@ -101,11 +100,8 @@ function _plot_irf_panel!(ax, xvals, y, lb, ub, cvgs;
     if !isempty(cvgs) && !isempty(lb)
         order = sortperm(cvgs; rev = true)          # widest first
         for (draw_order, ci) in enumerate(order)
-            lower = lb[ci] .* (irf_scale * sign)
-            upper = ub[ci] .* (irf_scale * sign)
-            if flipshock
-                lower, upper = min.(lower, upper), max.(lower, upper)
-            end
+            lower = lb[ci]
+            upper = ub[ci]
             # Darker for narrower bands
             alpha = clamp(bandalpha + 0.12f0 * (draw_order - 1), 0.0f0, 0.9f0)
             color = Makie.RGBAf(Makie.to_color(bandcolor), alpha)
@@ -114,7 +110,7 @@ function _plot_irf_panel!(ax, xvals, y, lb, ub, cvgs;
     end
 
     # Point estimate
-    Makie.lines!(ax, xvals, y .* (irf_scale * sign);
+    Makie.lines!(ax, xvals, y;
         color = linecolor, linewidth = linewidth)
 
     # Zero reference
@@ -125,17 +121,16 @@ function _plot_irf_panel!(ax, xvals, y, lb, ub, cvgs;
 end
 
 """
-    _plot_paths!(ax, xvals, draws; irf_scale, path_alpha, path_color, flipshock)
+    _plot_paths!(ax, xvals, draws; path_alpha, path_color, path_linewidth)
 
 Overlay individual IRF draws as faint lines (sign-restricted / Bayesian).
 """
 function _plot_paths!(ax, xvals, draws::AbstractMatrix;
-        irf_scale = 1.0, path_alpha = 0.02, path_color = :gray,
-        path_linewidth = 0.5, flipshock = false)
-    sign = flipshock ? -1 : 1
+        path_alpha = 0.02, path_color = :gray,
+        path_linewidth = 0.5)
     col = Makie.RGBAf(Makie.to_color(path_color), Float32(path_alpha))
     for i in axes(draws, 1)
-        Makie.lines!(ax, xvals, view(draws, i, :) .* (irf_scale * sign);
+        Makie.lines!(ax, xvals, view(draws, i, :);
             color = col, linewidth = path_linewidth)
     end
 end
@@ -193,6 +188,176 @@ function _configure_axes!(fig, axes_matrix, nrows, ncols;
 end
 
 # ============================================================================
+# irfplot! — single-panel mutating methods for all IRF result types
+# ============================================================================
+
+# ---- IRFResult (point-identified, bootstrap / analytic bands) ---------------
+
+function irfplot!(ax::Makie.Axis, irf::_IRFResult;
+        var::Symbol, shock::Symbol,
+        bandcolor = :steelblue, bandalpha = 0.2,
+        linecolor = :black, linewidth = 2.0,
+        drawzero = true, zerolinecolor = :gray60, zerolinestyle = :dash,
+        xtickstep = 4, kwargs...)
+    nms = _var_names(irf)
+    vi = only(_resolve_indices(nms, [var], :var))
+    si = only(_resolve_indices(nms, [shock], :shock))
+
+    xvals = collect(0:MacroEconometricTools.horizon(irf))
+    lb_all = lowerbounds(irf)
+    ub_all = upperbounds(irf)
+    cvgs = coverages(irf)
+
+    lb_panel = [lb_all[k][vi, si, :] for k in eachindex(cvgs)]
+    ub_panel = [ub_all[k][vi, si, :] for k in eachindex(cvgs)]
+    y = irf.irf[vi, si, :]
+
+    _plot_irf_panel!(ax, xvals, y, lb_panel, ub_panel, cvgs;
+        drawzero, zerolinecolor, zerolinestyle,
+        bandcolor, bandalpha, linecolor, linewidth, xtickstep)
+    return ax
+end
+
+# ---- SignRestrictedIRFResult ------------------------------------------------
+
+function irfplot!(ax::Makie.Axis, irf::_SignRestrictedIRFResult;
+        var::Symbol, shock::Symbol,
+        plot_type = :quantiles,
+        bandcolor = :steelblue, bandalpha = 0.2,
+        path_alpha = 0.02, path_color = :gray, path_linewidth = 0.5,
+        linecolor = :black, linewidth = 2.0,
+        drawzero = true, zerolinecolor = :gray60, zerolinestyle = :dash,
+        xtickstep = 4, kwargs...)
+    nms = _var_names(irf)
+    vi = only(_resolve_indices(nms, [var], :var))
+    si = only(_resolve_indices(nms, [shock], :shock))
+
+    xvals = collect(0:MacroEconometricTools.horizon(irf))
+    lb_all = lowerbounds(irf)
+    ub_all = upperbounds(irf)
+    cvgs = coverages(irf)
+
+    Makie.xlims!(ax, xvals[1] - 0.4, xvals[end] + 0.4)
+    if xtickstep > 0
+        ax.xticks = xvals[1]:xtickstep:xvals[end]
+    end
+
+    if plot_type ∈ (:paths, :both)
+        draws = irf.irf_draws[:, vi, si, :]
+        _plot_paths!(ax, xvals, draws; path_alpha, path_color, path_linewidth)
+    end
+
+    if plot_type ∈ (:quantiles, :both) && !isempty(cvgs)
+        lb_panel = [lb_all[k][vi, si, :] for k in eachindex(cvgs)]
+        ub_panel = [ub_all[k][vi, si, :] for k in eachindex(cvgs)]
+        _plot_irf_panel!(ax, xvals, irf.irf_median[vi, si, :],
+            lb_panel, ub_panel, cvgs;
+            drawzero, zerolinecolor, zerolinestyle,
+            bandcolor, bandalpha, linecolor, linewidth, xtickstep)
+    else
+        Makie.lines!(ax, xvals, irf.irf_median[vi, si, :];
+            color = linecolor, linewidth = linewidth)
+        if drawzero
+            Makie.hlines!(ax, [0.0]; color = zerolinecolor,
+                linewidth = 1, linestyle = zerolinestyle)
+        end
+    end
+    return ax
+end
+
+# ---- BayesianIRFResult (AxisArray-based) ------------------------------------
+
+function irfplot!(ax::Makie.Axis, irf::_BayesianIRFResult;
+        var::Symbol, shock::Symbol,
+        plot_type = :quantiles,
+        bandcolor = :steelblue, bandalpha = 0.2,
+        path_alpha = 0.02, path_color = :gray, path_linewidth = 0.5,
+        linecolor = :black, linewidth = 2.0,
+        drawzero = true, zerolinecolor = :gray60, zerolinestyle = :dash,
+        xtickstep = 4, kwargs...)
+    var_axis = AxisArrays.axes(irf.data, Axis{:variable})
+    shock_axis = AxisArrays.axes(irf.data, Axis{:shock})
+    horizon_axis = AxisArrays.axes(irf.data, Axis{:horizon})
+
+    all_vars = collect(AxisArrays.axisvalues(var_axis)[1])
+    all_shocks = collect(AxisArrays.axisvalues(shock_axis)[1])
+    horizons = collect(AxisArrays.axisvalues(horizon_axis)[1])
+
+    vi = only(_resolve_indices_generic(all_vars, [var]))
+    si = only(_resolve_indices_generic(all_shocks, [shock]))
+
+    xvals = horizons
+    lb_all = lowerbounds(irf)
+    ub_all = upperbounds(irf)
+    cvgs = coverages(irf)
+    pt_est = point_estimate(irf)
+    data_arr = Array(irf.data)
+
+    Makie.xlims!(ax, xvals[1] - 0.4, xvals[end] + 0.4)
+    if xtickstep > 0
+        ax.xticks = xvals[1]:xtickstep:xvals[end]
+    end
+
+    if plot_type ∈ (:paths, :both)
+        draws = data_arr[:, vi, si, :]
+        _plot_paths!(ax, xvals, draws; path_alpha, path_color, path_linewidth)
+    end
+
+    lb_panel = [Array(lb_all[k])[vi, si, :] for k in eachindex(cvgs)]
+    ub_panel = [Array(ub_all[k])[vi, si, :] for k in eachindex(cvgs)]
+    y = Array(pt_est)[vi, si, :]
+
+    if plot_type ∈ (:quantiles, :both)
+        _plot_irf_panel!(ax, xvals, y, lb_panel, ub_panel, cvgs;
+            drawzero, zerolinecolor, zerolinestyle,
+            bandcolor, bandalpha, linecolor, linewidth, xtickstep)
+    else
+        Makie.lines!(ax, xvals, y;
+            color = linecolor, linewidth = linewidth)
+        if drawzero
+            Makie.hlines!(ax, [0.0]; color = zerolinecolor,
+                linewidth = 1, linestyle = zerolinestyle)
+        end
+    end
+    return ax
+end
+
+# ---- LocalProjectionIRFResult (AxisArray-based) -----------------------------
+
+function irfplot!(ax::Makie.Axis, irf::_LocalProjectionIRFResult;
+        var::Symbol, shock::Symbol,
+        bandcolor = :steelblue, bandalpha = 0.2,
+        linecolor = :black, linewidth = 2.0,
+        drawzero = true, zerolinecolor = :gray60, zerolinestyle = :dash,
+        xtickstep = 4, kwargs...)
+    response_axis = AxisArrays.axes(irf.data, Axis{:response})
+    shock_axis = AxisArrays.axes(irf.data, Axis{:shock})
+    horizon_axis = AxisArrays.axes(irf.data, Axis{:horizon})
+
+    all_responses = collect(AxisArrays.axisvalues(response_axis)[1])
+    all_shocks = collect(AxisArrays.axisvalues(shock_axis)[1])
+    horizons = collect(AxisArrays.axisvalues(horizon_axis)[1])
+
+    vi = only(_resolve_indices_generic(all_responses, [var]))
+    si = only(_resolve_indices_generic(all_shocks, [shock]))
+
+    xvals = horizons
+    lb_all = lowerbounds(irf)
+    ub_all = upperbounds(irf)
+    cvgs = coverages(irf)
+    pt_data = Array(irf.data)
+
+    lb_panel = [Array(lb_all[k])[vi, si, :] for k in eachindex(cvgs)]
+    ub_panel = [Array(ub_all[k])[vi, si, :] for k in eachindex(cvgs)]
+    y = pt_data[vi, si, :]
+
+    _plot_irf_panel!(ax, xvals, y, lb_panel, ub_panel, cvgs;
+        drawzero, zerolinecolor, zerolinestyle,
+        bandcolor, bandalpha, linecolor, linewidth, xtickstep)
+    return ax
+end
+
+# ============================================================================
 # irfplot — IRFResult  (point-identified, bootstrap / analytic bands)
 # ============================================================================
 
@@ -200,8 +365,6 @@ function irfplot(irf::_IRFResult;
         # Variable / shock selection
         vars = :all, shocks = :all,
         pretty_vars = nothing, pretty_shocks = nothing,
-        # Scaling & orientation
-        irf_scale = 1.0, flipshock = false,
         # Bands
         bandcolor = :steelblue, bandalpha = 0.2,
         # Line
@@ -243,8 +406,8 @@ function irfplot(irf::_IRFResult;
         y = irf.irf[vi, si, :]
 
         _plot_irf_panel!(ax, xvals, y, lb_panel, ub_panel, cvgs;
-            irf_scale, drawzero, zerolinecolor, zerolinestyle,
-            bandcolor, bandalpha, linecolor, linewidth, xtickstep, flipshock)
+            drawzero, zerolinecolor, zerolinestyle,
+            bandcolor, bandalpha, linecolor, linewidth, xtickstep)
     end
 
     _configure_axes!(fig, axes_matrix, nrows, ncols;
@@ -259,7 +422,6 @@ end
 function irfplot(irf::_SignRestrictedIRFResult;
         vars = :all, shocks = :all,
         pretty_vars = nothing, pretty_shocks = nothing,
-        irf_scale = 1.0, flipshock = false,
         # Plot type
         plot_type = :quantiles,  # :quantiles, :paths, :both
         # Bands
@@ -307,8 +469,7 @@ function irfplot(irf::_SignRestrictedIRFResult;
         # Individual draws
         if plot_type ∈ (:paths, :both)
             draws = irf.irf_draws[:, vi, si, :]   # (n_draws, horizon)
-            _plot_paths!(ax, xvals, draws;
-                irf_scale, path_alpha, path_color, path_linewidth, flipshock)
+            _plot_paths!(ax, xvals, draws; path_alpha, path_color, path_linewidth)
         end
 
         # Quantile bands
@@ -317,12 +478,11 @@ function irfplot(irf::_SignRestrictedIRFResult;
             ub_panel = [ub_all[k][vi, si, :] for k in eachindex(cvgs)]
             _plot_irf_panel!(ax, xvals, irf.irf_median[vi, si, :],
                 lb_panel, ub_panel, cvgs;
-                irf_scale, drawzero, zerolinecolor, zerolinestyle,
-                bandcolor, bandalpha, linecolor, linewidth, xtickstep, flipshock)
+                drawzero, zerolinecolor, zerolinestyle,
+                bandcolor, bandalpha, linecolor, linewidth, xtickstep)
         else
             # Median line only (paths mode without bands)
-            sign = flipshock ? -1 : 1
-            Makie.lines!(ax, xvals, irf.irf_median[vi, si, :] .* (irf_scale * sign);
+            Makie.lines!(ax, xvals, irf.irf_median[vi, si, :];
                 color = linecolor, linewidth = linewidth)
             if drawzero
                 Makie.hlines!(ax, [0.0]; color = zerolinecolor,
@@ -343,7 +503,6 @@ end
 function irfplot(irf::_BayesianIRFResult;
         vars = :all, shocks = :all,
         pretty_vars = nothing, pretty_shocks = nothing,
-        irf_scale = 1.0, flipshock = false,
         plot_type = :quantiles,
         bandcolor = :steelblue, bandalpha = 0.2,
         path_alpha = 0.02, path_color = :gray, path_linewidth = 0.5,
@@ -401,8 +560,7 @@ function irfplot(irf::_BayesianIRFResult;
         # Paths
         if plot_type ∈ (:paths, :both)
             draws = data_arr[:, vi, si, :]   # (n_draws, horizon)
-            _plot_paths!(ax, xvals, draws;
-                irf_scale, path_alpha, path_color, path_linewidth, flipshock)
+            _plot_paths!(ax, xvals, draws; path_alpha, path_color, path_linewidth)
         end
 
         # Bands + median
@@ -412,11 +570,10 @@ function irfplot(irf::_BayesianIRFResult;
 
         if plot_type ∈ (:quantiles, :both)
             _plot_irf_panel!(ax, xvals, y, lb_panel, ub_panel, cvgs;
-                irf_scale, drawzero, zerolinecolor, zerolinestyle,
-                bandcolor, bandalpha, linecolor, linewidth, xtickstep, flipshock)
+                drawzero, zerolinecolor, zerolinestyle,
+                bandcolor, bandalpha, linecolor, linewidth, xtickstep)
         else
-            sign = flipshock ? -1 : 1
-            Makie.lines!(ax, xvals, y .* (irf_scale * sign);
+            Makie.lines!(ax, xvals, y;
                 color = linecolor, linewidth = linewidth)
             if drawzero
                 Makie.hlines!(ax, [0.0]; color = zerolinecolor,
@@ -435,7 +592,8 @@ end
 # ============================================================================
 
 function irfplot(irf::_LocalProjectionIRFResult;
-        irf_scale = 1.0, flipshock = false,
+        vars = :all, shocks = :all,
+        pretty_vars = nothing, pretty_shocks = nothing,
         bandcolor = :steelblue, bandalpha = 0.2,
         linecolor = :black, linewidth = 2.0,
         drawzero = true, zerolinecolor = :gray60, zerolinestyle = :dash,
@@ -449,36 +607,45 @@ function irfplot(irf::_LocalProjectionIRFResult;
     shock_axis = AxisArrays.axes(irf.data, Axis{:shock})
     horizon_axis = AxisArrays.axes(irf.data, Axis{:horizon})
 
-    responses = collect(AxisArrays.axisvalues(response_axis)[1])
-    shocks = collect(AxisArrays.axisvalues(shock_axis)[1])
+    all_responses = collect(AxisArrays.axisvalues(response_axis)[1])
+    all_shocks = collect(AxisArrays.axisvalues(shock_axis)[1])
     horizons = collect(AxisArrays.axisvalues(horizon_axis)[1])
+
+    idxvars = vars === :all ? collect(1:length(all_responses)) :
+              _resolve_indices_generic(all_responses, vars)
+    idxshocks = shocks === :all ? collect(1:length(all_shocks)) :
+                _resolve_indices_generic(all_shocks, shocks)
+
+    var_labels = pretty_vars === nothing ? string.(all_responses[idxvars]) : pretty_vars
+    shock_labels = pretty_shocks === nothing ?
+                   string.(all_shocks[idxshocks]) .* " shock" : pretty_shocks
 
     xvals = horizons
     lb_all = lowerbounds(irf)
     ub_all = upperbounds(irf)
     cvgs = coverages(irf)
     pt_data = Array(irf.data)
-    nrows = length(responses)
-    ncols = length(shocks)
+    nrows = length(idxvars)
+    ncols = length(idxshocks)
 
     fig = _make_figure(; figure, size, title, title_fontsize, title_font)
     axes_matrix = Matrix{Makie.Axis}(undef, nrows, ncols)
 
-    for (ri, response) in enumerate(responses), (ci, shock) in enumerate(shocks)
+    for (ri, vi) in enumerate(idxvars), (ci, si) in enumerate(idxshocks)
 
         ax = Makie.Axis(fig[ri, ci];
-            title = string(shock) * " shock",
-            ylabel = string(response),
+            title = shock_labels[ci],
+            ylabel = var_labels[ri],
             xlabel = "Horizon")
         axes_matrix[ri, ci] = ax
 
-        lb_panel = [Array(lb_all[k])[ri, ci, :] for k in eachindex(cvgs)]
-        ub_panel = [Array(ub_all[k])[ri, ci, :] for k in eachindex(cvgs)]
-        y = pt_data[ri, ci, :]
+        lb_panel = [Array(lb_all[k])[vi, si, :] for k in eachindex(cvgs)]
+        ub_panel = [Array(ub_all[k])[vi, si, :] for k in eachindex(cvgs)]
+        y = pt_data[vi, si, :]
 
         _plot_irf_panel!(ax, xvals, y, lb_panel, ub_panel, cvgs;
-            irf_scale, drawzero, zerolinecolor, zerolinestyle,
-            bandcolor, bandalpha, linecolor, linewidth, xtickstep, flipshock)
+            drawzero, zerolinecolor, zerolinestyle,
+            bandcolor, bandalpha, linecolor, linewidth, xtickstep)
     end
 
     _configure_axes!(fig, axes_matrix, nrows, ncols;

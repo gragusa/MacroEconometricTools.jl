@@ -266,16 +266,16 @@ end
 Plot recipe for Bayesian IRFs with posterior draws.
 
 Supports:
-- `irf_scale::Real=1.0`: Scale factor for IRF values (use 100 for percentage)
 - `plot_type`: `:quantiles`, `:paths`, or `:both`
 - Multiple coverage levels with layered ribbons
+
+Scale data before plotting with `rescale` / `rescale!`.
 """
 RecipesBase.@recipe function f(irf::BayesianIRFResult;
         vars = :all,
         shocks = :all,
         pretty_shocks = nothing,
         pretty_vars = nothing,
-        irf_scale = 1.0,
         plot_type = :quantiles,
         path_alpha = 0.02,
         path_color = :gray,
@@ -321,7 +321,7 @@ RecipesBase.@recipe function f(irf::BayesianIRFResult;
     for (row_idx, var_idx) in enumerate(idxvars)
         for (col_idx, shock_idx) in enumerate(idxshocks)
             # Extract point estimate for this variable/shock
-            y_median = Array(pt_est)[var_idx, shock_idx, :] .* irf_scale
+            y_median = Array(pt_est)[var_idx, shock_idx, :]
             x = horizons
             title := shock_labels[col_idx]
             yguide := col_idx == 1 ? var_labels[row_idx] : ""
@@ -333,7 +333,7 @@ RecipesBase.@recipe function f(irf::BayesianIRFResult;
                 n_drw = n_draws(irf)
                 data_arr = Array(irf.data)
                 for draw_idx in 1:n_drw
-                    y_path = data_arr[draw_idx, var_idx, shock_idx, :] .* irf_scale
+                    y_path = data_arr[draw_idx, var_idx, shock_idx, :]
                     @series begin
                         subplot := subplot
                         linecolor := path_color
@@ -348,8 +348,8 @@ RecipesBase.@recipe function f(irf::BayesianIRFResult;
             if plot_type ∈ [:quantiles, :both]
                 for (cv_idx, _) in enumerate(reverse(cvgs))
                     rev_idx = length(cvgs) - cv_idx + 1
-                    lb_slice = Array(lb[rev_idx])[var_idx, shock_idx, :] .* irf_scale
-                    ub_slice = Array(ub[rev_idx])[var_idx, shock_idx, :] .* irf_scale
+                    lb_slice = Array(lb[rev_idx])[var_idx, shock_idx, :]
+                    ub_slice = Array(ub[rev_idx])[var_idx, shock_idx, :]
                     @series begin
                         subplot := subplot
                         linecolor := nothing
@@ -394,12 +394,13 @@ end
 """
 Plot recipe for Local Projection IRFs.
 
-Supports:
-- `irf_scale::Real=1.0`: Scale factor for IRF values (use 100 for percentage)
-- Multiple coverage levels with layered confidence bands
+Scale data before plotting with `rescale` / `rescale!`.
 """
 RecipesBase.@recipe function f(irf::LocalProjectionIRFResult;
-        irf_scale = 1.0,
+        vars = :all,
+        shocks = :all,
+        pretty_vars = nothing,
+        pretty_shocks = nothing,
         drawzero = true,
         zerolinecol = :lightgray,
         linecolor = :black)
@@ -409,11 +410,20 @@ RecipesBase.@recipe function f(irf::LocalProjectionIRFResult;
     shock_axis = AxisArrays.axes(irf.data, Axis{:shock})
     horizon_axis = AxisArrays.axes(irf.data, Axis{:horizon})
 
-    responses = collect(AxisArrays.axisvalues(response_axis)[1])
-    shocks = collect(AxisArrays.axisvalues(shock_axis)[1])
+    all_responses = collect(AxisArrays.axisvalues(response_axis)[1])
+    all_shocks = collect(AxisArrays.axisvalues(shock_axis)[1])
     horizons = collect(AxisArrays.axisvalues(horizon_axis)[1])
 
-    layout --> (length(responses), length(shocks))
+    idxvars = vars === :all ? collect(1:length(all_responses)) :
+              _resolve_indices_generic(all_responses, vars)
+    idxshocks = shocks === :all ? collect(1:length(all_shocks)) :
+                _resolve_indices_generic(all_shocks, shocks)
+
+    var_labels = pretty_vars === nothing ? string.(all_responses[idxvars]) : pretty_vars
+    shock_labels = pretty_shocks === nothing ?
+                   string.(all_shocks[idxshocks]) .* " shock" : pretty_shocks
+
+    layout --> (length(idxvars), length(idxshocks))
     titlefontsize --> 5
     labelfontsize --> 5
     tickfontsize --> 5
@@ -428,20 +438,20 @@ RecipesBase.@recipe function f(irf::LocalProjectionIRFResult;
 
     pt_data = Array(irf.data)
 
-    for (row_idx, _) in enumerate(responses)
-        for (col_idx, shock) in enumerate(shocks)
-            y = pt_data[row_idx, col_idx, :] .* irf_scale
+    for (ri, vi) in enumerate(idxvars)
+        for (ci, si) in enumerate(idxshocks)
+            y = pt_data[vi, si, :]
             x = horizons
-            title := string(shock) * " shock"
-            yguide := col_idx == 1 ? string(responses[row_idx]) : ""
+            title := shock_labels[ci]
+            yguide := ci == 1 ? var_labels[ri] : ""
             xticks := (0:6:maximum(horizons), 0:6:maximum(horizons))
             xlims := (-0.2, maximum(horizons) + 0.5)
 
             # Draw confidence bands (widest first)
             for (cv_idx, _) in enumerate(reverse(cvgs))
                 rev_idx = length(cvgs) - cv_idx + 1
-                lb_slice = Array(lb[rev_idx])[row_idx, col_idx, :] .* irf_scale
-                ub_slice = Array(ub[rev_idx])[row_idx, col_idx, :] .* irf_scale
+                lb_slice = Array(lb[rev_idx])[vi, si, :]
+                ub_slice = Array(ub[rev_idx])[vi, si, :]
                 @series begin
                     subplot := subplot
                     linecolor := nothing

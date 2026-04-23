@@ -118,13 +118,13 @@ function _resize_instrument(instrument::ExternalInstrument{T, S}, n_obs::Int) wh
     end
 end
 
-function _resize_instrument(instrument::ProxyIV{T}, n_obs::Int) where {T}
+function _resize_instrument(instrument::ProxyIV{T, S}, n_obs::Int) where {T, S}
     Z = instrument.proxies
     n_orig = size(Z, 1)
     if n_orig == n_obs
         return instrument
     elseif n_orig > n_obs
-        return ProxyIV(Z[1:n_obs, :], instrument.target_shocks;
+        return ProxyIV(Z[1:n_obs, :], instrument.target_shock;
             relevance_threshold = instrument.relevance_threshold)
     else
         error("Cannot expand proxy from $n_orig to $n_obs rows")
@@ -237,15 +237,11 @@ function _extract_instrument(instrument::ExternalInstrument,
     end
 end
 
-function _extract_instrument(instrument::ProxyIV{T},
-        n_obs::Int, n_lags::Int, names::Vector{Symbol}) where {T}
+function _extract_instrument(instrument::ProxyIV{T, S},
+        n_obs::Int, n_lags::Int, names::Vector{Symbol}) where {T, S}
     Z = instrument.proxies
     n_z = size(Z, 1)
-    length(instrument.target_shocks) == 1 ||
-        throw(ArgumentError(
-            "SVAR-IV currently supports single-shock identification. " *
-            "Got $(length(instrument.target_shocks)) target shocks."))
-    target = instrument.target_shocks[1]
+    target = _resolve_target(instrument.target_shock, names)
     if n_z == n_obs
         return Z, target
     elseif n_z > n_obs
