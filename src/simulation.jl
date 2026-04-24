@@ -23,45 +23,75 @@ function simulate_var(model::VARModel{T}, innovations::AbstractMatrix{T},
     n_lags_val = n_lags(model)
     n_vars_val = n_vars(model)
     n_periods = size(innovations, 1)
+    n_total = n_periods + burn_in
 
-    # Check dimensions
+    Y_sim = zeros(T, n_total, n_vars_val)
+    simulate_var!(Y_sim, model.coefficients.intercept, model.coefficients.lags,
+        innovations, Y_init; burn_in = burn_in)
+
+    # Return data after burn-in
+    return burn_in == 0 ? Y_sim : Y_sim[(burn_in + 1):end, :]
+end
+
+"""
+    simulate_var!(Y_sim, intercept, lags, innovations, Y_init; burn_in=0)
+
+In-place VAR simulation. Writes into the caller-supplied `Y_sim` (size
+`(n_periods + burn_in) × n_vars`) rather than allocating. Bit-for-bit
+equivalent to the allocating `simulate_var`: same loop order, same `@inbounds`,
+no BLAS reordering. The top `n_lags` rows of `Y_sim` are overwritten with the
+last `n_lags` rows of `Y_init`, so any contents there on entry are ignored.
+
+`Y_sim` must have exactly `(n_periods + burn_in)` rows, not the post-burn-in
+`n_periods`; the caller is responsible for the size match. This lets the
+bootstrap path reuse a single simulation buffer across every replication.
+"""
+function simulate_var!(
+        Y_sim::AbstractMatrix{T},
+        intercept::AbstractVector{T},
+        lags::AbstractArray{T, 3},
+        innovations::AbstractMatrix{T},
+        Y_init::AbstractMatrix{T};
+        burn_in::Int = 0) where {T}
+    n_vars_val = size(intercept, 1)
+    n_lags_val = size(lags, 3)
+    n_periods = size(innovations, 1)
+    n_total = n_periods + burn_in
+
+    # Dimension checks
+    size(lags, 1) == n_vars_val && size(lags, 2) == n_vars_val ||
+        throw(ArgumentError("lags must be (n_vars, n_vars, n_lags)"))
     size(innovations, 2) == n_vars_val ||
         throw(ArgumentError("innovations must have $n_vars_val columns"))
     size(Y_init, 1) >= n_lags_val ||
         throw(ArgumentError("Y_init must have at least $n_lags_val rows"))
     size(Y_init, 2) == n_vars_val ||
         throw(ArgumentError("Y_init must have $n_vars_val columns"))
+    size(Y_sim, 1) == n_total || throw(ArgumentError(
+        "Y_sim must have $n_total rows (got $(size(Y_sim, 1)))"))
+    size(Y_sim, 2) == n_vars_val || throw(ArgumentError(
+        "Y_sim must have $n_vars_val columns (got $(size(Y_sim, 2)))"))
 
-    # Total periods including burn-in
-    n_total = n_periods + burn_in
+    # Seed the first n_lags rows from Y_init (preserving original scalar loop
+    # order to match the allocating implementation bit-for-bit).
+    @inbounds for j in 1:n_vars_val, i in 1:n_lags_val
 
-    # Preallocate
-    Y_sim = zeros(T, n_total, n_vars_val)
+        Y_sim[i, j] = Y_init[size(Y_init, 1) - n_lags_val + i, j]
+    end
 
-    # Set initial conditions
-    Y_sim[1:n_lags_val, :] = Y_init[(end - n_lags_val + 1):end, :]
-
-    # Get coefficients
-    intercept = model.coefficients.intercept
-    lags = model.coefficients.lags  # (n_vars, n_vars, n_lags)
-
-    # Simulate
+    # Simulate — loop structure and arithmetic identical to the allocating
+    # implementation. Do not reorder.
     @inbounds for t in (n_lags_val + 1):n_total
-        # Intercept
         for j in 1:n_vars_val
             Y_sim[t, j] = intercept[j]
         end
-
-        # Lagged effects
         for lag in 1:n_lags_val
-            for i in 1:n_vars_val  # from variable
-                for j in 1:n_vars_val  # to variable
+            for i in 1:n_vars_val        # from variable
+                for j in 1:n_vars_val    # to variable
                     Y_sim[t, j] += lags[j, i, lag] * Y_sim[t - lag, i]
                 end
             end
         end
-
-        # Add innovation
         innov_idx = t - n_lags_val - burn_in
         if innov_idx > 0 && innov_idx <= n_periods
             for j in 1:n_vars_val
@@ -69,9 +99,7 @@ function simulate_var(model::VARModel{T}, innovations::AbstractMatrix{T},
             end
         end
     end
-
-    # Return data after burn-in
-    return Y_sim[(burn_in + 1):end, :]
+    return Y_sim
 end
 
 """
