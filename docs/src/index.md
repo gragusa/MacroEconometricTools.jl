@@ -33,10 +33,10 @@ result = irf(model, CholeskyID();
     inference = WildBootstrap(1000),
     coverage = [0.68, 0.90, 0.95])
 
-# IV-SVAR with external instrument
-instrument = ExternalInstrument(proxy, 1)
-iv_model = fit(IVSVAR, Y, 4; instrument=instrument)
-iv_result = irf(iv_model, IVIdentification();
+# SVAR-IV with external instrument (proxy targets shock 1)
+iv_model = fit(OLSVAR, Y, 4; names=[:GDP, :Inflation, :Rate])
+id = IVIdentification(proxy, 1)
+iv_result = irf(iv_model, id;
     horizon = 20,
     inference = ProxySVARMBB(2000; block_length=4))
 ```
