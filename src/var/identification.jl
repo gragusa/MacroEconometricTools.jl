@@ -73,6 +73,17 @@ function rotation_matrix(model::VARModel{T}, id::CholeskyID) where {T}
 end
 
 """
+    get_permutation(names::Vector{Symbol}, ordering::Vector{Int})
+
+Validate an integer ordering against the number of variables and return it.
+"""
+function get_permutation(names::Vector{Symbol}, ordering::Vector{Int})
+    sort(ordering) == collect(1:length(names)) ||
+        throw(ArgumentError("Integer ordering must be a permutation of 1:$(length(names))"))
+    return ordering
+end
+
+"""
     get_permutation(names::Vector{Symbol}, ordering::Vector{Symbol})
 
 Get permutation vector to reorder variables according to `ordering`.

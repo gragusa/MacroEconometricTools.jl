@@ -8,6 +8,7 @@
 
 using RecipesBase
 using AxisArrays: AxisArrays, Axis
+using Measures: mm
 
 # Note: lowerbounds, upperbounds, coverages are now defined in types.jl
 # They work on any AbstractIRFResult

@@ -31,6 +31,7 @@ include("constraints.jl")
 include("utilities.jl")
 
 # VAR estimation and analysis
+include("var/structural_core.jl")
 include("var/estimation.jl")
 include("var/inference.jl")
 include("var/identification.jl")
@@ -180,6 +181,11 @@ export log_likelihood, aic, bic, hqic
 export bootstrap_irf, bootstrap_irf_wild, bootstrap_irf_standard, bootstrap_irf_block
 export forecast
 export rotation_matrix, normalize, normalize!
+# Matrix-level structural core (advanced building blocks; operate on raw
+# (B, Σ_L) matrices rather than a fitted VARModel — used by spoke packages that
+# loop over reduced-form draws, e.g. BayesianVAR.jl posterior draws).
+export structural_impact, compute_ma_matrices_from_B!, generate_random_orthogonal!,
+       check_sign_restrictions, compute_structural_shocks, check_narrative_restrictions
 export lag, create_lags, create_lags!
 export companion_form
 export variance_decomposition, historical_decomposition

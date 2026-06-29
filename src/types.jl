@@ -286,10 +286,12 @@ abstract type AbstractIdentification end
 Cholesky (recursive) identification scheme.
 
 # Fields
-- `ordering::Union{Nothing,Vector{Symbol}}`: Variable ordering (nothing = use data order)
+- `ordering::Union{Nothing,Vector{Symbol},Vector{Int}}`: Variable ordering
+  (nothing = use data order). Symbols order by variable name (resolved against
+  the model); integers order by position.
 """
 struct CholeskyID <: AbstractIdentification
-    ordering::Union{Nothing, Vector{Symbol}}
+    ordering::Union{Nothing, Vector{Symbol}, Vector{Int}}
 end
 
 CholeskyID() = CholeskyID(nothing)
@@ -306,6 +308,11 @@ Sign restriction identification scheme.
 struct SignRestriction <: AbstractIdentification
     restrictions::Matrix{Int}
     horizon::Int
+end
+
+# Convenience: normalize a +/-/0/±1 matrix and default the horizon to impact-only.
+function SignRestriction(restrictions::Matrix, horizon::Int = 0)
+    SignRestriction(_normalize_sign_matrix(restrictions), horizon)
 end
 
 """
@@ -774,6 +781,20 @@ function NarrativeShockRestriction(shock::Int, date::D, sign::Int) where {D}
     NarrativeShockRestriction{D}(shock, date, sign)
 end
 
+# Ergonomic constructors using the `+` / `-` functions for the sign
+function NarrativeShockRestriction(shock::Int, date::D, ::typeof(+)) where {D}
+    NarrativeShockRestriction{D}(shock, date, 1)
+end
+
+function NarrativeShockRestriction(shock::Int, date::D, ::typeof(-)) where {D}
+    NarrativeShockRestriction{D}(shock, date, -1)
+end
+
+function Base.show(io::IO, nr::NarrativeShockRestriction)
+    sign_str = nr.sign == 1 ? "+" : "-"
+    print(io, "NarrativeShockRestriction(", nr.shock, ", ", nr.date, ", ", sign_str, ")")
+end
+
 """
     NarrativeRestriction{D} <: AbstractIdentification
 
@@ -819,6 +840,13 @@ function NarrativeRestriction(sign_restrictions::Matrix{Int},
         narrative_shocks::Vector{NarrativeShockRestriction{D}};
         horizon::Int = 0) where {D}
     NarrativeRestriction{D}(sign_restrictions, narrative_shocks, horizon)
+end
+
+# Ergonomic constructor: normalize a +/-/0/±1 sign matrix before delegating.
+function NarrativeRestriction(sign_restrictions::Matrix,
+        narrative_shocks::Vector{NarrativeShockRestriction{D}};
+        horizon::Int = 0) where {D}
+    NarrativeRestriction{D}(_normalize_sign_matrix(sign_restrictions), narrative_shocks, horizon)
 end
 
 # Constructor from Tables.jl-compatible table
