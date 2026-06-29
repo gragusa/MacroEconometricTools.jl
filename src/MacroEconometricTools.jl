@@ -194,5 +194,6 @@ export is_stable, long_run_effect, long_run_mean
 export confidence_bands
 export irfplot, irfplot!
 export first_stage_F, iv_summary, refit_for_bootstrap
+export iv_impact, iv_instrument
 
 end # module

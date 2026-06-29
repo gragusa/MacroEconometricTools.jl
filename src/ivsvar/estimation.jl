@@ -305,6 +305,46 @@ function _build_full_impact_matrix(β_iv::Vector{T}, target::Int, Σ::Matrix{T})
 end
 
 # ============================================================================
+# Matrix-level IV impact (for per-draw identification)
+# ============================================================================
+
+"""
+    iv_impact(ν, Σ, Z, target::Int) -> (P, F_stat)
+
+Structural impact matrix from external-instrument (proxy-SVAR) identification,
+operating on raw matrices. `ν` are the reduced-form residuals (`n_obs × n_vars`),
+`Σ` the residual covariance, `Z` the instrument aligned to `ν`, and `target` the
+index of the instrumented shock.
+
+The `target` column is identified by the instrument (Stock & Watson 2018,
+Mertens & Ravn 2013); the remaining columns fill the orthogonal complement via
+the Cholesky factor of `Σ - β β'`. `F_stat` is the first-stage F.
+
+This is the matrix-level counterpart to `rotation_matrix(model, ::IVIdentification)`.
+A package looping over reduced-form draws calls it with each draw's `(ν, Σ)` and
+the fixed instrument.
+"""
+function iv_impact(ν::AbstractMatrix{T}, Σ::AbstractMatrix{T}, Z::AbstractMatrix{T},
+        target::Int) where {T}
+    β_iv, F_stat, _ = _iv_identify(Matrix(ν), Matrix(Z), target)
+    P = _build_full_impact_matrix(β_iv, target, Matrix(Σ))
+    return P, F_stat
+end
+
+"""
+    iv_instrument(id::IVIdentification, n_obs, n_lags, names) -> (Z, target::Int)
+
+Resolve an `IVIdentification` to its aligned instrument matrix and target shock
+index for `n_obs` residual rows. Wraps instrument extraction so a per-draw loop
+can resolve `(Z, target)` once before iterating.
+"""
+function iv_instrument(id::IVIdentification, n_obs::Int, n_lags::Int, names::Vector{Symbol})
+    id.instrument === nothing &&
+        throw(ArgumentError("IVIdentification requires an instrument: use IVIdentification(Z, target_shock)"))
+    return _extract_instrument(id.instrument, n_obs, n_lags, names)
+end
+
+# ============================================================================
 # Bootstrap re-estimation helper
 # ============================================================================
 
