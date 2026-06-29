@@ -394,15 +394,15 @@ function bootstrap_irf_wild(
             ok = _fast_refit_ols!(ws, Y_boot, m, n_lags_val)
             if ok
                 try
-                    _fast_cholesky_irf!(view(irf_boot,r,:,:,:), ws, horizon;
+                    _fast_cholesky_irf!(view(irf_boot, r, :, :, :), ws, horizon;
                         normalization = normalization)
                 catch
                     n_failed += 1
-                    fill!(view(irf_boot,r,:,:,:), NaN)
+                    fill!(view(irf_boot, r, :, :, :), NaN)
                 end
             else
                 n_failed += 1
-                fill!(view(irf_boot,r,:,:,:), NaN)
+                fill!(view(irf_boot, r, :, :, :), NaN)
             end
         else
             # Generic path (unchanged): fit(OLSVAR) + rotation_matrix + compute_irf_point.
@@ -410,11 +410,11 @@ function bootstrap_irf_wild(
                 var_boot = refit_for_bootstrap(model, Y_boot, n_lags_val)
                 P_boot = rotation_matrix(var_boot, identification)
                 normalize!(P_boot, normalization)
-                irf_view = view(irf_boot,r,:,:,:)
+                irf_view = view(irf_boot, r, :, :, :)
                 copyto!(irf_view, compute_irf_point(var_boot, P_boot, horizon))
             catch
                 n_failed += 1
-                fill!(view(irf_boot,r,:,:,:), NaN)
+                fill!(view(irf_boot, r, :, :, :), NaN)
             end
         end
     end
@@ -496,26 +496,26 @@ function bootstrap_irf_standard(
             ok = _fast_refit_ols!(ws, Y_boot, m, n_lags_val)
             if ok
                 try
-                    _fast_cholesky_irf!(view(irf_boot,r,:,:,:), ws, horizon;
+                    _fast_cholesky_irf!(view(irf_boot, r, :, :, :), ws, horizon;
                         normalization = normalization)
                 catch
                     n_failed += 1
-                    fill!(view(irf_boot,r,:,:,:), NaN)
+                    fill!(view(irf_boot, r, :, :, :), NaN)
                 end
             else
                 n_failed += 1
-                fill!(view(irf_boot,r,:,:,:), NaN)
+                fill!(view(irf_boot, r, :, :, :), NaN)
             end
         else
             try
                 var_boot = refit_for_bootstrap(model, Y_boot, n_lags_val)
                 P_boot = rotation_matrix(var_boot, identification)
                 normalize!(P_boot, normalization)
-                copyto!(view(irf_boot,r,:,:,:),
+                copyto!(view(irf_boot, r, :, :, :),
                     compute_irf_point(var_boot, P_boot, horizon))
             catch
                 n_failed += 1
-                fill!(view(irf_boot,r,:,:,:), NaN)
+                fill!(view(irf_boot, r, :, :, :), NaN)
             end
         end
     end
@@ -658,26 +658,26 @@ function bootstrap_irf_block(
             ok = _fast_refit_ols!(ws, Y_boot, m, n_lags_val)
             if ok
                 try
-                    _fast_cholesky_irf!(view(irf_boot,r,:,:,:), ws, horizon;
+                    _fast_cholesky_irf!(view(irf_boot, r, :, :, :), ws, horizon;
                         normalization = normalization)
                 catch
                     n_failed += 1
-                    fill!(view(irf_boot,r,:,:,:), NaN)
+                    fill!(view(irf_boot, r, :, :, :), NaN)
                 end
             else
                 n_failed += 1
-                fill!(view(irf_boot,r,:,:,:), NaN)
+                fill!(view(irf_boot, r, :, :, :), NaN)
             end
         else
             try
                 var_boot = refit_for_bootstrap(model, Y_boot, n_lags_val)
                 P_boot = rotation_matrix(var_boot, identification)
                 normalize!(P_boot, normalization)
-                copyto!(view(irf_boot,r,:,:,:),
+                copyto!(view(irf_boot, r, :, :, :),
                     compute_irf_point(var_boot, P_boot, horizon))
             catch
                 n_failed += 1
-                fill!(view(irf_boot,r,:,:,:), NaN)
+                fill!(view(irf_boot, r, :, :, :), NaN)
             end
         end
     end

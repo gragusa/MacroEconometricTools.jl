@@ -216,7 +216,7 @@ function companion_form(A::Array{T, 3}) where {T}
     for lag in 1:n_lags
         row_range = 1:n_vars
         col_range = ((lag - 1) * n_vars + 1):(lag * n_vars)
-        F[row_range, col_range] .= view(A,:,:,lag)
+        F[row_range, col_range] .= view(A, :, :, lag)
     end
 
     # Identity blocks below

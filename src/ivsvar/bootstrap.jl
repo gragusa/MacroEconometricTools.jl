@@ -568,9 +568,9 @@ function _proxy_svar_mbb_impl(model::VARModel{T}, proxy::Vector{T},
             proxy_svar_dynamics!(dyn_buf, A_star, Σ_uu_star, Σ_um_star, H1_star,
                 p_val, s, n_imp, target)
 
-            copyto!(view(irf_store,:,:,b), dyn_buf.irf)
-            copyto!(view(irf_norm_store,:,:,b), dyn_buf.irf_norm)
-            copyto!(view(fevd_store,:,:,b), dyn_buf.fevd)
+            copyto!(view(irf_store, :, :, b), dyn_buf.irf)
+            copyto!(view(irf_norm_store, :, :, b), dyn_buf.irf_norm)
+            copyto!(view(fevd_store, :, :, b), dyn_buf.fevd)
 
             # 4g: AR statistics — anchor on target variable's impact
             if inf.compute_ar
@@ -589,9 +589,9 @@ function _proxy_svar_mbb_impl(model::VARModel{T}, proxy::Vector{T},
         catch e
             n_failed += 1
             # Fill failed draws with NaN rather than biasing with previous draw
-            fill!(view(irf_store,:,:,b), NaN)
-            fill!(view(irf_norm_store,:,:,b), NaN)
-            fill!(view(fevd_store,:,:,b), NaN)
+            fill!(view(irf_store, :, :, b), NaN)
+            fill!(view(irf_norm_store, :, :, b), NaN)
+            fill!(view(fevd_store, :, :, b), NaN)
         end
     end
 
