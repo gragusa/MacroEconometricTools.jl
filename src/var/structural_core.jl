@@ -95,7 +95,7 @@ function compute_ma_matrices_from_B!(Φ::Array{T, 3}, B::AbstractMatrix{T}, temp
 
         for k in 1:min(h, n_lags)
             row_start = 2 + (k - 1) * n_vars
-            Φ_prev = view(Φ,:,:,(h - k + 1))
+            Φ_prev = view(Φ, :, :, (h - k + 1))
 
             # temp = A_k * Φ_{h-k}, where A_k[i, j] = B[row_start + j - 1, i]
             for m in 1:n_vars
