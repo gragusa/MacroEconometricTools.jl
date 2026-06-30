@@ -4,6 +4,20 @@
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Performance
+
+### Removed
+
+## 0.1.1
+
+### Added
+
+- **Narrative-restriction IRF identification**: A constructed `NarrativeRestriction` now produces an IRF result. `irf(model, ::NarrativeRestriction)` runs a rejection search (sign restrictions on the impact/IRF plus narrative sign constraints on structural shocks) and returns a `SignRestrictedIRFResult`. Narrative restrictions reference shocks by residual-row index or by date; dates are supplied at fit time via `fit(OLSVAR, Y, p; dates=...)`, stored lag-trimmed, and read automatically. New exported accessor `dates(model)` returns the stored dates (or `nothing`).
+
 - **Shock normalization API**: Two-layer control over IRF units — pick a _scheme_ at estimation time, then (optionally) apply per-shock _rescaling_ afterwards.
 
   **1. Normalization scheme** — `irf(model, id; normalization=...)` takes an `AbstractNormalization`:
@@ -44,9 +58,15 @@
 
 ### Changed
 
+- **Hub/spoke docstrings**: Type docstrings for `BayesianVAR`, `MinnesotaPrior`, `BayesianIRFResult` (provided by `BayesianVAR.jl`) and `LocalProjection`, `LocalProjectionIRFResult` (provided by `LocalProjections.jl`) now note that this hub package defines only the shared type; estimation lives in the spoke. The `bootstrap_irf*` family docstrings clarify that they return raw bootstrap IRF draws, whereas `irf(model, id; inference=...)` runs the same bootstrap and returns an assembled `IRFResult` with bands.
+
+- **`SignRestrictedIRFResult.identification`** widened from `SignRestriction` to `AbstractIdentification` so the field can hold either a sign or a narrative restriction.
+
 ### Fixed
 
 - **Proxy-SVAR: hardcoded position-1 assumptions**: The Jentsch-Lunsford MBB bootstrap dynamics, AR confidence set anchor, band placement in `compute_inference_bands`, and the MSW confidence set quadratic (Wald statistic, `a`/`b` coefficients, impact-normalization row) all hardcoded `[1]` / `[1, 1]`. Any `target_shock ≠ 1` silently produced wrong numbers. Now parameterized on `target`.
+
+- **Cumulative-IRF test coverage**: Added regression tests for the `cumulate=` keyword and `cumulative_irf` across sign-restricted and Cholesky IRF results, which previously had no test coverage.
 
 ### Performance
 

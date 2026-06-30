@@ -1,6 +1,6 @@
 name = "MacroEconometricTools"
 uuid = "2e43262a-a6f8-4608-970d-a51fb3dfc6a7"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Giuseppe Ragusa <giuseppe.ragusa@gmail.com>"]
 
 [deps]
