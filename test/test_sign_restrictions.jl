@@ -15,6 +15,7 @@ using LinearAlgebra
 using Random
 using StableRNGs: StableRNG
 using Distributed
+using Dates: Date, Month
 
 @testset "Sign Restriction Identification" begin
 
@@ -168,4 +169,98 @@ using Distributed
     end
 
     println("✓ All sign restriction tests passed!")
+end
+
+@testset "Narrative Restriction Identification" begin
+    using MacroEconometricTools: NarrativeRestriction, NarrativeShockRestriction,
+                                 compute_structural_shocks
+
+    Random.seed!(456)
+    T = 100
+    n_v = 3
+    n_l = 2
+
+    Y = randn(T, n_v)
+    for t in 3:T
+        Y[t, :] = 0.5 * Y[t - 1, :] + 0.3 * Y[t - 2, :] + 0.1 * randn(n_v)
+    end
+
+    var = fit(OLSVAR, Y, n_l)
+    U = MacroEconometricTools.residuals(var)
+    n_eff = size(U, 1)
+
+    sign_restrictions = zeros(Int, n_v, n_v)
+    sign_restrictions[1, 1] = 1  # Shock 1: positive impact on var 1
+    row_idx = 20                 # Restrict shock 1 to be positive at this residual row
+
+    @testset "Integer-indexed restriction returns correct result" begin
+        id = NarrativeRestriction(sign_restrictions,
+            [NarrativeShockRestriction(1, row_idx, 1)]; horizon = 0)
+
+        horizon = 10
+        n_draws = 50
+        result = irf(var, id; horizon = horizon, n_draws = n_draws, rng = StableRNG(333))
+
+        @test result isa SignRestrictedIRFResult
+        @test result.identification === id
+        @test size(result.irf_median) == (n_v, n_v, horizon + 1)
+        @test size(result.irf_draws) == (n_draws, n_v, n_v, horizon + 1)
+        @test length(result.rotation_matrices) == n_draws
+
+        # Every accepted rotation satisfies the sign and narrative restrictions
+        for P in result.rotation_matrices
+            @test P[1, 1] > 0
+            ε = compute_structural_shocks(U, P)
+            @test ε[row_idx, 1] >= 0
+        end
+    end
+
+    @testset "Reproducible under seeded RNG" begin
+        id = NarrativeRestriction(sign_restrictions,
+            [NarrativeShockRestriction(1, row_idx, 1)]; horizon = 0)
+
+        r1 = irf(var, id; horizon = 8, n_draws = 30, rng = StableRNG(99))
+        r2 = irf(var, id; horizon = 8, n_draws = 30, rng = StableRNG(99))
+        @test r1.rotation_matrices == r2.rotation_matrices
+        @test Array(r1.irf_median) ≈ Array(r2.irf_median)
+    end
+
+    @testset "Date-based restriction resolves against model dates" begin
+        # Dates supplied at fit time, one per observation (length T)
+        all_dates = Date(2000, 1, 1) .+ Month.(0:(T - 1))
+        var_dated = fit(OLSVAR, Y, n_l; dates = all_dates)
+
+        # dates(model) is lag-trimmed to align with residual rows
+        @test dates(var_dated) == all_dates[(n_l + 1):end]
+        @test length(dates(var_dated)) == n_eff
+
+        restriction_date = dates(var_dated)[row_idx]
+        id = NarrativeRestriction(sign_restrictions,
+            [NarrativeShockRestriction(1, restriction_date, 1)]; horizon = 0)
+
+        result = irf(var_dated, id; horizon = 6, n_draws = 20, rng = StableRNG(5))
+        @test result isa SignRestrictedIRFResult
+        for P in result.rotation_matrices
+            ε = compute_structural_shocks(U, P)
+            @test ε[row_idx, 1] >= 0
+        end
+
+        # A model without dates falls back to integer rows: a date-based
+        # restriction then cannot be resolved and fails fast.
+        @test dates(var) === nothing
+        @test_throws "Cannot use date-based NarrativeShockRestriction without dates" irf(
+            var, id; horizon = 6, n_draws = 5, rng = StableRNG(1))
+    end
+
+    @testset "Exhaustion fails fast" begin
+        # Contradictory restrictions at the same row: no rotation can satisfy both
+        id = NarrativeRestriction(sign_restrictions,
+            [NarrativeShockRestriction(1, row_idx, 1),
+                NarrativeShockRestriction(1, row_idx, -1)]; horizon = 0)
+
+        @test_throws "Could not find impact matrix satisfying narrative restrictions" irf(
+            var, id; horizon = 5, n_draws = 1, max_attempts = 50, rng = StableRNG(1))
+    end
+
+    println("✓ All narrative restriction tests passed!")
 end

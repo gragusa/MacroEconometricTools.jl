@@ -18,6 +18,10 @@ This follows the StatsBase.jl convention for model fitting.
 - `constraints::Vector{<:AbstractConstraint}=AbstractConstraint[]`: Coefficient constraints
 - `names::Vector{Symbol}=nothing`: Variable names (inferred if Y has names)
 - `demean::Bool=false`: Whether to demean data before estimation
+- `dates=nothing`: Observation dates, one per row of `Y` (length = number of
+  observations). When supplied, the lag-trimmed dates are stored on the model and
+  align with the residual rows, so date-based narrative restrictions resolve
+  automatically. See [`dates`](@ref).
 
 # Returns
 - `VARModel{T,OLSVAR}`: Estimated VAR model
@@ -35,10 +39,16 @@ var = fit(OLSVAR, Y, 4; constraints=constraints)
 function StatsBase.fit(::Type{OLSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
         constraints::Vector{<:AbstractConstraint} = AbstractConstraint[],
         names::Union{Nothing, Vector{Symbol}} = nothing,
-        demean::Bool = false) where {T <: AbstractFloat}
+        demean::Bool = false,
+        dates = nothing) where {T <: AbstractFloat}
     n_obs_total, n_vars = size(Y)
     n_lags > 0 || throw(ArgumentError("n_lags must be positive"))
     n_obs_total > n_lags || throw(ArgumentError("Not enough observations for $n_lags lags"))
+
+    if dates !== nothing
+        length(dates) == n_obs_total ||
+            throw(ArgumentError("dates must have one entry per observation (got $(length(dates)) for $n_obs_total observations)"))
+    end
 
     # Handle variable names
     if names === nothing
@@ -90,11 +100,15 @@ function StatsBase.fit(::Type{OLSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
     # Companion form
     F = companion_form(lags_matrix)
 
+    # Dates aligned with the residual rows (lag-trimmed, length n_eff)
+    model_dates = dates === nothing ? nothing : dates[valid_idx]
+
     # Metadata
     metadata = (
         n_obs_total = n_obs_total,
         n_obs_used = n_eff,
         demean = demean,
+        dates = model_dates,
         timestamp = now()
     )
 
@@ -316,6 +330,16 @@ StatsBase.residuals(model::VARModel) = model.residuals
 Extract residual covariance matrix.
 """
 StatsBase.vcov(model::VARModel) = model.Σ
+
+"""
+    dates(model::VARModel)
+
+Return the observation dates aligned with the model's residual rows, or
+`nothing` if no dates were supplied at fit time. The returned vector is
+lag-trimmed: entry `i` corresponds to residual row `i`, which is what date-based
+narrative restrictions resolve against.
+"""
+dates(model::VARModel) = get(model.metadata, :dates, nothing)
 
 """
     fitted(model::VARModel)

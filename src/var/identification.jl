@@ -365,6 +365,58 @@ function rotation_matrix(model::VARModel{T}, id::IVIdentification) where {T}
 end
 
 # ============================================================================
+# Narrative Restrictions
+# ============================================================================
+
+"""
+    rotation_matrix(model::VARModel, id::NarrativeRestriction; kwargs...)
+
+Identification via narrative sign restrictions (Antolín-Díaz & Rubio-Ramírez 2018).
+
+Rejection search: draw a random orthogonal `Q`, form the candidate impact matrix
+`P = Σ_L Q` from the residual Cholesky factor, and accept it when it satisfies both
+the sign restrictions on the impulse responses and the narrative sign constraints on
+the structural shocks `ε = P⁻¹ U` at the restricted dates.
+
+# Keyword Arguments
+- `max_draws::Int=10000`: Maximum number of rotation draws before giving up
+- `rng::AbstractRNG=Random.default_rng()`: Random number generator
+
+Date-based narrative restrictions resolve against the dates stored on the model
+(`dates(model)`, supplied via the `dates` keyword of `fit`/`VAR`). When the model
+carries no dates, narrative restrictions are interpreted as integer residual-row
+indices; a `Dates.TimeType` restriction then fails fast.
+
+# Returns
+- Rotation matrix `P` satisfying the sign and narrative restrictions
+"""
+function rotation_matrix(model::VARModel{T}, id::NarrativeRestriction;
+        max_draws::Int = 10000,
+        rng::AbstractRNG = Random.default_rng()) where {T}
+    n_vars_val = n_vars(model)
+    n_lags_val = n_lags(model)
+
+    Σ_L = Matrix(cholesky(vcov(model)).L)
+    U = residuals(model)
+    Φ = compute_ma_matrices(model.companion, id.horizon, n_vars_val, n_lags_val)
+    model_dates = dates(model)
+
+    for _ in 1:max_draws
+        Q = generate_random_orthogonal(n_vars_val, rng)
+        P = Σ_L * Q
+
+        check_sign_restrictions(P, id.sign_restrictions, Φ, id.horizon) || continue
+
+        ε = compute_structural_shocks(U, P)
+        if check_narrative_restrictions(ε, id.narrative_shocks, model_dates)
+            return P
+        end
+    end
+
+    throw(ErrorException("Could not find impact matrix satisfying narrative restrictions after $max_draws attempts"))
+end
+
+# ============================================================================
 # Normalization functions
 # (AbstractNormalization, UnitStd, UnitEffect are defined in types.jl)
 # ============================================================================

@@ -643,7 +643,7 @@ irf.irf_median[:GDP, :MonetaryShock, 0:12]  # Median GDP response, horizons 0-12
 - `upper::Vector{A}`: Pointwise upper quantile bands
 - `coverage::Vector{Float64}`: Coverage levels for quantile bands
 - `rotation_matrices::Vector{Matrix{T}}`: All rotation matrices satisfying restrictions
-- `identification::SignRestriction`: Identification scheme used
+- `identification::AbstractIdentification`: Identification scheme used (sign or narrative restrictions)
 - `metadata::NamedTuple`: Additional information (n_draws, etc.)
 """
 struct SignRestrictedIRFResult{T <: AbstractFloat, A <: AxisArray} <: AbstractIRFResult{T}
@@ -653,7 +653,7 @@ struct SignRestrictedIRFResult{T <: AbstractFloat, A <: AxisArray} <: AbstractIR
     upper::Vector{A}
     coverage::Vector{Float64}
     rotation_matrices::Vector{Matrix{T}}
-    identification::SignRestriction
+    identification::AbstractIdentification
     metadata::NamedTuple
 end
 

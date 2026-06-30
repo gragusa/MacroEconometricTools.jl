@@ -175,7 +175,7 @@ export AbstractNormalization, UnitStd, UnitEffect
 # Export main functions
 export fit
 export irf, impulse_response
-export coef, vcov, residuals, fitted
+export coef, vcov, residuals, fitted, dates
 export n_vars, n_lags, effective_obs, varnames, intercept
 # StatsBase methods (not exported, use via StatsBase): nobs, dof, dof_residual, modelmatrix, rss
 export log_likelihood, aic, bic, hqic

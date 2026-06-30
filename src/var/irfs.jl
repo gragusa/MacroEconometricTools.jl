@@ -431,6 +431,105 @@ function irf(model::VARModel{T}, id::SignRestriction;
 end
 
 """
+    irf(model::VARModel, id::NarrativeRestriction; kwargs...)
+
+Compute impulse response functions for narrative sign restriction identification.
+
+Narrative restrictions are set-identifying, so this returns a
+`SignRestrictedIRFResult` collecting `n_draws` rotation matrices that satisfy both
+the sign restrictions on the responses and the narrative sign constraints on the
+structural shocks.
+
+# Keyword Arguments
+- `n_draws::Int=1000`: Number of valid rotation draws to compute
+- `max_attempts::Int=10000`: Maximum rotation draws per accepted draw
+- `horizon::Int=24`: IRF horizon
+- `coverage::Vector{Float64}=[0.68, 0.90, 0.95]`: Coverage levels for quantile bands
+- `normalization::AbstractNormalization=UnitStd()`: Shock normalization
+- `cumulate::Union{Nothing, Vector{Symbol}, Vector{Int}}=nothing`: Variables to cumulate
+- `scale::Real=1`: Scaling applied to the responses
+- `rng::AbstractRNG=Random.default_rng()`: Random number generator
+
+Date-based narrative restrictions resolve against the dates stored on the model
+(supplied via the `dates` keyword of `fit`/`VAR`); without stored dates the
+restrictions are interpreted as integer residual-row indices.
+
+# Returns
+- `SignRestrictedIRFResult`: IRF result with multiple draws and quantile bands
+"""
+function irf(model::VARModel{T}, id::NarrativeRestriction;
+        n_draws::Int = 1000,
+        max_attempts::Int = 10000,
+        horizon::Int = 24,
+        coverage::Vector{Float64} = [0.68, 0.90, 0.95],
+        normalization::AbstractNormalization = UnitStd(),
+        cumulate::Union{Nothing, Vector{Symbol}, Vector{Int}} = nothing,
+        scale::Real = 1,
+        rng::AbstractRNG = Random.default_rng()) where {T}
+    cumulate_idx = _resolve_cumulate(cumulate, model.names)
+
+    rotation_matrices = Vector{Matrix{T}}(undef, n_draws)
+    irf_draws_raw = zeros(T, n_draws, horizon + 1, n_vars(model), n_vars(model))
+
+    for i in 1:n_draws
+        P = rotation_matrix(model, id; max_draws = max_attempts, rng = rng)
+        P = normalize(P, normalization)
+        rotation_matrices[i] = P
+        irf_draws_raw[i, :, :, :] = compute_irf_point(model, P, horizon)
+    end
+
+    if cumulate_idx !== nothing
+        for i in 1:n_draws
+            _cumulate_point!(view(irf_draws_raw,i,:,:,:), cumulate_idx)
+        end
+    end
+
+    if scale != 1
+        irf_draws_raw .*= T(scale)
+    end
+
+    irf_median_raw = dropdims(median(irf_draws_raw; dims = 1); dims = 1)
+
+    lower_raw = Vector{Array{T, 3}}(undef, length(coverage))
+    upper_raw = Vector{Array{T, 3}}(undef, length(coverage))
+
+    sz3 = size(irf_draws_raw)[2:4]
+    for (idx, cov) in enumerate(coverage)
+        α = 1 - cov
+        lo = zeros(T, sz3...)
+        hi = zeros(T, sz3...)
+        _quantile_along_dim1!(lo, hi, irf_draws_raw, α / 2, 1 - α / 2)
+        lower_raw[idx] = lo
+        upper_raw[idx] = hi
+    end
+
+    impact_diags = hcat([T.(diag(rotation_matrices[i])) for i in 1:n_draws]...)
+    impact_diagonal = vec(median(impact_diags; dims = 2))
+
+    names = Symbol.(model.names)
+    irf_median_ax = _wrap_irf_3d(irf_median_raw, names)
+    irf_draws_ax = _wrap_irf_4d(irf_draws_raw, names)
+    lower_ax = [_wrap_irf_3d(lb, names) for lb in lower_raw]
+    upper_ax = [_wrap_irf_3d(ub, names) for ub in upper_raw]
+
+    n = n_vars(model)
+    cumulate_syms = cumulate_idx === nothing ? nothing : Symbol.(model.names[cumulate_idx])
+    metadata = (
+        horizon = horizon,
+        n_draws = n_draws,
+        normalization = typeof(normalization),
+        names = model.names,
+        cumulated_vars = cumulate_syms,
+        scale = fill(T(scale), n),
+        impact_diagonal = impact_diagonal,
+        timestamp = now()
+    )
+
+    return SignRestrictedIRFResult(irf_median_ax, irf_draws_ax, lower_ax, upper_ax,
+        coverage, rotation_matrices, id, metadata)
+end
+
+"""
     compute_irf_point(model::VARModel, P::Matrix, horizon::Int)
 
 Compute point estimate of structural IRFs.
