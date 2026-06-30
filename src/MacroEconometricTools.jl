@@ -11,19 +11,20 @@ A modern Julia package for macroeconometric analysis, featuring:
 """
 module MacroEconometricTools
 
-using LinearAlgebra
-using Statistics
-using Random
-using Dates
-using Distributed
-using StatsBase
-using StatsBase: fit
-using StatsFuns
-using Distributions
-using CovarianceMatrices
-using GLM
-using AxisArrays
-using Tables
+using LinearAlgebra: LinearAlgebra, Diagonal, I, Symmetric, cholesky, cholesky!,
+                     diag, dot, eigen, eigvals, ldiv!, logdet, mul!, pinv, qr,
+                     transpose!
+using Statistics: Statistics
+using Random: Random, AbstractRNG, randn!
+using Dates: Dates, now
+using Distributed: Distributed
+using StatsBase: StatsBase, fit
+using StatsFuns: StatsFuns, norminvcdf
+using Distributions: Distributions, mean, median, quantile, scale, std
+using CovarianceMatrices: CovarianceMatrices
+using GLM: GLM, coef, dof, fitted, nobs, residuals, stderror, vcov
+using AxisArrays: AxisArrays, AxisArray, Axis
+using Tables: Tables
 
 # Core type hierarchy
 include("types.jl")

@@ -6,7 +6,7 @@
 # when Plots.jl is loaded by the user.
 #
 
-using RecipesBase
+using RecipesBase: RecipesBase, @series
 using AxisArrays: AxisArrays, Axis
 using Measures: mm
 
@@ -20,7 +20,7 @@ function _var_names(irf::AbstractIRFResult)
         if haskey(irf.metadata, :names)
             return Symbol.(irf.metadata.names)
         else
-            return [Symbol("Y_$i") for i in 1:MacroEconometricTools.n_vars(irf)]
+            return [Symbol("Y_$i") for i in 1:n_vars(irf)]
         end
     end
 end

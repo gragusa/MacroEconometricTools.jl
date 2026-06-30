@@ -1,6 +1,6 @@
 module MacroEconometricToolsDataFramesExt
 
-using DataFrames
+using DataFrames: DataFrames, DataFrame
 using MacroEconometricTools
 
 import MacroEconometricTools: VAR

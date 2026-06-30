@@ -850,8 +850,6 @@ function NarrativeRestriction(sign_restrictions::Matrix,
 end
 
 # Constructor from Tables.jl-compatible table
-using Tables
-
 function NarrativeRestriction(sign_restrictions::Matrix{Int}, table;
         horizon::Int = 0,
         shock_col::Symbol = :shock,

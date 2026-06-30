@@ -13,3 +13,6 @@ include("test_ivsvar_new_api.jl")
 
 # Aqua.jl quality assurance tests
 include("Aqua.jl")
+
+# ExplicitImports.jl import-hygiene checks
+include("ExplicitImports.jl")
