@@ -318,6 +318,9 @@ end
 
 Wild bootstrap for VAR impulse responses.
 
+Returns the raw bootstrap IRF draws. For an assembled `IRFResult` with bands, use
+`irf(model, identification; inference=WildBootstrap(...))`, which calls this.
+
 The wild bootstrap resamples residuals by multiplying them with random
 Rademacher weights (±1 with equal probability). This preserves the
 conditional heteroskedasticity structure in the residuals while maintaining
@@ -432,6 +435,9 @@ end
 
 Standard i.i.d. bootstrap for VAR impulse responses.
 
+Returns the raw bootstrap IRF draws. For an assembled `IRFResult` with bands, use
+`irf(model, identification; inference=Bootstrap(...))`, which calls this.
+
 The standard bootstrap resamples residuals with replacement, treating them
 as independent draws from an unknown distribution. This is appropriate when
 residuals can be assumed i.i.d. (homoskedastic and uncorrelated).
@@ -532,6 +538,9 @@ end
     bootstrap_irf_block(model, identification, horizon, reps, block_length, rng)
 
 Moving block bootstrap for VAR impulse responses.
+
+Returns the raw bootstrap IRF draws. For an assembled `IRFResult` with bands, use
+`irf(model, identification; inference=BlockBootstrap(...))`, which calls this.
 
 The block bootstrap resamples blocks of consecutive residuals to preserve
 the temporal dependence structure in the data. This is appropriate for time
@@ -695,6 +704,12 @@ end
 
 Backward-compatible wrapper that dispatches to `bootstrap_irf_wild`,
 `bootstrap_irf_standard`, or `bootstrap_irf_block` based on `method`.
+
+Returns the raw bootstrap IRF draws `(reps, horizon+1, n_vars, n_shocks)`. Most
+users should instead call `irf(model, identification; inference=...)`, which runs
+the same bootstrap internally and returns an `IRFResult` with point estimate,
+standard errors, and confidence bands assembled. This family is the lower-level
+entry point for callers that want the draws themselves.
 
 The `parallel` keyword is deprecated; use Julia's built-in threading
 or Distributed.pmap externally if parallel bootstrap is needed.

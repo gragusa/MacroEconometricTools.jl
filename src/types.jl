@@ -43,6 +43,9 @@ struct OLSVAR <: AbstractVARSpec end
 
 Bayesian VAR estimation specification with prior `P`.
 
+Estimation (`fit`) and `irf` for this specification are provided by
+`BayesianVAR.jl`; this hub package defines only the shared type.
+
 # Fields
 - `prior::P`: Prior specification (e.g., Minnesota, Normal-Inverse-Wishart)
 """
@@ -67,6 +70,9 @@ end
 
 Local projection estimation specification.
 
+Estimation (`fit`) and `irf` for this specification are provided by
+`LocalProjections.jl`; this hub package defines only the shared type.
+
 # Fields
 - `lags::Union{Int,Symbol}`: Number of lags or `:auto` for automatic selection
 - `lag_selection::Symbol`: Criterion for lag selection (`:aic`, `:bic`, `:cv`)
@@ -90,6 +96,9 @@ end
     MinnesotaPrior <: AbstractPrior
 
 Minnesota/Litterman prior for Bayesian VAR.
+
+Consumed by `BayesianVAR.jl`, which implements the Bayesian estimation that uses
+this prior; this hub package defines only the shared type.
 
 # Fields
 - `λ₁::Float64`: Overall tightness
@@ -676,6 +685,9 @@ using AxisArrays: AxisArrays, AxisArray, Axis
 
 IRF result from Bayesian estimation with full posterior draws.
 
+Produced by `BayesianVAR.jl`; this hub package defines only the shared result
+type so that plotting and accessors work uniformly across estimators.
+
 Data is stored as AxisArray with dimensions:
 - `:draw` - posterior draw index
 - `:variable` - response variable (Symbol or Int)
@@ -708,6 +720,9 @@ end
     LocalProjectionIRFResult{T, A<:AxisArray} <: AbstractIRFResult{T}
 
 IRF result from local projection estimation.
+
+Produced by `LocalProjections.jl`; this hub package defines only the shared
+result type so that plotting and accessors work uniformly across estimators.
 
 Data is stored as AxisArray with dimensions:
 - `:response` - response variable
