@@ -264,3 +264,88 @@ end
 
     println("✓ All narrative restriction tests passed!")
 end
+
+@testset "Cumulative IRF paths" begin
+    # Exercises every `cumulate=` / `cumulative_irf` entry point. Each cumulation
+    # helper indexes along the horizon dimension with `axes`; these tests run the
+    # public paths end-to-end and check the running-sum semantics.
+    Random.seed!(456)
+    n_v, n_l, T = 3, 2, 120
+    Y = randn(T, n_v)
+    for t in 3:T
+        Y[t, :] = 0.5 * Y[t - 1, :] + 0.3 * Y[t - 2, :] + 0.1 * randn(n_v)
+    end
+    var = fit(OLSVAR, Y, n_l)
+    names = varnames(var)
+    horizon = 8
+
+    restrictions = zeros(Int, n_v, n_v)
+    restrictions[1, 1] = 1
+    sr = SignRestriction(restrictions, 0)
+
+    @testset "irf(::SignRestriction; cumulate=Int)" begin
+        plain = irf(var, sr; horizon = horizon, n_draws = 30, rng = StableRNG(7))
+        cum = irf(var, sr; horizon = horizon, n_draws = 30, cumulate = [1],
+            rng = StableRNG(7))
+
+        @test cum isa SignRestrictedIRFResult
+        # Set-identified: each draw is cumulated, then bands/median recomputed.
+        # The running-sum identity holds draw-by-draw (not on the recomputed
+        # median, since median is nonlinear). Draw axes: (draw, var, shock, horizon).
+        plain_draws = Array(plain.irf_draws)
+        cum_draws = Array(cum.irf_draws)
+        @test all(cum_draws[r, 1, :, :] ≈ cumsum(plain_draws[r, 1, :, :]; dims = 2)
+        for r in axes(plain_draws, 1))
+        # Non-cumulated variables are untouched.
+        @test all(cum_draws[r, 2, :, :] ≈ plain_draws[r, 2, :, :]
+        for r in axes(plain_draws, 1))
+        @test all(cum_draws[r, 3, :, :] ≈ plain_draws[r, 3, :, :]
+        for r in axes(plain_draws, 1))
+    end
+
+    @testset "irf(::SignRestriction; cumulate=Symbol)" begin
+        by_sym = irf(var, sr; horizon = horizon, n_draws = 30,
+            cumulate = [names[1]], rng = StableRNG(7))
+        by_int = irf(var, sr; horizon = horizon, n_draws = 30, cumulate = [1],
+            rng = StableRNG(7))
+        @test Array(by_sym.irf_median) ≈ Array(by_int.irf_median)
+    end
+
+    @testset "cumulative_irf(::SignRestrictedIRFResult)" begin
+        plain = irf(var, sr; horizon = horizon, n_draws = 30, rng = StableRNG(11))
+        cum = cumulative_irf(plain; vars = [1])
+        @test cum isa SignRestrictedIRFResult
+        plain_draws = Array(plain.irf_draws)
+        cum_draws = Array(cum.irf_draws)
+        @test all(cum_draws[r, 1, :, :] ≈ cumsum(plain_draws[r, 1, :, :]; dims = 2)
+        for r in axes(plain_draws, 1))
+        @test all(cum_draws[r, 2, :, :] ≈ plain_draws[r, 2, :, :]
+        for r in axes(plain_draws, 1))
+    end
+
+    @testset "irf(::CholeskyID; inference, cumulate=Int)" begin
+        plain = irf(var, CholeskyID(); horizon = horizon,
+            inference = WildBootstrap(60; save_draws = true), rng = StableRNG(13))
+        cum = irf(var, CholeskyID(); horizon = horizon,
+            inference = WildBootstrap(60; save_draws = true), cumulate = [1],
+            rng = StableRNG(13))
+        @test cum isa IRFResult
+        plain_pt = Array(point_estimate(plain))   # (variable, shock, horizon)
+        cum_pt = Array(point_estimate(cum))
+        @test cum_pt[1, :, :] ≈ cumsum(plain_pt[1, :, :]; dims = 2)
+        @test cum_pt[2, :, :] ≈ plain_pt[2, :, :]
+    end
+
+    @testset "cumulative_irf(::IRFResult)" begin
+        plain = irf(var, CholeskyID(); horizon = horizon,
+            inference = WildBootstrap(60; save_draws = true), rng = StableRNG(17))
+        cum = cumulative_irf(plain; vars = [1])
+        @test cum isa IRFResult
+        plain_pt = Array(point_estimate(plain))
+        cum_pt = Array(point_estimate(cum))
+        @test cum_pt[1, :, :] ≈ cumsum(plain_pt[1, :, :]; dims = 2)
+        @test cum_pt[2, :, :] ≈ plain_pt[2, :, :]
+    end
+
+    println("✓ All cumulative IRF tests passed!")
+end
