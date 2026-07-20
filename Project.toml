@@ -29,8 +29,8 @@ MacroEconometricToolsMakieExt = "Makie"
 
 [compat]
 AxisArrays = "0.4"
+CovarianceMatrices = "0.30, 0.31"
 DataFrames = "1"
-CovarianceMatrices = "0.30"
 Dates = "1.0"
 Distributed = "1.10"
 Distributions = "0.25"
