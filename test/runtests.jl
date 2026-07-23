@@ -1,15 +1,12 @@
 using Test
 
-include("test_basic.jl")
-include("test_delta_method.jl")
-include("test_estimation_correctness.jl")
-include("test_bootstrap_parallel.jl")
-include("test_sign_restrictions.jl")
-include("test_hub_types.jl")
-include("test_proxy_svar.jl")
-include("test_proxy_svar_crossval.jl")
-include("test_proxy_svar_bootstrap.jl")
-include("test_ivsvar_new_api.jl")
+@testset "Correctness" begin
+    include("correctness/runtests.jl")
+end
+
+@testset "Functionality" begin
+    include("functionality/runtests.jl")
+end
 
 # Aqua.jl quality assurance tests
 include("Aqua.jl")
