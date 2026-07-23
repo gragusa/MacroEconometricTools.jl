@@ -46,7 +46,7 @@ end
 
     result = irf(model, CholeskyID(); horizon, inference = Analytic())
     actual = permutedims(Array(result.stderr), (3, 1, 2))
-    @test actual ≈ expected rtol = 2e-5 atol = 2e-8
+    @test actual≈expected rtol=2e-5 atol=2e-8
     @test all(diag(actual[1, :, :]) .> 0)
     @test actual[1, 2, 1] > 0
     @test actual[1, 1, 2] == 0

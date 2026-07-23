@@ -35,6 +35,7 @@ function unvech(lower::AbstractVector, n::Int)
     matrix = zeros(eltype(lower), n, n)
     k = 1
     for column in 1:n, row in column:n
+
         matrix[row, column] = lower[k]
         matrix[column, row] = lower[k]
         k += 1
@@ -47,8 +48,9 @@ function reference_irf(alpha, sigma_half, n, p, horizon)
     companion = zeros(eltype(alpha), n * p, n * p)
     companion[1:n, :] = reshape(alpha, n, n * p)
     if p > 1
-        companion[(n + 1):end, 1:(n * (p - 1))] =
-            Matrix{eltype(alpha)}(I, n * (p - 1), n * (p - 1))
+        companion[(n + 1):end, 1:(n * (p - 1))] = Matrix{eltype(alpha)}(I, n * (p - 1), n *
+                                                                                        (p -
+                                                                                         1))
     end
     impact = Matrix(cholesky(Symmetric(unvech(sigma_half, n))).L)
     selection = [Matrix{eltype(alpha)}(I, n, n) zeros(eltype(alpha), n, n * (p - 1))]
