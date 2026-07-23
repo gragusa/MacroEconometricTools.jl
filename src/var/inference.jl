@@ -74,9 +74,12 @@ end
 Compute asymptotic covariance matrix of VAR coefficients (excluding intercept).
 
 For a VAR model, the covariance is:
-    Var(vec(B)) = Σ_ε ⊗ (X'X)^{-1}
+    Var(vec(A)) = (X'X)^{-1} ⊗ Σ_ε
 
-where B are the lag coefficients (excluding intercept) and Σ_ε is the residual covariance.
+where `A = [A₁ … Aₚ]` is the `n_vars × (n_vars * n_lags)` matrix of lag
+coefficients (excluding the intercept), vectorized by columns, and `Σ_ε` is the
+residual covariance. This is the coefficient ordering used by
+[`irf_jacobian_matrices`](@ref).
 
 # Returns
 - Covariance matrix of size (n_vars * n_lags * n_vars, n_vars * n_lags * n_vars)
@@ -97,8 +100,8 @@ function coefficient_covariance(model::VARModel{T, OLSVAR}) where {T}
     # We only need the lag coefficient covariance
     XXinv_no_intercept = XXinv[2:end, 2:end]
 
-    # Kronecker product: Σ ⊗ (X'X)^{-1}
-    return kron(Σ, XXinv_no_intercept)
+    # Lütkepohl's α = vec([A₁ … Aₚ]) ordering
+    return kron(XXinv_no_intercept, Σ)
 end
 
 """
@@ -237,8 +240,10 @@ function irf_effect_covariance(model::VARModel{T, OLSVAR}, P::Matrix{T},
     # Preallocate covariance array
     V = zeros(T, horizon + 1, n_vars_val^2, n_vars_val^2)
 
-    # Horizon 0: only variance from Σ
-    V[1, :, :] .= zero(T)
+    # Horizon 0: Θ₀ = P, so uncertainty comes only from Σ.
+    Θ_0_P_inv = irf_point[1, :, :] * P_inv
+    C_bar_0 = kron(I_m, Θ_0_P_inv) * H
+    V[1, :, :] = C_bar_0 * Σ_σ * C_bar_0'
 
     # Horizons h ≥ 1
     for h in 1:horizon

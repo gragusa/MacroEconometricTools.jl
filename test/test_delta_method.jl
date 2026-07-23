@@ -49,6 +49,10 @@ const IRFResult = MacroEconometricTools.IRFResult
         # Check symmetry with tolerance for numerical precision
         @test maximum(abs.(Σ_α - Σ_α')) < 1e-10
 
+        valid_idx = (n_l + 1):size(var.Y, 1)
+        XXinv_lags = inv(var.X[valid_idx, :]' * var.X[valid_idx, :])[2:end, 2:end]
+        @test Σ_α ≈ kron(XXinv_lags, vcov(var))
+
         # Test sigma covariance
         Σ_σ = MacroEconometricTools.sigma_covariance(var)
         n_vech = n_v * (n_v + 1) ÷ 2
@@ -86,12 +90,9 @@ const IRFResult = MacroEconometricTools.IRFResult
             @test all(Array(irf_delta.upper[i]) .>= Array(irf_delta.irf))
         end
 
-        # Standard errors should generally increase with horizon
-        # (This is a statistical property, not guaranteed, so we just check trend)
         irf_stderr_data = Array(irf_delta.stderr)  # (n_v, n_v, horizon+1)
-        avg_stderr_by_horizon = [mean(irf_stderr_data[:, :, h]) for h in 1:(horizon + 1)]
-        # At least monotonically non-decreasing for first few horizons
-        @test all(diff(avg_stderr_by_horizon[1:5]) .>= -1e-10)
+        # Impact responses depend on the estimated residual covariance.
+        @test any(irf_stderr_data[:, :, 1] .> 0)
     end
 
     @testset "Compare Delta vs Bootstrap" begin
@@ -112,6 +113,41 @@ const IRFResult = MacroEconometricTools.IRFResult
         @test all(irf_boot.stderr .>= 0)  # Allow zero at impact horizon
         @test all(isfinite.(irf_delta.stderr))
         @test all(irf_delta.stderr .>= 0)  # Allow zero at impact horizon
+    end
+
+    @testset "Analytic vs Bootstrap Standard Errors in Large Stable VAR(3)" begin
+        rng = StableRNG(20260723)
+        n_obs = 1_000
+        burn_in = 200
+        n_lags_dgp = 3
+
+        A = [
+            [0.35 0.08; -0.05 0.30],
+            [0.10 -0.04; 0.03 0.08],
+            [-0.05 0.02; 0.01 -0.04]
+        ]
+        innovation_factor = [1.0 0.0; 0.3 0.8]
+        Y_large = zeros(n_obs + burn_in, 2)
+        for t in 4:size(Y_large, 1)
+            innovation = innovation_factor * randn(rng, 2)
+            Y_large[t, :] = sum(A[lag] * Y_large[t - lag, :] for lag in 1:3) +
+                            innovation
+        end
+        Y_large = Y_large[(burn_in + 1):end, :]
+
+        var_large = fit(OLSVAR, Y_large, n_lags_dgp; names = [:Y1, :Y2])
+        horizon = 8
+        id = CholeskyID()
+        analytic = irf(var_large, id; horizon = horizon, inference = Analytic())
+        bootstrap = irf(var_large, id; horizon = horizon,
+            inference = Bootstrap(1_000), rng = StableRNG(20260724))
+
+        analytic_se = Array(analytic.stderr)
+        bootstrap_se = Array(bootstrap.stderr)
+
+        # With a large sample and a stable, low-persistence DGP, the delta-method
+        # and bootstrap estimates of sampling uncertainty should be close.
+        @test analytic_se≈bootstrap_se rtol=0.20 atol=0.002
     end
 
     @testset "Delta Method Jacobian Matrices" begin
@@ -151,9 +187,14 @@ const IRFResult = MacroEconometricTools.IRFResult
             @test maximum(abs.(V_h - V_h')) < 1e-8
         end
 
-        # First horizon (impact) should be zero (no uncertainty from coefficients)
-        # Actually it has uncertainty from Σ, so just check it's small
-        @test maximum(abs.(V[1, :, :])) < maximum(abs.(V[end, :, :]))
+        # At impact, Θ₀ = P and uncertainty comes entirely from Σ.
+        L = MacroEconometricTools.elimination_matrix(n_v)
+        K = MacroEconometricTools.commutation_matrix(n_v, n_v)
+        I_m = Matrix{eltype(P)}(I, n_v, n_v)
+        H = L' * inv(L * (I(n_v^2) + K) * kron(P, I_m) * L')
+        expected_impact = H * MacroEconometricTools.sigma_covariance(var) * H'
+        @test V[1, :, :] ≈ expected_impact
+        @test any(diag(V[1, :, :]) .> 0)
     end
 
     println("✓ All delta method tests passed!")
