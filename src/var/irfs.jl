@@ -877,13 +877,13 @@ function rescale(irf::IRFResult, pairs::Pair{Symbol, <:Real}...)
         @warn "No bootstrap draws available. Rescaled confidence bands are approximate. " *
               "For correct bands, use irf() with save_draws=true."
         raw_draws = nothing
-        lower_raw = [let lb = copy(_unwrap_irf_3d(l));
-                         _apply_shock_factors_3d!(lb, factors);
+        lower_raw = [let lb = copy(_unwrap_irf_3d(l))
+                         _apply_shock_factors_3d!(lb, factors)
                          lb
                      end
                      for l in irf.lower]
-        upper_raw = [let ub = copy(_unwrap_irf_3d(u));
-                         _apply_shock_factors_3d!(ub, factors);
+        upper_raw = [let ub = copy(_unwrap_irf_3d(u))
+                         _apply_shock_factors_3d!(ub, factors)
                          ub
                      end
                      for u in irf.upper]

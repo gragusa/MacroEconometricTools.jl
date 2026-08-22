@@ -26,9 +26,9 @@ const BDATA = joinpath(@__DIR__, "data")
     irf_norm_py = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_irf_norm_point.csv"), DataFrame; header = false))
     svma_py = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_svma_point.csv"), DataFrame; header = false))
 
-    p = 2;
-    K = 2;
-    n_imp = 21;
+    p = 2
+    K = 2
+    n_imp = 21
     s = -1.0
 
     dyn = MacroEconometricTools.proxy_svar_dynamics(A_est, covUU, covUM, H1, p, s, n_imp, 1)
@@ -72,7 +72,7 @@ end
     U_est_py = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_U_est.csv"), DataFrame; header = false))
     H1_py = vec(Matrix(CSV.read(joinpath(BDATA, "jl_crossval_H1.csv"), DataFrame; header = false)))
 
-    p = 2;
+    p = 2
     K = 2
     T_eff = size(Y, 1) - p
 
@@ -97,8 +97,8 @@ end
 # ============================================================================
 @testset "MBB: J&L position-specific centering" begin
     rng = StableRNG(42)
-    K = 2;
-    T = 100;
+    K = 2
+    T = 100
     ℓ = 4
 
     # Fake residuals with known structure
@@ -129,7 +129,7 @@ end
     Y = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_Y.csv"), DataFrame))
     proxy = vec(Matrix(CSV.read(joinpath(BDATA, "jl_crossval_proxy.csv"), DataFrame)))
 
-    p = 2;
+    p = 2
     K = 2
     Z_proxy = reshape(proxy[(p + 1):end], :, 1)
     instrument = ExternalInstrument(Z_proxy, 1)
@@ -167,7 +167,7 @@ end
     Y = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_Y.csv"), DataFrame))
     proxy = vec(Matrix(CSV.read(joinpath(BDATA, "jl_crossval_proxy.csv"), DataFrame)))
 
-    p = 2;
+    p = 2
     K = 2
     Z_proxy = reshape(proxy[(p + 1):end], :, 1)
     instrument = ExternalInstrument(Z_proxy, 1)
@@ -197,7 +197,7 @@ end
     Y = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_Y.csv"), DataFrame))
     proxy = vec(Matrix(CSV.read(joinpath(BDATA, "jl_crossval_proxy.csv"), DataFrame)))
 
-    p = 2;
+    p = 2
     K = 2
     Z_proxy = reshape(proxy[(p + 1):end], :, 1)
     instrument = ExternalInstrument(Z_proxy, 1)
@@ -222,7 +222,7 @@ end
     Y = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_Y.csv"), DataFrame))
     proxy = vec(Matrix(CSV.read(joinpath(BDATA, "jl_crossval_proxy.csv"), DataFrame)))
 
-    p = 2;
+    p = 2
     K = 2
     Z_proxy = reshape(proxy[(p + 1):end], :, 1)
     instrument = ExternalInstrument(Z_proxy, 1)
@@ -265,7 +265,7 @@ end
     Y = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_Y.csv"), DataFrame))
     proxy = vec(Matrix(CSV.read(joinpath(BDATA, "jl_crossval_proxy.csv"), DataFrame)))
 
-    p = 2;
+    p = 2
     K = 2
     Z_proxy = reshape(proxy[(p + 1):end], :, 1)
     instrument = ExternalInstrument(Z_proxy, 1)
@@ -307,7 +307,7 @@ end
     Y = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_Y.csv"), DataFrame))
     proxy = vec(Matrix(CSV.read(joinpath(BDATA, "jl_crossval_proxy.csv"), DataFrame)))
 
-    p = 2;
+    p = 2
     K = 2
     Z_proxy = reshape(proxy[(p + 1):end], :, 1)
     instrument = ExternalInstrument(Z_proxy, 1)
@@ -346,10 +346,10 @@ end
     ci95_py_flat = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_mbb_ci95_irf_norm.csv"),
         DataFrame; header = false))
 
-    p = 2;
-    K = 2;
-    n_imp = 21;
-    s = -1.0;
+    p = 2
+    K = 2
+    n_imp = 21
+    s = -1.0
     blocksize = 4
     nBoot = size(block_indices_py, 1)   # 500
     numResample = size(block_indices_py, 2)  # 50

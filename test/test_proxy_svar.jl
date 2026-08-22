@@ -113,7 +113,7 @@ end
 # the first p rows should be dropped automatically to align with residuals.
 @testset "Proxy-SVAR: Full-length instrument auto-trim" begin
     rng = StableRNG(2024)
-    K = 3;
+    K = 3
     T = 500
     H_true = [1.0 0.0 0.0;
               0.5 0.8 0.0;
