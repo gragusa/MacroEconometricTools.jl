@@ -8,6 +8,7 @@ using MacroEconometricTools
 using Test
 using LinearAlgebra
 using Random
+using Statistics
 using StableRNGs: StableRNG
 
 # ============================================================================
@@ -238,6 +239,63 @@ end
         if isfinite(w68) && isfinite(w95)
             @test w68 ≤ w95 + 1e-10
         end
+    end
+end
+
+# ============================================================================
+# Test 8b: MBB bands use per-draw normalization (issue #10)
+# ============================================================================
+@testset "ProxySVARMBB draws are normalized within each draw" begin
+    model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
+    id = IVIdentification(ε[:, 1], 1)
+
+    result = irf(model, id; horizon = 6,
+        inference = ProxySVARMBB(100; block_length = 4, save_draws = true),
+        coverage = [0.68],
+        rng = Random.Xoshiro(42))
+
+    pt = Array(result.irf)                 # (variable, shock, horizon)
+    d = Array(result.bootstrap_draws)      # (draw, variable, shock, horizon)
+    target = 1
+
+    # Each draw is rescaled by its own impact on the target variable, so the
+    # impact of the identified shock is identical across draws and equals the
+    # point estimate. Dividing by the point-estimate impact (the old behaviour)
+    # would leave this varying draw to draw.
+    impacts = d[:, target, target, 1]
+    @test all(≈(pt[target, target, 1]; atol = 1e-10), impacts)
+
+    # ⇒ the band at the normalized impact collapses onto the point estimate
+    @test Array(result.lower[1])[target, target, 1]≈pt[target, target, 1] atol=1e-10
+    @test Array(result.upper[1])[target, target, 1]≈pt[target, target, 1] atol=1e-10
+
+    # Elsewhere the draws still vary and the bands have positive width
+    @test std(d[:, 2, target, 3]) > 0
+    @test Array(result.upper[1])[2, target, 3] > Array(result.lower[1])[2, target, 3]
+end
+
+@testset "AR bands are on the same scale as the point IRF" begin
+    model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
+    id = IVIdentification(ε[:, 1], 1)
+
+    result = irf(model, id; horizon = 4,
+        inference = ProxySVARMBB(300; block_length = 4, compute_ar = true,
+            ar_grid = collect(range(-5.0, 5.0; length = 1001))),
+        coverage = [0.95],
+        rng = Random.Xoshiro(42))
+
+    pt = Array(result.irf)
+    lb = Array(result.lower[1])
+    ub = Array(result.upper[1])
+    target = 1
+
+    # The AR grid is stated in normalized units; rescaling it must land on the
+    # same scale (and sign) as `irf_point`, not on the raw impact magnitude.
+    @test lb[target, target, 1]≈pt[target, target, 1] atol=1e-10
+    @test ub[target, target, 1]≈pt[target, target, 1] atol=1e-10
+    for k in 1:K, h in 1:5
+
+        @test lb[k, target, h] ≤ ub[k, target, h]
     end
 end
 
