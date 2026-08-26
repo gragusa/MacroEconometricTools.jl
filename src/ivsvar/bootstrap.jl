@@ -637,6 +637,7 @@ function _proxy_svar_mbb_impl(model::VARModel{T}, proxy::Vector{T},
         point_fevd = dyn_point.fevd,
         point_svma = dyn_point.svma,
         irf_store = irf_store,
+        irf_norm_store = irf_norm_store,
         n_failed = n_failed
     )
 end
@@ -802,19 +803,23 @@ function compute_inference_bands(
     K = n_vars(model)
     n_imp = horizon + 1
 
-    # Construct 4D draws from irf_store (K, n_imp, n_boot) — identified shock only.
-    # Normalize by the target variable's impact so the draws align with `irf_point`
-    # (which has the identified column at position `target`).
-    scale_factor = mbb.point_irf[target, 1]
-    irf_store = mbb.irf_store  # (K, n_imp, n_boot)
-    n_boot = size(irf_store, 3)
+    # Construct 4D draws from irf_norm_store (K, n_imp, n_boot) — identified shock
+    # only. Each draw is normalized by *its own* impact on the target variable
+    # (J&L 2022), which fixes that impact at `inf.norm_scale`; using the
+    # point-estimate impact instead would leave the draws' own scale varying.
+    # `norm_factor` puts the draws back on the scale of `irf_point` (which has the
+    # identified column at position `target`).
+    target_impact = irf_point[1, target, target]
+    norm_factor = target_impact / inf.norm_scale
+    irf_norm_store = mbb.irf_norm_store  # (K, n_imp, n_boot)
+    n_boot = size(irf_norm_store, 3)
 
     draws_4d = zeros(T, n_boot, n_imp, K, K)
     # Fill identified shock column at position `target` after normalization
     for b in 1:n_boot
         for h in 1:n_imp, k in 1:K
 
-            draws_4d[b, h, k, target] = irf_store[k, h, b] / scale_factor
+            draws_4d[b, h, k, target] = irf_norm_store[k, h, b] * norm_factor
         end
     end
     # Non-identified columns: fill with point estimate (no variation)
@@ -851,8 +856,14 @@ function compute_inference_bands(
 
                 included = ar_idx[:, h, k]
                 if any(included)
-                    lb[h, k, target] = minimum(grid[included]) / scale_factor
-                    ub[h, k, target] = maximum(grid[included]) / scale_factor
+                    # `grid` is already on the normalized scale (impact on the
+                    # target variable equals `inf.norm_scale`), so it only needs
+                    # the same rescaling as the draws. `norm_factor` can be
+                    # negative, so order the endpoints after rescaling.
+                    g_lo = minimum(grid[included]) * norm_factor
+                    g_hi = maximum(grid[included]) * norm_factor
+                    lb[h, k, target] = min(g_lo, g_hi)
+                    ub[h, k, target] = max(g_lo, g_hi)
                 else
                     lb[h, k, target] = T(NaN)
                     ub[h, k, target] = T(NaN)
