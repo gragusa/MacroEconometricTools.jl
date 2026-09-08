@@ -391,7 +391,8 @@ When `inf.compute_ar == true` and `inf.ar_grid === nothing`, a default grid of
 """
 function proxy_svar_mbb(model::VARModel{T}, id::IVIdentification,
         horizon::Int, inf::ProxySVARMBB;
-        rng::AbstractRNG = Random.default_rng()) where {T}
+        rng::AbstractRNG = Random.default_rng(),
+        block_indices::Union{Nothing, AbstractMatrix{<:Integer}} = nothing) where {T}
     resolved = _resolve_iv(model, id)
     ν = model.residuals
     TT = size(ν, 1)
@@ -407,23 +408,30 @@ function proxy_svar_mbb(model::VARModel{T}, id::IVIdentification,
         inf
     end
 
-    return _proxy_svar_mbb_impl(model, proxy, horizon, inf_resolved, target; rng = rng)
+    return _proxy_svar_mbb_impl(model, proxy, horizon, inf_resolved, target;
+        rng = rng, block_indices = block_indices)
 end
 
 # Backward compat: instrument in model
 function proxy_svar_mbb(model::VARModel{T, <:IVSVAR},
         horizon::Int, inf::ProxySVARMBB;
-        rng::AbstractRNG = Random.default_rng()) where {T}
+        rng::AbstractRNG = Random.default_rng(),
+        block_indices::Union{Nothing, AbstractMatrix{<:Integer}} = nothing) where {T}
     return proxy_svar_mbb(model, IVIdentification(model.spec.instrument),
-        horizon, inf; rng = rng)
+        horizon, inf; rng = rng, block_indices = block_indices)
 end
 
 """
 Internal implementation of the Jentsch-Lunsford MBB. Called by `proxy_svar_mbb`.
+
+`block_indices`, when given, is an `(n_boot, n_resample)` matrix of 1-based block
+starts used in place of draws from `rng`, making a bootstrap run exactly
+reproducible from a recorded set of draws.
 """
 function _proxy_svar_mbb_impl(model::VARModel{T}, proxy::Vector{T},
         horizon::Int, inf::ProxySVARMBB, target::Int;
-        rng::AbstractRNG = Random.default_rng()) where {T}
+        rng::AbstractRNG = Random.default_rng(),
+        block_indices::Union{Nothing, AbstractMatrix{<:Integer}} = nothing) where {T}
     ν = model.residuals
     TT, KK = size(ν)
     p_val = n_lags(model)
@@ -464,24 +472,30 @@ function _proxy_svar_mbb_impl(model::VARModel{T}, proxy::Vector{T},
     end
 
     # ── Step 2: J&L position-specific centering ───────────────────────────
-    # For position s (1-indexed), mean over all blocks at that position
+    # Residuals only. Centering exists to keep the simulated VAR from drifting,
+    # and the proxy is not fed through that recursion — it enters only through
+    # `Σ_um`, whose mean is part of the moment being bootstrapped.
+    # For position s (1-indexed), mean over all blocks at that position.
     u_center_block = zeros(T, ℓ, KK)
-    m_center_block = zeros(T, ℓ)
 
     for s in 1:ℓ
         # All residual values at position s across overlapping blocks
         # = ν[s], ν[s+1], ..., ν[s + n_blocks - 1] = ν[s:(TT - ℓ + s)]
         u_center_block[s, :] .= vec(mean(ν[s:(TT - ℓ + s), :]; dims = 1))
-        m_center_block[s] = mean(proxy[s:(TT - ℓ + s)])
     end
 
     # Tile centering to full resampled length
     n_resample = cld(TT, ℓ)  # ceil(TT / ℓ)
     u_center = zeros(T, n_resample * ℓ, KK)
-    m_center = zeros(T, n_resample * ℓ)
     for j in 1:n_resample
         u_center[((j - 1) * ℓ + 1):(j * ℓ), :] .= u_center_block
-        m_center[((j - 1) * ℓ + 1):(j * ℓ)] .= m_center_block
+    end
+
+    if block_indices !== nothing
+        size(block_indices) == (n_boot, n_resample) || throw(DimensionMismatch(
+            "block_indices must be ($n_boot, $n_resample), got $(size(block_indices))"))
+        all(i -> 1 <= i <= n_blocks, block_indices) || throw(ArgumentError(
+            "block_indices must all lie in 1:$n_blocks"))
     end
 
     # ── Step 3: Storage for bootstrap results ─────────────────────────────
@@ -514,7 +528,8 @@ function _proxy_svar_mbb_impl(model::VARModel{T}, proxy::Vector{T},
     for b in 1:n_boot
         # 4a: Resample blocks with replacement
         for j in 1:n_resample
-            idx = rand(rng, 1:n_blocks)
+            idx = block_indices === nothing ? rand(rng, 1:n_blocks) :
+                  block_indices[b, j]
             blk_start = (j - 1) * ℓ + 1
             @inbounds for s in 1:ℓ, k in 1:KK
 
@@ -525,9 +540,8 @@ function _proxy_svar_mbb_impl(model::VARModel{T}, proxy::Vector{T},
             end
         end
 
-        # 4b: Apply J&L centering
+        # 4b: Apply J&L centering (residuals only)
         u_temp .-= u_center
-        m_temp .-= m_center
 
         # 4c: Trim to T observations (views avoid allocation)
         u_star_v = view(u_temp, 1:TT, :)
@@ -658,11 +672,13 @@ function _percentile_intervals(store::Array{T, 3}, n_boot::Int) where {T}
     # Sort along bootstrap dimension
     sorted = sort(store; dims = 3)
 
-    # Quantile indices (matching Python's round())
-    i16 = round(Int, 0.16 * n_boot)
-    i84 = round(Int, 0.84 * n_boot)
-    i025 = round(Int, 0.025 * n_boot)
-    i975 = round(Int, 0.975 * n_boot)
+    # Quantile indices. The reference implementation indexes the sorted draws
+    # 0-based at `round(q * n_boot)`, i.e. the `round(q * n_boot) + 1`-th
+    # smallest; the `+ 1` converts that rank to Julia's 1-based indexing.
+    i16 = round(Int, 0.16 * n_boot) + 1
+    i84 = round(Int, 0.84 * n_boot) + 1
+    i025 = round(Int, 0.025 * n_boot) + 1
+    i975 = round(Int, 0.975 * n_boot) + 1
 
     # Clamp to valid range
     i16 = clamp(i16, 1, n_boot)

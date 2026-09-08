@@ -323,24 +323,22 @@ end
 end
 
 # ============================================================================
-# Test 10: MBB CIs match Python to machine precision (replayed block indices)
+# Test 10: proxy_svar_mbb matches the reference implementation
 # ============================================================================
-@testset "MBB CIs match Python (replayed block indices)" begin
-    # Load data
+# Replays the reference implementation's recorded block draws through
+# `proxy_svar_mbb` itself, so the shipped bootstrap driver — not a
+# reimplementation of it — is what gets compared.
+@testset "proxy_svar_mbb matches Python (replayed block indices)" begin
     Y = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_Y.csv"), DataFrame))
     proxy_full = vec(Matrix(CSV.read(joinpath(BDATA, "jl_crossval_proxy.csv"), DataFrame)))
-    A_est_py = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_A_est.csv"), DataFrame; header = false))
-    U_est_py = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_U_est.csv"), DataFrame; header = false))
 
-    # Load Python block indices (0-indexed) and per-rep IRF draws
-    block_indices_py = Matrix{Int}(CSV.read(
+    # Reference block starts are 0-based
+    block_indices = Matrix{Int}(CSV.read(
         joinpath(BDATA, "jl_crossval_mbb_block_indices.csv"),
-        DataFrame; header = false))
+        DataFrame; header = false)) .+ 1
     irf_norm_draws_py = Matrix(CSV.read(
         joinpath(BDATA, "jl_crossval_mbb_irf_norm_draws.csv"),
         DataFrame; header = false))
-
-    # Load Python CIs
     ci68_py_flat = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_mbb_ci68_irf_norm.csv"),
         DataFrame; header = false))
     ci95_py_flat = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_mbb_ci95_irf_norm.csv"),
@@ -348,147 +346,30 @@ end
 
     p = 2
     K = 2
-    n_imp = 21
-    s = -1.0
-    blocksize = 4
-    nBoot = size(block_indices_py, 1)   # 500
-    numResample = size(block_indices_py, 2)  # 50
+    horizon = 20
+    n_imp = horizon + 1
+    n_boot = size(block_indices, 1)
 
-    # Effective sample
-    T_eff = size(Y, 1) - p
-    yy = Y[(p + 1):end, :]
-    xx = ones(T_eff, K * p + 1)
-    for lag in 1:p
-        xx[:, (1 + (lag - 1) * K + 1):(1 + lag * K)] .= Y[(p + 1 - lag):(end - lag), :]
-    end
-    mm = proxy_full[(p + 1):end]
+    model = fit(OLSVAR, Y, p)
+    id = IVIdentification(proxy_full[(p + 1):end], 1)
 
-    # Re-estimate (must match Python exactly)
-    A_est, U_est, Σ_uu, Σ_um,
-    H1 = MacroEconometricTools.estimate_proxy_svar(yy, xx, mm)
+    mbb = proxy_svar_mbb(model, id, horizon,
+        ProxySVARMBB(n_boot; block_length = 4, norm_scale = -1.0);
+        block_indices = block_indices)
 
-    @test A_est ≈ A_est_py atol=1e-10
+    @test mbb.n_failed == 0
 
-    # A in simulation layout: (1+K*p, K)
-    A_sim = A_est'
-
-    # Initial conditions: [1, y_p, y_{p-1}]
-    y_init = zeros(1 + K * p)
-    y_init[1] = 1.0
-    for lag in 1:p
-        y_init[(1 + (lag - 1) * K + 1):(1 + lag * K)] .= Y[p + 1 - lag, :]
-    end
-
-    # Build overlapping blocks
-    n_blocks = T_eff - blocksize + 1  # 195
-    u_blocks = zeros(blocksize, K, n_blocks)
-    m_blocks = zeros(blocksize, n_blocks)
-    for b in 1:n_blocks
-        u_blocks[:, :, b] .= U_est[b:(b + blocksize - 1), :]
-        m_blocks[:, b] .= mm[b:(b + blocksize - 1)]
-    end
-
-    # Position-specific centering for residuals ONLY (matching Python)
-    u_center_block = zeros(blocksize, K)
-    for s_pos in 1:blocksize
-        u_center_block[s_pos, :] .= vec(mean(U_est[s_pos:(T_eff - blocksize + s_pos), :]; dims = 1))
-    end
-
-    u_center = zeros(numResample * blocksize, K)
-    for j in 1:numResample
-        u_center[((j - 1) * blocksize + 1):(j * blocksize), :] .= u_center_block
-    end
-
-    # Bootstrap loop with replayed indices
-    irf_norm_store = zeros(K, n_imp, nBoot)
-
-    for boot in 1:nBoot
-        # Resample blocks using Python indices (convert 0-indexed → 1-indexed)
-        u_temp = zeros(numResample * blocksize, K)
-        m_temp = zeros(numResample * blocksize)
-
-        for j in 1:numResample
-            idx = block_indices_py[boot, j] + 1  # 0-indexed → 1-indexed
-            u_temp[((j - 1) * blocksize + 1):(j * blocksize), :] .= u_blocks[:, :, idx]
-            m_temp[((j - 1) * blocksize + 1):(j * blocksize)] .= m_blocks[:, idx]
-        end
-
-        # Center residuals only (NO proxy centering — matches Python)
-        u_temp .-= u_center
-
-        # Truncate
-        u_star = u_temp[1:T_eff, :]
-        m_star = m_temp[1:T_eff]
-
-        # Simulate bootstrap VAR (matching Python's make_boot_dynamics)
-        x_star = zeros(T_eff, 1 + K * p)
-        x_star[1, :] .= y_init
-        y_star = copy(u_star)
-
-        for t in 1:T_eff
-            for k in 1:K
-                for j in 1:(1 + K * p)
-                    y_star[t, k] += x_star[t, j] * A_sim[j, k]
-                end
-            end
-            if t < T_eff
-                x_star[t + 1, 1] = 1.0
-                x_star[t + 1, 2:(K + 1)] .= y_star[t, :]
-                if p > 1
-                    x_star[t + 1, (K + 2):(K * p + 1)] .= x_star[t, 2:(K * (p - 1) + 1)]
-                end
-            end
-        end
-
-        # Re-estimate proxy-SVAR on bootstrap sample
-        A_star, U_star,
-        Σ_uu_star,
-        Σ_um_star,
-        H1_star = MacroEconometricTools.estimate_proxy_svar(y_star, x_star, m_star)
-
-        # Compute bootstrap dynamics
-        dyn = MacroEconometricTools.proxy_svar_dynamics(
-            A_star, Σ_uu_star, Σ_um_star, H1_star, p, s, n_imp, 1)
-
-        irf_norm_store[:, :, boot] .= dyn.irf_norm
-    end
-
-    # Compare per-rep IRF draws
-    @testset "Per-rep irf_norm draws match Python" begin
+    @testset "per-draw normalized IRFs" begin
         max_diff = 0.0
-        for boot in 1:nBoot
-            for k in 1:K, h in 1:n_imp
-
-                jl_val = irf_norm_store[k, h, boot]
-                py_val = irf_norm_draws_py[boot, (k - 1) * n_imp + h]
-                diff = abs(jl_val - py_val)
-                max_diff = max(max_diff, diff)
-            end
+        for b in 1:n_boot, k in 1:K, h in 1:n_imp
+            max_diff = max(max_diff,
+                abs(mbb.irf_norm_store[k, h, b] -
+                    irf_norm_draws_py[b, (k - 1) * n_imp + h]))
         end
         @test max_diff < 1e-10
     end
 
-    # Compute percentile CIs (matching Python's quantile method)
-    # Python uses 0-indexed arrays: sorted[k, h, num16] with num16 = round(0.16*nBoot)
-    # accesses the (num16+1)-th element. Julia is 1-indexed, so we add 1.
-    sorted_store = sort(irf_norm_store; dims = 3)
-
-    i16 = clamp(round(Int, 0.16 * nBoot) + 1, 1, nBoot)
-    i84 = clamp(round(Int, 0.84 * nBoot) + 1, 1, nBoot)
-    i025 = clamp(round(Int, 0.025 * nBoot) + 1, 1, nBoot)
-    i975 = clamp(round(Int, 0.975 * nBoot) + 1, 1, nBoot)
-
-    ci68_jl = zeros(2, n_imp, K)
-    ci95_jl = zeros(2, n_imp, K)
-    for k in 1:K, h in 1:n_imp
-
-        ci68_jl[1, h, k] = sorted_store[k, h, i16]
-        ci68_jl[2, h, k] = sorted_store[k, h, i84]
-        ci95_jl[1, h, k] = sorted_store[k, h, i025]
-        ci95_jl[2, h, k] = sorted_store[k, h, i975]
-    end
-
-    # Reshape Python CIs: stored as (2*n_imp, K) → (2, n_imp, K)
+    # Reference CIs are stored as (2*n_imp, K) → (2, n_imp, K)
     ci68_py = zeros(2, n_imp, K)
     ci95_py = zeros(2, n_imp, K)
     for k in 1:K
@@ -498,19 +379,125 @@ end
         ci95_py[2, :, k] .= ci95_py_flat[(n_imp + 1):(2 * n_imp), k]
     end
 
-    @testset "68% CIs match Python to machine precision" begin
+    @testset "68% CIs" begin
         for k in 1:K, h in 1:n_imp
 
-            @test ci68_jl[1, h, k] ≈ ci68_py[1, h, k] atol=1e-10
-            @test ci68_jl[2, h, k] ≈ ci68_py[2, h, k] atol=1e-10
+            @test mbb.ci68_irf_norm[1, h, k] ≈ ci68_py[1, h, k] atol=1e-10
+            @test mbb.ci68_irf_norm[2, h, k] ≈ ci68_py[2, h, k] atol=1e-10
         end
     end
 
-    @testset "95% CIs match Python to machine precision" begin
+    @testset "95% CIs" begin
         for k in 1:K, h in 1:n_imp
 
-            @test ci95_jl[1, h, k] ≈ ci95_py[1, h, k] atol=1e-10
-            @test ci95_jl[2, h, k] ≈ ci95_py[2, h, k] atol=1e-10
+            @test mbb.ci95_irf_norm[1, h, k] ≈ ci95_py[1, h, k] atol=1e-10
+            @test mbb.ci95_irf_norm[2, h, k] ≈ ci95_py[2, h, k] atol=1e-10
         end
     end
+
+    # Hall's intervals reflect the reference's percentile endpoints
+    @testset "Hall's intervals" begin
+        pt = mbb.point_irf_norm
+        for k in 1:K, h in 1:n_imp
+
+            @test mbb.halls68_irf_norm[1, h, k] ≈ 2 * pt[k, h] - ci68_py[2, h, k] atol=1e-10
+            @test mbb.halls68_irf_norm[2, h, k] ≈ 2 * pt[k, h] - ci68_py[1, h, k] atol=1e-10
+            @test mbb.halls95_irf_norm[1, h, k] ≈ 2 * pt[k, h] - ci95_py[2, h, k] atol=1e-10
+            @test mbb.halls95_irf_norm[2, h, k] ≈ 2 * pt[k, h] - ci95_py[1, h, k] atol=1e-10
+        end
+    end
+end
+
+# ============================================================================
+# Test 11: the proxy is resampled in blocks but not centered
+# ============================================================================
+# Centering keeps the simulated VAR from drifting; the proxy is not fed through
+# that recursion, and demeaning it would perturb `Sigma_um` — the moment being
+# bootstrapped. The block-position means of the proxy are non-zero here, so
+# subtracting them would change the draws.
+@testset "MBB leaves the proxy uncentered" begin
+    Y = Matrix(CSV.read(joinpath(BDATA, "jl_crossval_Y.csv"), DataFrame))
+    proxy_full = vec(Matrix(CSV.read(joinpath(BDATA, "jl_crossval_proxy.csv"), DataFrame)))
+    block_indices = Matrix{Int}(CSV.read(
+        joinpath(BDATA, "jl_crossval_mbb_block_indices.csv"),
+        DataFrame; header = false)) .+ 1
+
+    p = 2
+    K = 2
+    ℓ = 4
+    horizon = 10
+    n_imp = horizon + 1
+    n_boot = size(block_indices, 1)
+    n_resample = size(block_indices, 2)
+    s = -1.0
+
+    model = fit(OLSVAR, Y, p)
+    mm = proxy_full[(p + 1):end]
+    ν = model.residuals
+    TT = size(ν, 1)
+
+    mbb = proxy_svar_mbb(model, IVIdentification(mm, 1), horizon,
+        ProxySVARMBB(n_boot; block_length = ℓ, norm_scale = s);
+        block_indices = block_indices)
+
+    # Position-specific means of the proxy — what centering would subtract.
+    m_center_block = [mean(mm[j:(TT - ℓ + j)]) for j in 1:ℓ]
+    @test maximum(abs, m_center_block) > 1e-3
+
+    # Replay one draw by hand, centering residuals only, and confirm the
+    # driver produced the same normalized IRF.
+    A_est = zeros(K, 1 + K * p)
+    coefs = coef(model)
+    A_est[:, 1] .= coefs.intercept
+    for lag in 1:p
+        A_est[:, (1 + (lag - 1) * K + 1):(1 + lag * K)] .= coefs.lags[:, :, lag]
+    end
+    A_sim = A_est'
+
+    y_init = zeros(1 + K * p)
+    y_init[1] = 1.0
+    for lag in 1:p
+        y_init[(1 + (lag - 1) * K + 1):(1 + lag * K)] .= Y[p + 1 - lag, :]
+    end
+
+    u_center_block = zeros(ℓ, K)
+    for j in 1:ℓ
+        u_center_block[j, :] .= vec(mean(ν[j:(TT - ℓ + j), :]; dims = 1))
+    end
+
+    b = 1
+    u_temp = zeros(n_resample * ℓ, K)
+    m_temp = zeros(n_resample * ℓ)
+    for j in 1:n_resample
+        idx = block_indices[b, j]
+        rows = ((j - 1) * ℓ + 1):(j * ℓ)
+        u_temp[rows, :] .= ν[idx:(idx + ℓ - 1), :] .- u_center_block
+        m_temp[rows] .= mm[idx:(idx + ℓ - 1)]     # proxy passes through uncentered
+    end
+
+    u_star = u_temp[1:TT, :]
+    m_star = m_temp[1:TT]
+    x_star = zeros(TT, 1 + K * p)
+    x_star[1, :] .= y_init
+    y_star = copy(u_star)
+    for t in 1:TT
+        for k in 1:K, j in 1:(1 + K * p)
+
+            y_star[t, k] += x_star[t, j] * A_sim[j, k]
+        end
+        if t < TT
+            x_star[t + 1, 1] = 1.0
+            x_star[t + 1, 2:(K + 1)] .= y_star[t, :]
+            if p > 1
+                x_star[t + 1, (K + 2):(K * p + 1)] .= x_star[t, 2:(K * (p - 1) + 1)]
+            end
+        end
+    end
+
+    A_star, _, Σ_uu_star, Σ_um_star,
+    H1_star = MacroEconometricTools.estimate_proxy_svar(y_star, x_star, m_star)
+    dyn = MacroEconometricTools.proxy_svar_dynamics(
+        A_star, Σ_uu_star, Σ_um_star, H1_star, p, s, n_imp, 1)
+
+    @test mbb.irf_norm_store[:, :, b] ≈ dyn.irf_norm atol=1e-10
 end
