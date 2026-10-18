@@ -4,6 +4,8 @@ import RecipesBase
 using AxisArrays: AxisArray, Axis
 using StableRNGs: StableRNG
 
+include("../minimal_irf_result.jl")
+
 # RecipesBase delegates supported-key knowledge to plotting backends. Defining
 # this hook is its documented backend-free recipe testing pattern.
 RecipesBase.is_key_supported(::Symbol) = true
@@ -25,8 +27,12 @@ end
     series = RecipesBase.apply_recipe(Dict{Symbol, Any}(:vars => [:y]), frequentist)
     @test !isempty(series)
     @test first(series).plotattributes[:layout] == (1, 2)
-    @test_throws ErrorException RecipesBase.apply_recipe(
+    @test_throws "entry :missing is not one of" RecipesBase.apply_recipe(
         Dict{Symbol, Any}(:vars => [:missing]), frequentist)
+    @test_throws "has 2 labels for 1 selected entries" RecipesBase.apply_recipe(
+        Dict{Symbol, Any}(:vars => [:y], :pretty_vars => ["Y", "X"]), frequentist)
+    @test_throws "needs stored draws" RecipesBase.apply_recipe(
+        Dict{Symbol, Any}(:plot_type => :paths), frequentist)
 
     data, lower, upper = recipe_fixture_arrays()
     draws = AxisArray(repeat(reshape(Array(data), 1, 2, 1, 5), 3, 1, 1, 1),
@@ -48,4 +54,19 @@ end
     local_projection = LocalProjectionIRFResult{Float64, typeof(lp_data)}(
         lp_data, lp_stderr, lp_lower, lp_upper, [0.9], (;))
     @test !isempty(RecipesBase.apply_recipe(Dict{Symbol, Any}(), local_projection))
+    lp_series = RecipesBase.apply_recipe(
+        Dict{Symbol, Any}(:vars => [:x], :pretty_vars => ["Output"]), local_projection)
+    @test first(lp_series).plotattributes[:layout] == (1, 1)
+
+    # A subtype implementing only the required interface methods
+    point = reshape(collect(1.0:12.0), 2, 1, 6)
+    minimal = MinimalIRFResult(
+        point, [point .- 1, point .- 2], [point .+ 1, point .+ 2])
+    # positions and integer names both select variables
+    minimal_series = RecipesBase.apply_recipe(Dict{Symbol, Any}(:vars => [2]), minimal)
+    @test first(minimal_series).plotattributes[:layout] == (1, 1)
+    # 2 bands + point estimate + zero line
+    @test length(minimal_series) == 4
+    @test_throws "needs stored draws" RecipesBase.apply_recipe(
+        Dict{Symbol, Any}(:plot_type => :both), minimal)
 end

@@ -560,35 +560,6 @@ function compute_irf_point(model::VARModel{T}, P::Matrix{T}, horizon::Int) where
 end
 
 # ============================================================================
-# Accessor Methods for IRFResult
-# ============================================================================
-
-"""
-    Base.size(irf::AbstractIRFResult)
-
-Size of IRF AxisArray (n_vars, n_shocks, horizon+1).
-"""
-Base.size(irf::IRFResult) = size(irf.irf)
-Base.size(irf::SignRestrictedIRFResult) = size(irf.irf_median)
-
-# Note: horizon() and n_vars() for IRFResult and SignRestrictedIRFResult are defined in types.jl
-
-"""
-    n_shocks(irf::AbstractIRFResult)
-
-Number of shocks.
-"""
-function n_shocks(irf::IRFResult)
-    ax = AxisArrays.axes(irf.irf, Axis{:shock})
-    return length(AxisArrays.axisvalues(ax)[1])
-end
-
-function n_shocks(irf::SignRestrictedIRFResult)
-    ax = AxisArrays.axes(irf.irf_median, Axis{:shock})
-    return length(AxisArrays.axisvalues(ax)[1])
-end
-
-# ============================================================================
 # Pretty Printing
 # ============================================================================
 

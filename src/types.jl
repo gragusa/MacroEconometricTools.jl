@@ -581,6 +581,40 @@ Abstract supertype for all impulse response function result types.
 Concrete subtypes:
 - `IRFResult{T}`: Point-identified IRF results (Cholesky, IV, etc.)
 - `SignRestrictedIRFResult{T}`: Set-identified IRF results (sign restrictions)
+- `BayesianIRFResult{T}`: Posterior draws (produced by BayesianVAR.jl)
+- `LocalProjectionIRFResult{T}`: Local projection estimates (produced by LocalProjections.jl)
+
+# Interface
+
+Accessors, `show`, and plotting (`irfplot`, `irfplot!`, and the Plots recipe)
+use only the methods below, so a new subtype works with them once it
+implements the required methods.
+
+Required:
+
+| Method                | Returns                                                         |
+|:----------------------|:----------------------------------------------------------------|
+| `point_estimate(irf)` | array indexed `(variable, shock, horizon)`, horizons `0:H`      |
+| `lowerbounds(irf)`    | vector of arrays shaped like `point_estimate`, one per coverage |
+| `upperbounds(irf)`    | vector of arrays shaped like `point_estimate`, one per coverage |
+| `coverages(irf)`      | vector of coverage levels, in the order of the bands            |
+| `varnames(irf)`       | vector of variable names (first dimension)                      |
+| `shocknames(irf)`     | vector of shock names (second dimension)                        |
+
+Optional (defaults in parentheses):
+
+| Method           | Returns                                                          |
+|:-----------------|:-----------------------------------------------------------------|
+| `has_draws(irf)` | whether draws are stored (`false`)                               |
+| `get_draws(irf)` | array indexed `(draw, variable, shock, horizon)` (throws)        |
+| `n_draws(irf)`   | number of draws (`size(get_draws(irf), 1)`, or `0` without draws) |
+
+Derived from the above: `horizon`, `n_vars`, `n_shocks`, `size`, and `show`.
+A subtype may override `horizon` when `point_estimate` is expensive to compute.
+
+Accessors that return stored data return it without copying. Axis names
+(`:variable`, `:response`, ...) are not part of the interface; the dimension
+order is.
 """
 abstract type AbstractIRFResult{T <: AbstractFloat} end
 
@@ -908,27 +942,25 @@ function NarrativeRestriction(narrative_shocks::Vector{NarrativeShockRestriction
 end
 
 # ============================================================================
-# Accessor Functions for IRF Results
+# AbstractIRFResult interface
 # ============================================================================
 
 """
     point_estimate(irf::AbstractIRFResult)
 
-Extract point estimate IRF.
-- For point-identified (IRFResult, LocalProjectionIRFResult): returns the data directly
-- For set-identified/Bayesian: returns median across draws
+Point estimate of the impulse responses, a 3-dimensional array indexed
+`(variable, shock, horizon)`.
+
+- `IRFResult`, `LocalProjectionIRFResult`: the stored estimate (not a copy).
+- `SignRestrictedIRFResult`: the stored pointwise median across accepted draws.
+- `BayesianIRFResult`: the pointwise posterior median, computed from the draws.
 """
+function point_estimate end
+
 point_estimate(irf::IRFResult) = irf.irf
+point_estimate(irf::SignRestrictedIRFResult) = irf.irf_median
+point_estimate(irf::BayesianIRFResult) = _median_over_draws(irf.data)
 point_estimate(irf::LocalProjectionIRFResult) = irf.data
-
-function point_estimate(irf::BayesianIRFResult)
-    # Median across draw dimension, preserving other axes
-    _median_over_draws(irf.data)
-end
-
-function point_estimate(irf::SignRestrictedIRFResult)
-    irf.irf_median
-end
 
 # Helper: compute median over first dimension for AxisArray
 function _median_over_draws(data::AxisArray)
@@ -954,132 +986,151 @@ function _mean_over_draws(data::AxisArray)
 end
 
 """
-    has_draws(irf::AbstractIRFResult) -> Bool
-
-Check if IRF result contains posterior/bootstrap draws.
-"""
-has_draws(irf::IRFResult) = irf.bootstrap_draws !== nothing
-has_draws(irf::SignRestrictedIRFResult) = true
-has_draws(irf::BayesianIRFResult) = true
-has_draws(irf::LocalProjectionIRFResult) = false
-
-"""
-    n_draws(irf::AbstractIRFResult) -> Int
-
-Get number of posterior/bootstrap draws.
-"""
-n_draws(irf::IRFResult) = irf.bootstrap_draws === nothing ? 0 : size(irf.bootstrap_draws, 1)
-n_draws(irf::SignRestrictedIRFResult) = size(irf.irf_draws, 1)
-n_draws(irf::BayesianIRFResult) = size(irf.data, 1)
-n_draws(irf::LocalProjectionIRFResult) = 0
-
-"""
-    get_draws(irf::AbstractIRFResult)
-
-Get the full draws (for Bayesian/set-identified).
-"""
-get_draws(irf::BayesianIRFResult) = irf.data
-get_draws(irf::SignRestrictedIRFResult) = irf.irf_draws
-get_draws(irf::IRFResult) = irf.bootstrap_draws
-
-"""
     lowerbounds(irf::AbstractIRFResult)
 
-Get lower confidence/credible bands.
+Lower confidence or credible bands: a vector with one `(variable, shock, horizon)`
+array per entry of `coverages(irf)`. Returns the stored vector, not a copy.
 """
-lowerbounds(irf::AbstractIRFResult) = irf.lower
+function lowerbounds end
+
+lowerbounds(irf::IRFResult) = irf.lower
+lowerbounds(irf::SignRestrictedIRFResult) = irf.lower
+lowerbounds(irf::BayesianIRFResult) = irf.lower
+lowerbounds(irf::LocalProjectionIRFResult) = irf.lower
 
 """
     upperbounds(irf::AbstractIRFResult)
 
-Get upper confidence/credible bands.
+Upper confidence or credible bands: a vector with one `(variable, shock, horizon)`
+array per entry of `coverages(irf)`. Returns the stored vector, not a copy.
 """
-upperbounds(irf::AbstractIRFResult) = irf.upper
+function upperbounds end
 
-"""
-    coverages(irf::AbstractIRFResult)
-
-Get coverage levels for bands.
-"""
-coverages(irf::AbstractIRFResult) = irf.coverage
-
-"""
-    horizon(irf::AbstractIRFResult) -> Int
-
-Maximum horizon of the IRF.
-"""
-function horizon(irf::IRFResult)
-    ax = AxisArrays.axes(irf.irf, Axis{:horizon})
-    horizons = AxisArrays.axisvalues(ax)[1]
-    return maximum(horizons)
-end
-
-function horizon(irf::SignRestrictedIRFResult)
-    ax = AxisArrays.axes(irf.irf_median, Axis{:horizon})
-    horizons = AxisArrays.axisvalues(ax)[1]
-    return maximum(horizons)
-end
-
-function horizon(irf::BayesianIRFResult)
-    ax = AxisArrays.axes(irf.data, Axis{:horizon})
-    horizons = AxisArrays.axisvalues(ax)[1]
-    return maximum(horizons)
-end
-
-function horizon(irf::LocalProjectionIRFResult)
-    ax = AxisArrays.axes(irf.data, Axis{:horizon})
-    horizons = AxisArrays.axisvalues(ax)[1]
-    return maximum(horizons)
-end
+upperbounds(irf::IRFResult) = irf.upper
+upperbounds(irf::SignRestrictedIRFResult) = irf.upper
+upperbounds(irf::BayesianIRFResult) = irf.upper
+upperbounds(irf::LocalProjectionIRFResult) = irf.upper
 
 """
-    n_vars(irf::AbstractIRFResult) -> Int
+    coverages(irf::AbstractIRFResult) -> Vector{Float64}
 
-Number of variables in the IRF.
+Coverage levels of the bands returned by `lowerbounds` and `upperbounds`, in the
+same order.
 """
-function n_vars(irf::IRFResult)
-    ax = AxisArrays.axes(irf.irf, Axis{:variable})
-    return length(AxisArrays.axisvalues(ax)[1])
-end
+function coverages end
 
-function n_vars(irf::SignRestrictedIRFResult)
-    ax = AxisArrays.axes(irf.irf_median, Axis{:variable})
-    return length(AxisArrays.axisvalues(ax)[1])
-end
+coverages(irf::IRFResult) = irf.coverage
+coverages(irf::SignRestrictedIRFResult) = irf.coverage
+coverages(irf::BayesianIRFResult) = irf.coverage
+coverages(irf::LocalProjectionIRFResult) = irf.coverage
 
-function n_vars(irf::BayesianIRFResult)
-    ax = AxisArrays.axes(irf.data, Axis{:variable})
-    return length(AxisArrays.axisvalues(ax)[1])
-end
-
-function n_vars(irf::LocalProjectionIRFResult)
-    ax = AxisArrays.axes(irf.data, Axis{:response})
-    return length(AxisArrays.axisvalues(ax)[1])
-end
+# Values of axis `d` of an AxisArray, as a Vector.
+_axis_values(A::AxisArray, d::Integer) = collect(AxisArrays.axisvalues(A)[d])
 
 """
     varnames(irf::AbstractIRFResult) -> Vector
 
-Variable names from AxisArray axes.
+Names of the response variables, in the order of the first dimension of
+`point_estimate(irf)`.
 """
-function varnames(irf::IRFResult)
-    ax = AxisArrays.axes(irf.irf, Axis{:variable})
-    return collect(AxisArrays.axisvalues(ax)[1])
+varnames(irf::IRFResult) = _axis_values(irf.irf, 1)
+varnames(irf::SignRestrictedIRFResult) = _axis_values(irf.irf_median, 1)
+varnames(irf::BayesianIRFResult) = _axis_values(irf.data, 2)
+varnames(irf::LocalProjectionIRFResult) = _axis_values(irf.data, 1)
+
+"""
+    shocknames(irf::AbstractIRFResult) -> Vector
+
+Names of the structural shocks, in the order of the second dimension of
+`point_estimate(irf)`.
+"""
+function shocknames end
+
+shocknames(irf::IRFResult) = _axis_values(irf.irf, 2)
+shocknames(irf::SignRestrictedIRFResult) = _axis_values(irf.irf_median, 2)
+shocknames(irf::BayesianIRFResult) = _axis_values(irf.data, 3)
+shocknames(irf::LocalProjectionIRFResult) = _axis_values(irf.data, 2)
+
+"""
+    has_draws(irf::AbstractIRFResult) -> Bool
+
+Whether the result stores bootstrap, posterior, or accepted-rotation draws.
+Defaults to `false`.
+"""
+has_draws(::AbstractIRFResult) = false
+has_draws(irf::IRFResult) = irf.bootstrap_draws !== nothing
+has_draws(::SignRestrictedIRFResult) = true
+has_draws(::BayesianIRFResult) = true
+
+"""
+    n_draws(irf::AbstractIRFResult) -> Int
+
+Number of stored draws; `0` when `has_draws(irf)` is `false`.
+"""
+n_draws(irf::AbstractIRFResult) = has_draws(irf) ? size(get_draws(irf), 1) : 0
+
+"""
+    get_draws(irf::AbstractIRFResult)
+
+Stored draws, a 4-dimensional array indexed `(draw, variable, shock, horizon)`.
+Returns the stored array, not a copy. Throws an `ArgumentError` when
+`has_draws(irf)` is `false`.
+"""
+function get_draws(irf::AbstractIRFResult)
+    throw(ArgumentError("$(nameof(typeof(irf))) does not store draws; " *
+                        "check `has_draws(irf)` before calling `get_draws`"))
+end
+function get_draws(irf::IRFResult)
+    irf.bootstrap_draws === nothing &&
+        throw(ArgumentError("this IRFResult has no bootstrap draws; compute it with " *
+                            "a bootstrap `inference` to store them"))
+    return irf.bootstrap_draws
+end
+get_draws(irf::SignRestrictedIRFResult) = irf.irf_draws
+get_draws(irf::BayesianIRFResult) = irf.data
+
+"""
+    horizon(irf::AbstractIRFResult) -> Int
+
+Maximum horizon `H` of the IRF; horizons run `0:H`.
+"""
+horizon(irf::AbstractIRFResult) = size(point_estimate(irf), 3) - 1
+horizon(irf::BayesianIRFResult) = size(irf.data, 4) - 1
+
+"""
+    n_vars(irf::AbstractIRFResult) -> Int
+
+Number of response variables.
+"""
+n_vars(irf::AbstractIRFResult) = length(varnames(irf))
+
+"""
+    n_shocks(irf::AbstractIRFResult) -> Int
+
+Number of structural shocks.
+"""
+n_shocks(irf::AbstractIRFResult) = length(shocknames(irf))
+
+"""
+    size(irf::AbstractIRFResult) -> (n_vars, n_shocks, horizon + 1)
+
+Size of the `(variable, shock, horizon)` point-estimate array.
+"""
+Base.size(irf::AbstractIRFResult) = (n_vars(irf), n_shocks(irf), horizon(irf) + 1)
+
+function Base.show(io::IO, irf::AbstractIRFResult)
+    print(io, nameof(typeof(irf)), "(", n_vars(irf), " variables × ", n_shocks(irf),
+        " shocks, horizon ", horizon(irf), ")")
 end
 
-function varnames(irf::SignRestrictedIRFResult)
-    ax = AxisArrays.axes(irf.irf_median, Axis{:variable})
-    return collect(AxisArrays.axisvalues(ax)[1])
-end
-
-function varnames(irf::BayesianIRFResult)
-    ax = AxisArrays.axes(irf.data, Axis{:variable})
-    return collect(AxisArrays.axisvalues(ax)[1])
-end
-
-function varnames(irf::LocalProjectionIRFResult)
-    ax = AxisArrays.axes(irf.data, Axis{:response})
-    return collect(AxisArrays.axisvalues(ax)[1])
+function Base.show(io::IO, ::MIME"text/plain", irf::AbstractIRFResult{T}) where {T}
+    println(io, nameof(typeof(irf)), "{", T, "}")
+    println(io, "  Horizon: ", horizon(irf))
+    println(io, "  Variables: ", join(varnames(irf), ", "))
+    println(io, "  Shocks: ", join(shocknames(irf), ", "))
+    has_draws(irf) && println(io, "  Draws: ", n_draws(irf))
+    cvgs = coverages(irf)
+    isempty(cvgs) || print(io, "  Coverage: ", join(cvgs .* 100, "%, "), "%")
 end
 
 # ============================================================================

@@ -10,6 +10,41 @@ backward-compatible).
 
 ## [Unreleased]
 
+### Added
+
+- **`AbstractIRFResult` interface.** Every result type implements
+  `point_estimate`, `lowerbounds`, `upperbounds`, `coverages`, `varnames`, and
+  `shocknames` (new, exported); `has_draws`, `n_draws`, and `get_draws` are
+  optional. `horizon`, `n_vars`, `n_shocks`, `size`, `show`, `irfplot`,
+  `irfplot!`, and the Plots recipe are defined once for any subtype in terms
+  of these methods, so a new result type works with them once it implements
+  the required methods. The interface is documented in the
+  `AbstractIRFResult` docstring.
+- `BayesianIRFResult` and `LocalProjectionIRFResult` gain `size`, `show`, and
+  `n_shocks`.
+
+### Changed (breaking)
+
+- `get_draws` throws an `ArgumentError` for results without draws: an
+  `IRFResult` computed without a bootstrap (previously returned `nothing`) and
+  `LocalProjectionIRFResult` (previously a `MethodError`).
+- Plotting (Plots recipe, `irfplot`, `irfplot!`):
+  - `pretty_vars` / `pretty_shocks` label the *selected* variables and shocks,
+    in selection order. For `IRFResult` and `SignRestrictedIRFResult` they
+    previously had to label every variable.
+  - Shocks are selected by `shocknames(irf)` instead of the variable names.
+  - A selection entry that is not present throws an `ArgumentError`
+    (previously an `ErrorException` for `IRFResult`/`SignRestrictedIRFResult`
+    and a confusing downstream error for the other types). `vars`/`shocks`
+    and `var`/`shock` also accept integer positions for every result type.
+  - `plot_type = :paths` or `:both` works for any result with stored draws
+    (including bootstrapped `IRFResult`) and throws an `ArgumentError` when
+    there are none (previously ignored for `IRFResult` and
+    `LocalProjectionIRFResult`).
+  - The Plots recipe draws bands widest-first with the same colors and
+    transparency for every result type; the point-estimate line color is
+    `median_color` (default `:black`) unless `linecolor` is given.
+
 ## [0.1.2] - 2026-10-15
 
 ### Removed

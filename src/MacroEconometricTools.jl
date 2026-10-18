@@ -69,10 +69,11 @@ All scaling should be applied to the IRF result *before* plotting
 using `rescale` / `rescale!`.
 
 # Selection
-- `vars = :all`: variables to plot (`:all`, or `Vector{Symbol}`)
-- `shocks = :all`: shocks to plot
-- `pretty_vars = nothing`: custom labels for variables
-- `pretty_shocks = nothing`: custom labels for shocks
+- `vars = :all`: variables to plot (`:all`, a vector of names from `varnames(irf)`,
+  or a vector of positions)
+- `shocks = :all`: shocks to plot (`:all`, names from `shocknames(irf)`, or positions)
+- `pretty_vars = nothing`: labels for the selected variables, in selection order
+- `pretty_shocks = nothing`: labels for the selected shocks, in selection order
 
 # Appearance
 - `bandcolor = :steelblue`: fill colour for confidence / credible bands
@@ -84,8 +85,9 @@ using `rescale` / `rescale!`.
 - `zerolinestyle = :dash`: line style of the zero line
 - `xtickstep = 4`: spacing of x-axis ticks (set `0` to disable)
 
-# Paths (SignRestrictedIRFResult, BayesianIRFResult only)
-- `plot_type = :quantiles`: `:quantiles`, `:paths`, or `:both`
+# Paths (results with stored draws, see `has_draws`)
+- `plot_type = :quantiles`: `:quantiles`, `:paths`, or `:both`; `:paths` and `:both`
+  throw an `ArgumentError` when the result has no draws
 - `path_alpha = 0.02`: opacity of individual draw lines
 - `path_color = :gray`: colour of individual draw lines
 - `path_linewidth = 0.5`: width of individual draw lines
@@ -120,9 +122,10 @@ save("irfs.pdf", fig)
 function irfplot end
 
 """
-    irfplot!(ax, irf::AbstractIRFResult; var::Symbol, shock::Symbol, kwargs...)
+    irfplot!(ax, irf::AbstractIRFResult; var, shock, kwargs...)
 
 Draw a single IRF panel (one variable–shock pair) onto an existing `Makie.Axis`.
+`var` and `shock` are a name from `varnames(irf)` / `shocknames(irf)` or a position.
 Returns `ax`.  Requires a Makie backend (e.g., `CairoMakie` or `GLMakie`).
 
 All scaling should be applied to the IRF result *before* plotting
@@ -147,7 +150,7 @@ Accepts the same appearance keywords as `irfplot`:
 `bandcolor`, `bandalpha`, `linecolor`, `linewidth`,
 `drawzero`, `zerolinecolor`, `zerolinestyle`, `xtickstep`.
 
-For set-identified / Bayesian results, also accepts:
+For results with stored draws, also accepts:
 `plot_type` (`:quantiles`, `:paths`, `:both`), `path_alpha`, `path_color`,
 `path_linewidth`.
 """
@@ -175,7 +178,7 @@ export AbstractNormalization, UnitStd, UnitEffect
 export fit
 export irf, impulse_response
 export coef, vcov, residuals, fitted, dates
-export n_vars, n_lags, effective_obs, varnames, intercept
+export n_vars, n_lags, effective_obs, varnames, shocknames, intercept
 # StatsBase methods (not exported, use via StatsBase): nobs, dof, dof_residual, modelmatrix, rss
 export log_likelihood, aic, bic, hqic
 export bootstrap_irf, bootstrap_irf_wild, bootstrap_irf_standard, bootstrap_irf_block

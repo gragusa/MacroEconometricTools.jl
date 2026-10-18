@@ -293,3 +293,54 @@ end
 end
 
 println("✓ All hub types tests passed!")
+
+include("minimal_irf_result.jl")
+
+@testset "AbstractIRFResult interface" begin
+    @testset "minimal custom subtype" begin
+        point = reshape(collect(1.0:12.0), 2, 1, 6)
+        r = MinimalIRFResult(point, [point .- 1, point .- 2], [point .+ 1, point .+ 2])
+
+        @test point_estimate(r) === r.point
+        @test lowerbounds(r) === r.lower
+        @test horizon(r) == 5
+        @test n_vars(r) == 2
+        @test MacroEconometricTools.n_shocks(r) == 1
+        @test size(r) == (2, 1, 6)
+        @test has_draws(r) == false
+        @test n_draws(r) == 0
+        @test_throws "MinimalIRFResult does not store draws" get_draws(r)
+        @test sprint(show, r) == "MinimalIRFResult(2 variables × 1 shocks, horizon 5)"
+        txt = sprint(show, MIME"text/plain"(), r)
+        @test occursin("Shocks: demand", txt)
+        @test occursin("Coverage: 68.0%, 95.0%", txt)
+    end
+
+    @testset "shared result types" begin
+        names = [:Y1, :Y2]
+        data = AxisArray(randn(4, 2, 2, 3), Axis{:draw}(1:4), Axis{:variable}(names),
+            Axis{:shock}([:S1, :S2]), Axis{:horizon}(0:2))
+        band = AxisArray(zeros(2, 2, 3), Axis{:variable}(names),
+            Axis{:shock}([:S1, :S2]), Axis{:horizon}(0:2))
+        b = BayesianIRFResult{Float64, typeof(data), CholeskyID}(
+            data, [band], [band], [0.9], CholeskyID(), (;))
+        @test shocknames(b) == [:S1, :S2]
+        @test MacroEconometricTools.n_shocks(b) == 2
+        @test size(b) == (2, 2, 3)
+        @test horizon(b) == 2
+        @test occursin("Draws: 4", sprint(show, MIME"text/plain"(), b))
+
+        lp_data = AxisArray(randn(1, 1, 3), Axis{:response}([:y]), Axis{:shock}([:x]),
+            Axis{:horizon}(0:2))
+        lp = LocalProjectionIRFResult{Float64, typeof(lp_data)}(
+            lp_data, lp_data, [lp_data], [lp_data], [0.9], (;))
+        @test varnames(lp) == [:y]
+        @test shocknames(lp) == [:x]
+        @test size(lp) == (1, 1, 3)
+        @test upperbounds(lp) === lp.upper
+        @test coverages(lp) === lp.coverage
+        @test_throws "LocalProjectionIRFResult does not store draws" get_draws(lp)
+        @test sprint(show, lp) ==
+              "LocalProjectionIRFResult(1 variables × 1 shocks, horizon 2)"
+    end
+end
