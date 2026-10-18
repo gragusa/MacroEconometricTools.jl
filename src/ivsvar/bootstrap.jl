@@ -397,7 +397,7 @@ function proxy_svar_mbb(model::VARModel{T}, id::IVIdentification,
     ν = model.residuals
     TT = size(ν, 1)
     Z, target = _extract_instrument(resolved.instrument, TT, n_lags(model), model.names)
-    proxy = vec(Z)
+    proxy = vec(_require_observed(Z, "ProxySVARMBB"))
 
     # Default AR grid when compute_ar=true but no grid specified
     inf_resolved = if inf.compute_ar && inf.ar_grid === nothing

@@ -10,7 +10,9 @@ _target_shock(target::Symbol) = target
 
 function ExternalInstrument(Z::AbstractMatrix, target_shock::Union{Integer, Symbol})
     target = _target_shock(target_shock)
-    return ExternalInstrument{float(eltype(Z)), typeof(target)}(Z, target)
+    S = nonmissingtype(eltype(Z))
+    S === Union{} && throw(ArgumentError("instrument has no observed values"))
+    return ExternalInstrument{float(S), typeof(target)}(Z, target)
 end
 
 function ExternalInstrument(Z::AbstractVector, target_shock::Union{Integer, Symbol})

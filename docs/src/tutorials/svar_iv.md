@@ -75,6 +75,18 @@ id = IVIdentification(proxy, 1)
 
 The first argument is the proxy (vector or matrix), the second is the target shock, given as an index or a variable name (`IVIdentification(proxy, :Y1)`). A vector is reshaped to a one-column matrix.
 
+### Instruments Available for Part of the Sample
+
+Instruments often cover a shorter period than the VAR data (for example, high-frequency policy surprises that start later than the macro series). Keep the full length and set the periods without an instrument to `missing`:
+
+```julia
+z = Vector{Union{Missing, Float64}}(proxy)
+z[1:100] .= missing             # instrument not available in the first 100 periods
+id_sub = IVIdentification(z, 1)
+```
+
+The reduced-form VAR (coefficients and residual covariance) is estimated on the full sample; the 2SLS estimate of the impact column and the first-stage F use only the periods in which the instrument is observed. `NaN` is not accepted as a marker for unavailable periods. `ProxySVARMBB` and `msw_confidence_set` require an instrument observed in every residual period and throw otherwise.
+
 ### Fitting the Reduced-Form VAR
 
 The instrument is not needed at estimation time: fit the reduced-form VAR by OLS. The 2SLS step on the residuals runs when the identification is used.

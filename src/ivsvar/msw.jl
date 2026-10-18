@@ -34,7 +34,8 @@ function msw_confidence_set(model::VARModel{T}, id::IVIdentification;
     ν = model.residuals
     Z,
     target = _extract_instrument(resolved.instrument, size(ν, 1), n_lags(model), model.names)
-    return _msw_impl(model, vec(Z), target; norm_scale = norm_scale, horizon = horizon)
+    return _msw_impl(model, vec(_require_observed(Z, "msw_confidence_set")),
+        target; norm_scale = norm_scale, horizon = horizon)
 end
 
 # Deprecated `IVSVAR` models carry the instrument in the spec.

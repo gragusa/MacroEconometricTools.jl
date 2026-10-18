@@ -55,7 +55,8 @@ External instrument (proxy) for one structural shock, used by `IVIdentification`
 two-stage least squares on the VAR residuals.
 
 # Fields
-- `Z::Matrix{T}`: Instrument matrix (rows are time periods, columns are instruments)
+- `Z::Matrix{Union{Missing, T}}`: Instrument matrix (rows are time periods, columns
+  are instruments); `missing` marks periods in which the instrument is not observed
 - `target_shock::S`: Shock to identify — `Int` (index) or `Symbol` (variable name)
 
 # Constructors
@@ -73,15 +74,27 @@ against the model's variable names when the instrument is used.
 `Z` must have either as many rows as the data `Y` the VAR was fitted on (the first
 `n_lags` rows are then dropped so that `Z` lines up with the residuals) or as many
 rows as the residuals. Any other length throws a `DimensionMismatch`.
+
+# Partially observed instruments
+The instrument may cover a shorter sample than the VAR: set `Z` to `missing` in
+the periods where it is not observed. The reduced-form VAR (coefficients and
+residual covariance) uses the full sample; the 2SLS estimate of the impact
+column and the first-stage F use only the residual periods in which every column
+of `Z` is observed. `NaN` and `Inf` entries are rejected. Bootstrap inference
+(`ProxySVARMBB`) and `msw_confidence_set` require an instrument observed in every
+residual period.
 """
 struct ExternalInstrument{T <: AbstractFloat, S <: Union{Int, Symbol}} <: AbstractInstrument
-    Z::Matrix{T}
+    Z::Matrix{Union{Missing, T}}
     target_shock::S
 
     function ExternalInstrument{T, S}(Z, target_shock) where {T, S}
         if target_shock isa Integer
             target_shock > 0 || throw(ArgumentError("target_shock must be positive"))
         end
+        all(z -> ismissing(z) || isfinite(z), Z) ||
+            throw(ArgumentError("instrument contains NaN or Inf; mark periods " *
+                                "without an instrument value with `missing`"))
         return new{T, S}(Z, target_shock)
     end
 end
@@ -235,8 +248,10 @@ struct IVIdentification{I <: Union{Nothing, AbstractInstrument}} <: AbstractIden
 end
 
 function IVIdentification()
-    Base.depwarn("`IVIdentification()` is deprecated; pass the instrument, " *
-                 "as in `IVIdentification(Z, target_shock)`.", :IVIdentification)
+    Base.depwarn(
+        "`IVIdentification()` is deprecated; pass the instrument, " *
+        "as in `IVIdentification(Z, target_shock)`.",
+        :IVIdentification)
     return IVIdentification{Nothing}(nothing)
 end
 

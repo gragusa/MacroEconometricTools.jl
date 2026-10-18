@@ -31,8 +31,10 @@ Returns a `VARModel{T, IVSVAR{I}}` whose `metadata` holds `structural_impact`,
 """
 function StatsBase.fit(::Type{IVSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
         instrument::AbstractInstrument, kwargs...) where {T <: AbstractFloat}
-    Base.depwarn("`fit(IVSVAR, Y, n_lags; instrument)` is deprecated; use " *
-                 "`fit(OLSVAR, Y, n_lags)` and `IVIdentification(instrument)`.", :fit)
+    Base.depwarn(
+        "`fit(IVSVAR, Y, n_lags; instrument)` is deprecated; use " *
+        "`fit(OLSVAR, Y, n_lags)` and `IVIdentification(instrument)`.",
+        :fit)
     return _fit_ivsvar(Y, n_lags; instrument, kwargs...)
 end
 
@@ -104,17 +106,41 @@ end
 # ============================================================================
 
 """
+    _observed_rows(Z) -> Vector{Int}
+
+Rows of `Z` in which every column is observed (not `missing`).
+"""
+function _observed_rows(Z::AbstractMatrix)
+    [i for i in axes(Z, 1) if all(!ismissing, view(Z, i, :))]
+end
+
+"""
+    _require_observed(Z, what) -> Matrix
+
+Return `Z` with a non-missing element type, or throw if any row has a missing value.
+`what` names the procedure in the error message.
+"""
+function _require_observed(Z::AbstractMatrix, what::AbstractString)
+    n_missing = size(Z, 1) - length(_observed_rows(Z))
+    n_missing == 0 || throw(ArgumentError(
+        "$what requires an instrument observed in every residual period; it is " *
+        "missing in $n_missing of $(size(Z, 1)) periods."))
+    return convert(Matrix{nonmissingtype(eltype(Z))}, Z)
+end
+
+"""
     _iv_identify(ν, Z, target) -> (β_iv, F_stat, π_hat)
 
 Two-stage least squares identification of one structural shock from VAR
-residuals and an external instrument (Stock & Watson 2018).
+residuals and an external instrument (Stock & Watson 2018). Rows in which `Z`
+has a `missing` entry are dropped from both stages.
 
 Single-shock identification via equation-by-equation 2SLS. For multiple-shock
 identification (k proxies for k shocks), system GMM is required.
 
 # Arguments
 - `ν`: (T, K) VAR residuals
-- `Z`: (T, k_z) instrument matrix
+- `Z`: (T, k_z) instrument matrix, aligned with `ν`
 - `target`: index of the shock to identify
 
 # Returns
@@ -122,7 +148,18 @@ identification (k proxies for k shocks), system GMM is required.
 - `F_stat`: first-stage F-statistic
 - `π_hat`: first-stage coefficients
 """
-function _iv_identify(ν::Matrix{T}, Z::Matrix{T}, target::Int) where {T}
+function _iv_identify(ν::AbstractMatrix{T}, Z::AbstractMatrix, target::Int) where {T}
+    size(Z, 1) == size(ν, 1) || throw(DimensionMismatch(
+        "instrument has $(size(Z, 1)) rows but the residuals have $(size(ν, 1))"))
+    rows = _observed_rows(Z)
+    k_z = size(Z, 2)
+    length(rows) > k_z + 1 || throw(ArgumentError(
+        "instrument is observed in $(length(rows)) residual periods; 2SLS with " *
+        "$k_z instrument(s) needs at least $(k_z + 2)"))
+    return _iv_identify_complete(Matrix{T}(ν[rows, :]), Matrix{T}(Z[rows, :]), target)
+end
+
+function _iv_identify_complete(ν::Matrix{T}, Z::Matrix{T}, target::Int) where {T}
     n_obs, n = size(ν)
     k_z = size(Z, 2)
 
@@ -264,7 +301,8 @@ end
 Structural impact matrix from external-instrument (proxy-SVAR) identification,
 operating on raw matrices. `ν` are the reduced-form residuals (`n_obs × n_vars`),
 `Σ` the residual covariance, `Z` the instrument aligned to `ν`, and `target` the
-index of the instrumented shock.
+index of the instrumented shock. Rows of `Z` with a `missing` entry are dropped
+from the 2SLS step; `Σ` is used as given.
 
 The `target` column is identified by the instrument (Stock & Watson 2018,
 Mertens & Ravn 2013); the remaining columns fill the orthogonal complement via
@@ -274,9 +312,9 @@ This is the matrix-level counterpart to `rotation_matrix(model, ::IVIdentificati
 A package looping over reduced-form draws calls it with each draw's `(ν, Σ)` and
 the fixed instrument.
 """
-function iv_impact(ν::AbstractMatrix{T}, Σ::AbstractMatrix{T}, Z::AbstractMatrix{T},
+function iv_impact(ν::AbstractMatrix{T}, Σ::AbstractMatrix{T}, Z::AbstractMatrix,
         target::Int) where {T}
-    β_iv, F_stat, _ = _iv_identify(Matrix(ν), Matrix(Z), target)
+    β_iv, F_stat, _ = _iv_identify(ν, Z, target)
     P = _build_full_impact_matrix(β_iv, target, Matrix(Σ))
     return P, F_stat
 end

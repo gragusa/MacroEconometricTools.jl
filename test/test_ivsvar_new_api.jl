@@ -324,7 +324,8 @@ end
     @test IVIdentification(randn(100); target_shock = 3).instrument.target_shock == 3
 
     # Integer data is stored as floating point
-    @test IVIdentification(collect(1:100), 1).instrument.Z isa Matrix{Float64}
+    @test IVIdentification(collect(1:100), 1).instrument.Z isa
+          Matrix{Union{Missing, Float64}}
 
     @test_throws "target_shock must be positive" IVIdentification(randn(100), 0)
 
@@ -518,4 +519,95 @@ end
 # ============================================================================
 @testset "ProxyIV deprecated binding" begin
     @test Base.isdeprecated(MacroEconometricTools, :ProxyIV)
+end
+
+# ============================================================================
+# Instrument observed on part of the VAR sample (`missing` elsewhere)
+# ============================================================================
+@testset "Instrument observed on part of the sample" begin
+    model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
+    ν = residuals(model)
+    n_resid = size(ν, 1)
+
+    # Perfect instrument observed only in the second half of the data
+    z = Vector{Union{Missing, Float64}}(ε[:, 1])
+    z[1:250] .= missing
+    id = IVIdentification(z, 1)
+    obs = (251:T_sim) .- p_lag       # residual rows with an observed instrument
+
+    P = rotation_matrix(model, id)
+
+    @testset "2SLS on observed periods, reduced form on the full sample" begin
+        P_sub, F_sub = MacroEconometricTools.iv_impact(ν[obs, :], Matrix(model.Σ),
+            reshape(ε[obs .+ p_lag, 1], :, 1), 1)
+        @test P ≈ P_sub atol=1e-12
+        @test first_stage_F(model, id) ≈ F_sub atol=1e-8
+    end
+
+    @testset "Matches the infeasible estimate from the true shocks" begin
+        # Ratio cov(νᵢ, ε₁) / cov(ν₁, ε₁) with the true reduced-form errors over
+        # the observed periods; the feasible estimate differs only by the VAR
+        # coefficient estimation error.
+        e = ε[obs .+ p_lag, :]
+        ν_true = e * H_true'
+        oracle = [cov(ν_true[:, i], e[:, 1]) / cov(ν_true[:, 1], e[:, 1]) for i in 1:K]
+        @test P[:, 1] ≈ oracle atol=0.03
+    end
+
+    @testset "Residual-length instrument with interior gaps" begin
+        rng = StableRNG(11)
+        zr = Vector{Union{Missing, Float64}}(ε[(p_lag + 1):end, 1] .+
+                                             0.5 .* randn(rng, n_resid))
+        gaps = sort(unique(rand(rng, 1:n_resid, 100)))
+        zr[gaps] .= missing
+        keep = setdiff(1:n_resid, gaps)
+        P_gap = rotation_matrix(model, IVIdentification(zr, :Y1))
+        P_ref, _ = MacroEconometricTools.iv_impact(ν[keep, :], Matrix(model.Σ),
+            reshape(collect(skipmissing(zr)), :, 1), 1)
+        @test P_gap ≈ P_ref atol=1e-12
+    end
+
+    @testset "Matrix instrument uses rows where every column is observed" begin
+        Z2 = Matrix{Union{Missing, Float64}}(hcat(ε[:, 1], ε[:, 1] .+
+                                                           randn(StableRNG(3), T_sim)))
+        Z2[1:100, 1] .= missing
+        Z2[400:T_sim, 2] .= missing
+        rows = 101:399
+        P2 = rotation_matrix(model, IVIdentification(Z2, 1))
+        P2_ref, _ = MacroEconometricTools.iv_impact(ν[rows .- p_lag, :], Matrix(model.Σ),
+            Matrix{Float64}(Z2[rows, :]), 1)
+        @test P2 ≈ P2_ref atol=1e-12
+    end
+
+    @testset "Matrix-level kernel accepts missing values" begin
+        Zres, target = MacroEconometricTools.iv_instrument(id, n_resid, p_lag, model.names)
+        @test count(ismissing, Zres) == length(1:n_resid) - length(obs)
+        @test MacroEconometricTools.iv_impact(ν, Matrix(model.Σ), Zres, target)[1] ≈ P atol=1e-12
+    end
+
+    @testset "irf and iv_summary" begin
+        @test size(irf(model, id; horizon = 4).irf) == (K, K, 5)
+        old_stdout = stdout
+        rd, wr = redirect_stdout()
+        iv_summary(model, id)
+        redirect_stdout(old_stdout)
+        close(wr)
+        @test contains(read(rd, String), "observed in $(length(obs)) of $n_resid")
+    end
+
+    @testset "Errors" begin
+        @test_throws "NaN or Inf" IVIdentification([1.0, NaN, 2.0], 1)
+        @test_throws "no observed values" IVIdentification([missing, missing], 1)
+
+        z_few = Vector{Union{Missing, Float64}}(missing, T_sim)
+        z_few[[10, 20]] .= 1.0
+        @test_throws "needs at least 3" rotation_matrix(model, IVIdentification(z_few, 1))
+
+        msg = "requires an instrument observed in every residual period"
+        @test_throws "ProxySVARMBB $msg" irf(model, id; horizon = 4,
+            inference = ProxySVARMBB(10), rng = Random.Xoshiro(1))
+        @test_throws "ProxySVARMBB $msg" irf(model, id; horizon = 4,
+            inference = BlockBootstrap(10; block_length = 4), rng = Random.Xoshiro(1))
+        @test_throws "msw_confidence_set $msg" msw_confidence_set(model, id; horizon = 4)
+    end
 end

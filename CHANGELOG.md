@@ -22,6 +22,13 @@ backward-compatible).
   `AbstractIRFResult` docstring.
 - `BayesianIRFResult` and `LocalProjectionIRFResult` gain `size`, `show`, and
   `n_shocks`.
+- Instruments observed on part of the sample. `ExternalInstrument` and
+  `IVIdentification` accept `missing` entries for periods without an
+  instrument value. The reduced-form VAR uses the full sample; the 2SLS impact
+  column, the first-stage F, and `iv_impact` use only the periods in which the
+  instrument is observed. `NaN`/`Inf` entries throw an `ArgumentError`.
+  `ProxySVARMBB` and `msw_confidence_set` throw when the instrument has missing
+  values.
 
 ### Removed (breaking)
 
