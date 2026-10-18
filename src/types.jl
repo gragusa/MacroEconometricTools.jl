@@ -233,10 +233,44 @@ Cholesky (recursive) identification scheme.
 # Fields
 - `ordering::Union{Nothing,Vector{Symbol},Vector{Int}}`: Variable ordering
   (nothing = use data order). Symbols order by variable name (resolved against
-  the model); integers order by position.
+  the model); integers order by position and must be a permutation of
+  `1:length(ordering)`. Names and positions must be unique; whether they match
+  the model's variables is checked when the model is identified.
 """
 struct CholeskyID <: AbstractIdentification
     ordering::Union{Nothing, Vector{Symbol}, Vector{Int}}
+
+    function CholeskyID(ordering)
+        return new(_check_cholesky_ordering(ordering))
+    end
+end
+
+_check_cholesky_ordering(::Nothing) = nothing
+
+function _check_cholesky_ordering(ordering::AbstractVector{Symbol})
+    isempty(ordering) && throw(ArgumentError("CholeskyID ordering must not be empty"))
+    allunique(ordering) ||
+        throw(ArgumentError("CholeskyID ordering has repeated variable names: $ordering"))
+    return Vector{Symbol}(ordering)
+end
+
+function _check_cholesky_ordering(ordering::AbstractVector{<:Integer})
+    isempty(ordering) && throw(ArgumentError("CholeskyID ordering must not be empty"))
+    sort(ordering) == 1:length(ordering) || throw(
+        ArgumentError(
+            "CholeskyID integer ordering must be a permutation of 1:$(length(ordering)), got $ordering"
+        )
+    )
+    return Vector{Int}(ordering)
+end
+
+function _check_cholesky_ordering(ordering)
+    throw(
+        ArgumentError(
+            "CholeskyID ordering must be `nothing`, a vector of variable names (Symbol), " *
+                "or a vector of integer positions; got $(repr(ordering))"
+        )
+    )
 end
 
 CholeskyID() = CholeskyID(nothing)
@@ -246,18 +280,33 @@ CholeskyID() = CholeskyID(nothing)
 
 Sign restriction identification scheme.
 
+    SignRestriction(restrictions, horizon = 0)
+
 # Fields
-- `restrictions::Matrix{Int}`: Sign restriction matrix (+1, -1, 0, NaN for unrestricted)
-- `horizon::Int`: Horizon over which restrictions apply
+- `restrictions::Matrix{Int}`: Square sign restriction matrix, variables in rows
+  and shocks in columns; `+1` (positive), `-1` (negative), `0` (unrestricted).
+  The constructor also accepts the functions `+` and `-` as entries.
+- `horizon::Int`: Restrictions apply at horizons `0:horizon` (`0` = impact only)
 """
 struct SignRestriction <: AbstractIdentification
     restrictions::Matrix{Int}
     horizon::Int
+
+    function SignRestriction(restrictions, horizon)
+        R = _normalize_sign_matrix(restrictions)
+        _check_sign_restriction_args(R, horizon)
+        return new(R, horizon)
+    end
 end
 
-# Convenience: normalize a +/-/0/±1 matrix and default the horizon to impact-only.
-function SignRestriction(restrictions::Matrix, horizon::Int = 0)
-    return SignRestriction(_normalize_sign_matrix(restrictions), horizon)
+SignRestriction(restrictions) = SignRestriction(restrictions, 0)
+
+function _check_sign_restriction_args(R::AbstractMatrix, horizon)
+    size(R, 1) == size(R, 2) || throw(
+        ArgumentError("sign restriction matrix must be square (variables × shocks), got size $(size(R))")
+    )
+    horizon >= 0 || throw(ArgumentError("sign restriction horizon must be ≥ 0, got $horizon"))
+    return nothing
 end
 
 """
@@ -914,21 +963,32 @@ end
 Narrative sign restrictions combining sign restrictions with historical shock constraints.
 
 # Fields
-- `sign_restrictions::Matrix{Int}`: Impact sign restrictions (+1, -1, 0)
-- `narrative_shocks::Vector{NarrativeShockRestriction{D}}`: Historical shock constraints
-- `horizon::Int`: Horizon over which sign restrictions apply (0 = impact only)
+- `sign_restrictions::Matrix{Int}`: Square sign restriction matrix, as in
+  [`SignRestriction`](@ref) (`0` = unrestricted)
+- `narrative_shocks::Vector{NarrativeShockRestriction{D}}`: Historical shock
+  constraints; each shock index must be at most the number of shocks
+- `horizon::Int`: Sign restrictions apply at horizons `0:horizon` (`0` = impact only)
 
 # Constructors
 
-From explicit restrictions:
+- `NarrativeRestriction(sign_restrictions, narrative_shocks, horizon)`
+- `NarrativeRestriction(sign_restrictions, narrative_shocks; horizon = 0)`
+- `NarrativeRestriction(narrative_shocks, n_vars; horizon = 0)`
+- `NarrativeRestriction(sign_restrictions, table; horizon = 0, shock_col, date_col, sign_col)`
+- `NarrativeRestriction(table; n_vars, horizon = 0, ...)`
+
+All forms validate their arguments. From explicit restrictions:
 ```julia
 NarrativeRestriction(
-    sign_restrictions = [1 -1 0; 0 1 -1],
-    narrative_shocks = [
-        NarrativeShockRestriction(1, Date(2008, 9, 15), -1),
-    ],
+    [1 -1 0; 0 1 -1; 0 0 1],
+    [NarrativeShockRestriction(1, Date(2008, 9, 15), -1)];
     horizon = 0
 )
+```
+
+Narrative constraints only (no sign restrictions), for a 3-variable model:
+```julia
+NarrativeRestriction([NarrativeShockRestriction(1, Date(2008, 9, 15), -1)], 3)
 ```
 
 From a Tables.jl-compatible table:
@@ -946,30 +1006,50 @@ struct NarrativeRestriction{D} <: AbstractIdentification
     sign_restrictions::Matrix{Int}
     narrative_shocks::Vector{NarrativeShockRestriction{D}}
     horizon::Int
+
+    function NarrativeRestriction{D}(sign_restrictions, narrative_shocks, horizon) where {D}
+        R = _normalize_sign_matrix(sign_restrictions)
+        _check_sign_restriction_args(R, horizon)
+        n_shocks = size(R, 2)
+        for nr in narrative_shocks
+            nr.shock <= n_shocks || throw(
+                ArgumentError(
+                    "narrative restriction on shock $(nr.shock), but the model has $n_shocks shocks"
+                )
+            )
+        end
+        return new{D}(R, narrative_shocks, horizon)
+    end
 end
 
-# Constructor from explicit arguments
+# Date type of a vector of narrative restrictions. An empty vector with an
+# abstract element type carries no dates, so any `D` is consistent with it.
+_narrative_date_type(::AbstractVector{NarrativeShockRestriction{D}}) where {D} = D
+function _narrative_date_type(v::AbstractVector{<:NarrativeShockRestriction})
+    return isempty(v) ? Any : mapreduce(nr -> typeof(nr.date), typejoin, v)
+end
+
 function NarrativeRestriction(
-        sign_restrictions::Matrix{Int},
-        narrative_shocks::Vector{NarrativeShockRestriction{D}};
-        horizon::Int = 0
-    ) where {D}
+        sign_restrictions::AbstractMatrix,
+        narrative_shocks::AbstractVector{<:NarrativeShockRestriction},
+        horizon::Integer
+    )
+    D = _narrative_date_type(narrative_shocks)
     return NarrativeRestriction{D}(sign_restrictions, narrative_shocks, horizon)
 end
 
-# Ergonomic constructor: normalize a +/-/0/±1 sign matrix before delegating.
 function NarrativeRestriction(
-        sign_restrictions::Matrix,
-        narrative_shocks::Vector{NarrativeShockRestriction{D}};
-        horizon::Int = 0
-    ) where {D}
-    return NarrativeRestriction{D}(_normalize_sign_matrix(sign_restrictions), narrative_shocks, horizon)
+        sign_restrictions::AbstractMatrix,
+        narrative_shocks::AbstractVector{<:NarrativeShockRestriction};
+        horizon::Integer = 0
+    )
+    return NarrativeRestriction(sign_restrictions, narrative_shocks, horizon)
 end
 
 # Constructor from Tables.jl-compatible table
 function NarrativeRestriction(
-        sign_restrictions::Matrix{Int}, table;
-        horizon::Int = 0,
+        sign_restrictions::AbstractMatrix, table;
+        horizon::Integer = 0,
         shock_col::Symbol = :shock,
         date_col::Symbol = :date,
         sign_col::Symbol = :sign
@@ -977,40 +1057,32 @@ function NarrativeRestriction(
     Tables.istable(table) ||
         throw(ArgumentError("table must implement Tables.jl interface"))
 
-    rows = Tables.rows(table)
-    shocks = NarrativeShockRestriction[]
-
-    for row in rows
-        shock_idx = Int(Tables.getcolumn(row, shock_col))
-        date_val = Tables.getcolumn(row, date_col)
-        sign_val = Int(Tables.getcolumn(row, sign_col))
-
-        sign_val ∈ (-1, 1) || throw(ArgumentError("sign must be +1 or -1, got $sign_val"))
-        push!(shocks, NarrativeShockRestriction(shock_idx, date_val, sign_val))
-    end
-
-    # Infer date type from first element
+    shocks = [
+        NarrativeShockRestriction(
+            Int(Tables.getcolumn(row, shock_col)),
+            Tables.getcolumn(row, date_col),
+            Int(Tables.getcolumn(row, sign_col))
+        )
+            for row in Tables.rows(table)
+    ]
     isempty(shocks) && throw(ArgumentError("table must have at least one row"))
-    D = typeof(first(shocks).date)
-    typed_shocks = Vector{NarrativeShockRestriction{D}}(shocks)
-
-    return NarrativeRestriction{D}(sign_restrictions, typed_shocks, horizon)
+    return NarrativeRestriction(sign_restrictions, shocks; horizon)
 end
 
 # Convenience: construct from just a table (no sign restrictions)
-function NarrativeRestriction(table; n_vars::Int, horizon::Int = 0, kwargs...)
+function NarrativeRestriction(table; n_vars::Integer, horizon::Integer = 0, kwargs...)
     sign_restrictions = zeros(Int, n_vars, n_vars)  # No sign restrictions
     return NarrativeRestriction(sign_restrictions, table; horizon, kwargs...)
 end
 
 # Convenience: construct from just narrative_shocks and n_vars (no sign restrictions)
 function NarrativeRestriction(
-        narrative_shocks::Vector{NarrativeShockRestriction{D}},
-        n_vars::Int;
-        horizon::Int = 0
-    ) where {D}
+        narrative_shocks::AbstractVector{<:NarrativeShockRestriction},
+        n_vars::Integer;
+        horizon::Integer = 0
+    )
     sign_restrictions = zeros(Int, n_vars, n_vars)  # No sign restrictions
-    return NarrativeRestriction{D}(sign_restrictions, narrative_shocks, horizon)
+    return NarrativeRestriction(sign_restrictions, narrative_shocks; horizon)
 end
 
 # ============================================================================

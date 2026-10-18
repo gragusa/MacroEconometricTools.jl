@@ -164,6 +164,26 @@ backward-compatible).
   `max_attempts` like `irf` for the other identifications (`horizon = 0`
   now throws). Coverage levels are sorted. `irf(model, ::NarrativeRestriction;
   parallel = :distributed)` throws an `ArgumentError`.
+- `CholeskyID`, `SignRestriction`, and `NarrativeRestriction` check their
+  arguments on every construction path, including the positional forms.
+  Sign matrices must be square, with entries in {-1, 0, +1} (or `+`/`-`), and
+  `horizon` must be nonnegative. A narrative shock index must not exceed the
+  number of shocks. A `CholeskyID` ordering must be a nonempty permutation
+  of `1:n` or a nonempty list of distinct names. The stored sign matrix is a
+  copy of the input. `NarrativeRestriction` accepts a vector of narrative
+  restrictions with an abstract element type, including an empty
+  `NarrativeShockRestriction[]`.
+- Bad input raises `ArgumentError` instead of `ErrorException`. This covers
+  unknown shock names in `rescale`, narrative dates missing from the model's
+  dates (or used on a model fitted without dates), cumulation without
+  bootstrap draws, and `confidence_bands` on a result without saved draws.
+  A proxy whose length does not match the residuals raises
+  `DimensionMismatch`.
+- A `block_length` larger than the number of residual periods throws an
+  `ArgumentError` in `BlockBootstrap` and `ProxySVARMBB`.
+- `irf(model, ::SignRestriction; inference = ...)` (and the same call with
+  `NarrativeRestriction`) throws an `ArgumentError` explaining that
+  set-identified results take their bands from the accepted rotations.
 
 ### Fixed
 

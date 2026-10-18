@@ -30,32 +30,20 @@ Normalize a sign restriction matrix, converting the `+` and `-` functions to
 When using `+`/`-` in a matrix literal, wrap them in parentheses to avoid
 parsing issues, e.g. `[(+) 0; (-) (+)]`.
 """
-function _normalize_sign_matrix(m::Matrix{Int})
-    for val in m
-        val in (-1, 0, 1) ||
-            throw(ArgumentError("Sign restriction values must be -1, 0, or +1, got $val"))
-    end
-    return m
+function _normalize_sign_matrix(m::AbstractMatrix)
+    # `copyto!` drops any offset axes of `m`; the result is always 1-based.
+    return copyto!(Matrix{Int}(undef, size(m)), map(_sign_entry, m))
 end
 
-function _normalize_sign_matrix(m::Matrix)
-    result = Matrix{Int}(undef, size(m))
-    for i in eachindex(m)
-        val = m[i]
-        if val === (+)
-            result[i] = 1
-        elseif val === (-)
-            result[i] = -1
-        elseif val isa Integer
-            int_val = Int(val)
-            int_val in (-1, 0, 1) ||
-                throw(ArgumentError("Sign restriction values must be -1, 0, or +1, got $val"))
-            result[i] = int_val
-        else
-            throw(ArgumentError("Invalid sign restriction element: $val. Use +, -, 0, 1, or -1"))
-        end
-    end
-    return result
+_sign_entry(::typeof(+)) = 1
+_sign_entry(::typeof(-)) = -1
+function _sign_entry(val::Integer)
+    val in (-1, 0, 1) ||
+        throw(ArgumentError("Sign restriction values must be -1, 0, or +1, got $val"))
+    return Int(val)
+end
+function _sign_entry(val)
+    throw(ArgumentError("Invalid sign restriction element: $val. Use +, -, 0, 1, or -1"))
 end
 
 # ----------------------------------------------------------------------------
@@ -266,9 +254,19 @@ function _resolve_narrative_date(
         dates
     ) where {D <: Dates.TimeType}
     dates === nothing &&
-        error("Cannot use date-based NarrativeShockRestriction without dates")
+        throw(
+        ArgumentError(
+            "narrative restriction dated $(nr.date) needs a model fitted with `dates`; " *
+                "fit with `dates = ...` or give the date as a row index"
+        )
+    )
     idx = findfirst(==(nr.date), dates)
-    idx === nothing && error("Date $(nr.date) not found in dates")
+    idx === nothing && throw(
+        ArgumentError(
+            "narrative restriction date $(nr.date) not found in the model dates " *
+                "($(first(dates)) to $(last(dates)))"
+        )
+    )
     return idx
 end
 

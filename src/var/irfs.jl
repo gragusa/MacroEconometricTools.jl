@@ -149,10 +149,11 @@ function _apply_cumulation(
         coverage::Vector{Float64},
         idx::Vector{Int}
     ) where {T}
-    draws === nothing &&
-        error(
-        "Cumulation requires bootstrap draws. " *
-            "Use a bootstrap inference method (e.g., WildBootstrap(reps=1000))."
+    draws === nothing && throw(
+        ArgumentError(
+            "Cumulation requires bootstrap draws. " *
+                "Use a bootstrap inference method (e.g., WildBootstrap(reps=1000))."
+        )
     )
 
     # Cumulate point estimate
@@ -433,8 +434,16 @@ function _set_identified_irf(
         coverage::Vector{Float64} = [0.68, 0.9, 0.95],
         normalization::AbstractNormalization = UnitStd(),
         cumulate::Union{Nothing, Vector{Symbol}, Vector{Int}} = nothing,
-        scale::Real = 1
+        scale::Real = 1,
+        inference = nothing
     ) where {T}
+    inference === nothing || throw(
+        ArgumentError(
+            "$(nameof(typeof(id))) is set-identifying and takes no `inference` keyword; " *
+                "the bands of the returned SignRestrictedIRFResult are quantiles across " *
+                "accepted rotations (control them with `n_draws` and `coverage`)"
+        )
+    )
     coverage = _validate_irf_args(horizon, coverage)
     n_draws > 0 || throw(ArgumentError("n_draws must be positive"))
     max_attempts > 0 || throw(ArgumentError("max_attempts must be positive"))
@@ -747,7 +756,8 @@ function _build_shock_factors(
     factors = ones(T, length(names))
     for (nm, val) in pairs
         idx = findfirst(==(nm), names)
-        idx === nothing && error("Shock :$nm not found. Available shocks: $names")
+        idx === nothing &&
+            throw(ArgumentError("Shock :$nm not found. Available shocks: $names"))
         factors[idx] = T(val)
     end
     return factors
@@ -1321,10 +1331,11 @@ function confidence_bands(
     ) where {T}
 
     # Requires saved draws
-    isnothing(irf.bootstrap_draws) &&
-        error(
-        "Bootstrap draws not saved in IRFResult. " *
-            "Pass model and identification to recompute, or use irf() with save_draws=true."
+    isnothing(irf.bootstrap_draws) && throw(
+        ArgumentError(
+            "Bootstrap draws not saved in IRFResult. " *
+                "Pass model and identification to recompute, or use irf() with save_draws=true."
+        )
     )
 
     # Sort coverage

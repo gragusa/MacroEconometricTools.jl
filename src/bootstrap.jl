@@ -37,6 +37,15 @@ function _try_draw!(compute!, outs::AbstractArray...)
     return all(out -> all(isfinite, out), outs)
 end
 
+function _check_block_length(block_length::Integer, n_obs::Integer)
+    1 <= block_length <= n_obs || throw(
+        ArgumentError(
+            "block_length = $block_length must lie in 1:$n_obs (the number of residual periods)"
+        )
+    )
+    return nothing
+end
+
 """
     _check_failure_rate(method_name, n_failed, reps, max_failure_rate)
 
@@ -616,6 +625,7 @@ function bootstrap_irf_block(
     n_lags_val = n_lags(model)
     n_obs = size(model.residuals, 1)  # T
     ℓ = block_length
+    _check_block_length(ℓ, n_obs)
 
     # Number of blocks needed to cover T observations
     N = cld(n_obs, ℓ)

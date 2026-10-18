@@ -263,7 +263,7 @@ end
         # A model without dates falls back to integer rows: a date-based
         # restriction then cannot be resolved and fails fast.
         @test dates(var) === nothing
-        @test_throws "Cannot use date-based NarrativeShockRestriction without dates" irf(
+        @test_throws "needs a model fitted with `dates`" irf(
             var, id; horizon = 6, n_draws = 5, rng = StableRNG(1)
         )
     end

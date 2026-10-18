@@ -423,7 +423,8 @@ function _proxy_svar_mbb_impl(
     s = inf.norm_scale
 
     length(proxy) == TT ||
-        error("Proxy length ($(length(proxy))) must match residuals ($TT)")
+        throw(DimensionMismatch("Proxy length ($(length(proxy))) must match residuals ($TT)"))
+    _check_block_length(ℓ, TT)
 
     # ── Build A_est in Python format: (K, 1+K*p) ─────────────────────────
     coefs = coef(model)
