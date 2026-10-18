@@ -10,6 +10,8 @@ backward-compatible).
 
 ## [Unreleased]
 
+## [0.2.0] - Unreleased
+
 ### Added
 
 - **`AbstractIRFResult` interface.** Every result type implements
@@ -507,6 +509,7 @@ surface.
   assignments with `copyto!(view(…), …)`, removing a fixable source of per-rep
   allocation.
 
-[Unreleased]: https://github.com/gragusa/MacroEconometricTools.jl/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/gragusa/MacroEconometricTools.jl/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/gragusa/MacroEconometricTools.jl/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/gragusa/MacroEconometricTools.jl/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/gragusa/MacroEconometricTools.jl/releases/tag/v0.1.1
