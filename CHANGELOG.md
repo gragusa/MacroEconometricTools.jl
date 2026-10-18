@@ -60,9 +60,22 @@ backward-compatible).
   rows are dropped) or as many rows as the VAR residuals; any other length
   throws a `DimensionMismatch`. Previously a longer instrument was silently cut
   to its last rows.
-- `WildBootstrap` and `Bootstrap` inference with `IVIdentification` throw an
-  `ArgumentError` pointing to `ProxySVARMBB`: they do not resample the
-  instrument.
+- `WildBootstrap`, `Bootstrap`, and `BlockBootstrap` inference with
+  `IVIdentification` throw an `ArgumentError` pointing to `ProxySVARMBB`: they
+  do not resample the instrument. `BlockBootstrap` was previously replaced by
+  `ProxySVARMBB` without notice.
+- `Analytic()` inference throws an `ArgumentError` unless the identification is
+  `CholeskyID()` in the model's variable order; the delta method assumes a
+  lower-triangular impact matrix.
+- Bootstrap failure policy (`WildBootstrap`, `Bootstrap`, `BlockBootstrap`,
+  `ProxySVARMBB`, `bootstrap_irf*`, `proxy_svar_mbb`). A replication counts as
+  failed only when it raises `PosDefException`, `SingularException`,
+  `LAPACKException`, or `DomainError`, or yields non-finite responses; any
+  other exception propagates. Failed replications are dropped: the returned
+  draws contain only successful replications, and bands, standard errors, and
+  centering use only those. A warning reports the count. The call throws when
+  more than `max_failure_rate` (new keyword of the four inference types and of
+  `bootstrap_irf*`, default 0.1) of the replications fail, or when all fail.
 - `ExternalInstrument(Z, :name)` and `IVIdentification(Z, :name)` accept a
   `Symbol` target positionally, for vector and matrix `Z`; integer-valued `Z`
   is converted to floating point.
@@ -154,6 +167,10 @@ backward-compatible).
 
 ### Fixed
 
+- A single failed bootstrap replication made every band and standard error
+  `NaN`: failed draws were filled with `NaN` and kept in the mean used for
+  centering and in `std`. `proxy_svar_mbb` sorted them into its percentile
+  intervals and counted them as non-rejections in its Anderson-Rubin sets.
 - `compute_ma_matrices_from_B!` with `n_lags = 0` left `Φ[:, :, 2:end]`
   unset; these slices are now zero.
 - `variance_decomposition` read the IRF array as horizon-first while it is

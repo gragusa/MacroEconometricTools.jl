@@ -135,18 +135,15 @@ end
     )
 end
 
-@testset "irf with BlockBootstrap + IVIdentification" begin
+@testset "irf with BlockBootstrap + IVIdentification throws" begin
     model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
     id = IVIdentification(ε[:, 1], 1)
 
-    result = irf(
+    @test_throws "BlockBootstrap does not resample the instrument" irf(
         model, id; horizon = 10,
         inference = BlockBootstrap(50; block_length = 5),
         rng = Random.Xoshiro(42)
     )
-
-    @test size(result.irf) == (K, K, 11)
-    @test length(result.lower) == 3
 end
 
 @testset "irf with ProxySVARMBB + IVIdentification" begin
@@ -663,10 +660,6 @@ end
         @test_throws "ProxySVARMBB $msg" irf(
             model, id; horizon = 4,
             inference = ProxySVARMBB(10), rng = Random.Xoshiro(1)
-        )
-        @test_throws "ProxySVARMBB $msg" irf(
-            model, id; horizon = 4,
-            inference = BlockBootstrap(10; block_length = 4), rng = Random.Xoshiro(1)
         )
         @test_throws "msw_confidence_set $msg" msw_confidence_set(model, id; horizon = 4)
     end

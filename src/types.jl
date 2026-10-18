@@ -327,7 +327,8 @@ abstract type InferenceType end
 Asymptotic inference using the delta method.
 
 Based on Lütkepohl (2005) analytical formulas for IRF standard errors.
-Valid only for Cholesky (triangular) identification schemes.
+Supported only for `CholeskyID()` in the model's variable order; any other
+identification throws an `ArgumentError`.
 
 # Example
 ```julia
@@ -347,6 +348,9 @@ conditional heteroskedasticity while maintaining independence across equations.
 # Fields
 - `reps::Int`: Number of bootstrap replications
 - `save_draws::Bool`: Whether to save all bootstrap IRF draws
+- `max_failure_rate::Float64`: Largest fraction of failed replications tolerated
+  (default 0.1); above it the call throws. Failed replications are excluded from
+  bands and standard errors.
 
 # References
 - Liu (1988): "Bootstrap Procedures under Some Non-I.I.D. Models"
@@ -365,10 +369,11 @@ irf(model, id; inference=WildBootstrap(reps=1000, save_draws=false))
 struct WildBootstrap <: InferenceType
     reps::Int
     save_draws::Bool
+    max_failure_rate::Float64
 
-    function WildBootstrap(reps::Int = 1000; save_draws::Bool = false)
+    function WildBootstrap(reps::Int = 1000; save_draws::Bool = false, max_failure_rate::Real = 0.1)
         reps > 0 || throw(ArgumentError("reps must be positive"))
-        return new(reps, save_draws)
+        return new(reps, save_draws, _check_max_failure_rate(max_failure_rate))
     end
 end
 
@@ -383,6 +388,9 @@ Appropriate when residuals can be assumed i.i.d. (homoskedastic and uncorrelated
 # Fields
 - `reps::Int`: Number of bootstrap replications
 - `save_draws::Bool`: Whether to save all bootstrap IRF draws
+- `max_failure_rate::Float64`: Largest fraction of failed replications tolerated
+  (default 0.1); above it the call throws. Failed replications are excluded from
+  bands and standard errors.
 
 # References
 - Efron (1979): "Bootstrap methods: Another look at the jackknife"
@@ -400,10 +408,11 @@ irf(model, id; inference=Bootstrap(reps=1000, save_draws=true))
 struct Bootstrap <: InferenceType
     reps::Int
     save_draws::Bool
+    max_failure_rate::Float64
 
-    function Bootstrap(reps::Int = 1000; save_draws::Bool = false)
+    function Bootstrap(reps::Int = 1000; save_draws::Bool = false, max_failure_rate::Real = 0.1)
         reps > 0 || throw(ArgumentError("reps must be positive"))
-        return new(reps, save_draws)
+        return new(reps, save_draws, _check_max_failure_rate(max_failure_rate))
     end
 end
 
@@ -419,6 +428,9 @@ Uses position-specific centering to ensure resampled residuals have approximatel
 - `reps::Int`: Number of bootstrap replications
 - `block_length::Int`: Length of each block (rule of thumb: T^(1/3))
 - `save_draws::Bool`: Whether to save all bootstrap IRF draws
+- `max_failure_rate::Float64`: Largest fraction of failed replications tolerated
+  (default 0.1); above it the call throws. Failed replications are excluded from
+  bands and standard errors.
 
 # References
 - Künsch (1989): "The jackknife and the bootstrap for general stationary observations"
@@ -439,11 +451,15 @@ struct BlockBootstrap <: InferenceType
     reps::Int
     block_length::Int
     save_draws::Bool
+    max_failure_rate::Float64
 
-    function BlockBootstrap(reps::Int = 1000; block_length::Int = 10, save_draws::Bool = false)
+    function BlockBootstrap(
+            reps::Int = 1000; block_length::Int = 10, save_draws::Bool = false,
+            max_failure_rate::Real = 0.1
+        )
         reps > 0 || throw(ArgumentError("reps must be positive"))
         block_length > 0 || throw(ArgumentError("block_length must be positive"))
-        return new(reps, block_length, save_draws)
+        return new(reps, block_length, save_draws, _check_max_failure_rate(max_failure_rate))
     end
 end
 
@@ -466,6 +482,9 @@ via grid-based test inversion.
 - `ar_grid::Union{Nothing, Vector{Float64}}`: Grid for AR sets
 - `norm_scale::Float64`: Normalization scale for normalized IRFs (default: -1.0)
 - `save_draws::Bool`: Save all bootstrap draws
+- `max_failure_rate::Float64`: Largest fraction of failed replications tolerated
+  (default 0.1); above it the call throws. Failed replications are excluded from
+  bands and standard errors.
 
 # References
 - Jentsch & Lunsford (2022): "Asymptotically Valid Bootstrap Inference for
@@ -487,6 +506,7 @@ struct ProxySVARMBB <: InferenceType
     ar_grid::Union{Nothing, Vector{Float64}}
     norm_scale::Float64
     save_draws::Bool
+    max_failure_rate::Float64
 
     function ProxySVARMBB(
             reps::Int = 2000;
@@ -494,13 +514,17 @@ struct ProxySVARMBB <: InferenceType
             compute_ar::Bool = false,
             ar_grid::Union{Nothing, Vector{Float64}} = nothing,
             norm_scale::Float64 = -1.0,
-            save_draws::Bool = false
+            save_draws::Bool = false,
+            max_failure_rate::Real = 0.1
         )
         reps > 0 || throw(ArgumentError("reps must be positive"))
         block_length > 0 || throw(ArgumentError("block_length must be positive"))
         # When compute_ar=true and ar_grid=nothing, a default grid [-10, 10] × 201
         # is applied at runtime in proxy_svar_mbb.
-        return new(reps, block_length, compute_ar, ar_grid, norm_scale, save_draws)
+        return new(
+            reps, block_length, compute_ar, ar_grid, norm_scale, save_draws,
+            _check_max_failure_rate(max_failure_rate)
+        )
     end
 end
 

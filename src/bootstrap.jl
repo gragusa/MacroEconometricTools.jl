@@ -9,23 +9,77 @@
 #   - bootstrap_irf_block: moving block bootstrap with position-specific centering
 
 # ============================================================================
-# Failure reporting helper
+# Failed replications
 # ============================================================================
 
-"""
-    _report_bootstrap_failures(method_name, n_failed, reps)
+# Exceptions a resampled series can legitimately trigger (a singular design or
+# covariance matrix, a negative argument to `sqrt`). A replication that raises one
+# of these is a failed draw; every other exception propagates.
+const _DrawFailure = Union{
+    LinearAlgebra.PosDefException, LinearAlgebra.SingularException,
+    LinearAlgebra.LAPACKException, DomainError,
+}
 
-Emit a summary warning when bootstrap replications fail, reporting
-effective replications. Called once after the loop (not per-failure).
 """
-function _report_bootstrap_failures(method_name::String, n_failed::Int, reps::Int)
-    n_failed == 0 && return
+    _try_draw!(compute!, outs...) -> Bool
+
+Run `compute!(outs...)` and return whether it produced a usable draw: `false` when
+it throws an exception in `_DrawFailure` or leaves a non-finite value in any of the
+arrays `outs`. Any other exception is rethrown.
+"""
+function _try_draw!(compute!, outs::AbstractArray...)
+    try
+        compute!(outs...)
+    catch err
+        err isa _DrawFailure || rethrow()
+        return false
+    end
+    return all(out -> all(isfinite, out), outs)
+end
+
+"""
+    _check_failure_rate(method_name, n_failed, reps, max_failure_rate)
+
+Throw when every replication failed or more than a fraction `max_failure_rate` of
+the `reps` replications failed; otherwise warn when any failed. Callers exclude the
+failed replications from every statistic computed from the draws.
+"""
+function _check_failure_rate(
+        method_name::String, n_failed::Integer, reps::Integer, max_failure_rate::Real
+    )
+    n_failed == 0 && return nothing
     pct = round(100 * n_failed / reps; digits = 1)
-    n_eff = reps - n_failed
-    return @warn "$method_name: $n_failed / $reps replications failed ($pct%). " *
-        "Effective bootstrap replications: $n_eff. " *
-        "Failed draws are filled with NaN and excluded from quantile computation. " *
-        "If the failure rate is high, check model stability or increase sample size."
+    if n_failed == reps || n_failed > max_failure_rate * reps
+        error(
+            "$method_name: $n_failed / $reps replications failed ($pct%), more than " *
+                "max_failure_rate = $max_failure_rate. Failed replications raise a " *
+                "singular or non-positive-definite matrix, or produce non-finite " *
+                "responses; check the stability of the model and the sample size."
+        )
+    end
+    @warn "$method_name: $n_failed / $reps replications failed ($pct%). They are " *
+        "excluded; bands and standard errors use the remaining $(reps - n_failed)."
+    return nothing
+end
+
+"""
+    _successful_draws(method_name, draws, ok, max_failure_rate)
+
+Apply `_check_failure_rate` and return the draws (first dimension) marked in `ok`.
+"""
+function _successful_draws(
+        method_name::String, draws::AbstractArray{T, 4}, ok::AbstractVector{Bool},
+        max_failure_rate::Real
+    ) where {T}
+    n_failed = count(!, ok)
+    _check_failure_rate(method_name, n_failed, length(ok), max_failure_rate)
+    return n_failed == 0 ? draws : draws[ok, :, :, :]
+end
+
+function _check_max_failure_rate(max_failure_rate::Real)
+    0 <= max_failure_rate < 1 ||
+        throw(ArgumentError("max_failure_rate must lie in [0, 1), got $max_failure_rate"))
+    return max_failure_rate
 end
 
 # ============================================================================
@@ -44,9 +98,8 @@ end
 # Numerical note: Cholesky on (X'X) instead of QR on X is a few ulps less
 # accurate but much faster for small K. For well-conditioned bootstrap
 # samples (the universal case at bootstrap sample sizes) the differences
-# are numerical noise. If factorisation fails (PosDefException), the caller
-# catches the exception and fills the rep with NaN, matching the current
-# failure-handling behaviour.
+# are numerical noise. A failed factorisation throws `PosDefException`, which
+# `_try_draw!` counts as a failed replication.
 
 """
     _BootstrapWorkspace{T}
@@ -128,15 +181,12 @@ end
 end
 
 """
-    _fast_refit_ols!(ws, Y_boot, n_vars, n_lags) -> Bool
+    _fast_refit_ols!(ws, Y_boot, n_vars, n_lags) -> ws
 
 Estimate the unconstrained VAR(p) OLS coefficients, residual covariance,
 and companion matrix from `Y_boot` into the workspace `ws`, using the
-normal-equations Cholesky solve.
-
-Returns `true` on success, `false` if the factorisation failed (caller
-should mark the rep as NaN). On success, `ws.A`, `ws.U`, `ws.Σ`, `ws.Lchol`,
-and `ws.F` are all written.
+normal-equations Cholesky solve. Writes `ws.A`, `ws.U`, `ws.Σ`, `ws.Lchol`,
+and `ws.F`; throws `PosDefException` when `X'X` or `Σ` is not positive definite.
 """
 function _fast_refit_ols!(
         ws::_BootstrapWorkspace{T},
@@ -158,14 +208,7 @@ function _fast_refit_ols!(
     # 3. Cholesky-solve G · A = XtY in-place. Copy XtY into A first because
     #    ldiv! overwrites the rhs.
     copyto!(ws.A, ws.XtY)
-    local chol_G
-    try
-        chol_G = cholesky!(Symmetric(ws.G, :U))
-    catch err
-        err isa LinearAlgebra.PosDefException || rethrow(err)
-        return false
-    end
-    ldiv!(chol_G, ws.A)
+    ldiv!(cholesky!(Symmetric(ws.G, :U)), ws.A)
 
     # 4. Residuals U = Y_est - X·A
     mul!(ws.U, ws.X, ws.A)
@@ -185,13 +228,7 @@ function _fast_refit_ols!(
     # 6. Cholesky factor L of Σ for CholeskyID. `cholesky!` overwrites, so
     #    copy first.
     copyto!(ws.Lchol, ws.Σ)
-    local chol_Σ
-    try
-        chol_Σ = cholesky!(Symmetric(ws.Lchol, :U))
-    catch err
-        err isa LinearAlgebra.PosDefException || rethrow(err)
-        return false
-    end
+    cholesky!(Symmetric(ws.Lchol, :U))
     # Zero the upper triangle so ws.Lchol is the lower-triangular L.
     # `Symmetric(ws.Lchol, :U)` was passed to cholesky!, which writes the
     # upper triangle of the factor; we want the lower factor for the IRF.
@@ -230,7 +267,7 @@ function _fast_refit_ols!(
         ws.F[n_vars_val + i, i] = one(T)
     end
 
-    return true
+    return ws
 end
 
 """
@@ -312,6 +349,25 @@ function _fast_cholesky_irf!(
     return irf_out
 end
 
+# One bootstrap IRF draw `(K, K, horizon+1)` into `out`, refitting the VAR on the
+# simulated series `Y_boot`: through the workspace when the identification is the
+# default Cholesky (`ws` given), through `refit_for_bootstrap` otherwise.
+function _bootstrap_irf_draw!(
+        out, ws::_BootstrapWorkspace, model, Y_boot, identification, horizon, normalization
+    )
+    _fast_refit_ols!(ws, Y_boot, n_vars(model), n_lags(model))
+    return _fast_cholesky_irf!(out, ws, horizon; normalization)
+end
+
+function _bootstrap_irf_draw!(
+        out, ::Nothing, model, Y_boot, identification, horizon, normalization
+    )
+    var_boot = refit_for_bootstrap(model, Y_boot, n_lags(model))
+    P_boot = rotation_matrix(var_boot, identification)
+    normalize!(P_boot, normalization)
+    return copyto!(out, compute_irf_point(var_boot, P_boot, horizon))
+end
+
 # ============================================================================
 # Wild Bootstrap
 # ============================================================================
@@ -321,7 +377,7 @@ end
 
 Wild bootstrap for VAR impulse responses.
 
-Returns the raw bootstrap IRF draws. For an assembled `IRFResult` with bands, use
+Returns the IRF draws of the successful replications (see `bootstrap_irf`). For an assembled `IRFResult` with bands, use
 `irf(model, identification; inference=WildBootstrap(...))`, which calls this.
 
 The wild bootstrap resamples residuals by multiplying them with random
@@ -352,8 +408,10 @@ function bootstrap_irf_wild(
         horizon::Int,
         reps::Int,
         rng::AbstractRNG;
-        normalization::AbstractNormalization = UnitStd()
+        normalization::AbstractNormalization = UnitStd(),
+        max_failure_rate::Real = 0.1
     ) where {T}
+    _check_max_failure_rate(max_failure_rate)
     m = n_vars(model)
     n_lags_val = n_lags(model)
 
@@ -379,7 +437,7 @@ function bootstrap_irf_wild(
     use_fast = identification isa CholeskyID && identification.ordering === nothing
     ws = use_fast ? _BootstrapWorkspace{T}(n_obs, m, n_lags_val) : nothing
 
-    n_failed = 0
+    ok = falses(reps)
     for r in 1:reps
         # Wild bootstrap: Rademacher weights (±1 with equal probability)
         for i in eachindex(ω)
@@ -395,40 +453,12 @@ function bootstrap_irf_wild(
         # Simulate bootstrap VAR into the preallocated buffer.
         simulate_var!(Y_boot, intercept_, lags_, ū, Y_original)
 
-        if use_fast
-            # Fast path: Cholesky on normal equations, fused IRF.
-            ok = _fast_refit_ols!(ws, Y_boot, m, n_lags_val)
-            if ok
-                try
-                    _fast_cholesky_irf!(
-                        view(irf_boot, r, :, :, :), ws, horizon;
-                        normalization = normalization
-                    )
-                catch
-                    n_failed += 1
-                    fill!(view(irf_boot, r, :, :, :), NaN)
-                end
-            else
-                n_failed += 1
-                fill!(view(irf_boot, r, :, :, :), NaN)
-            end
-        else
-            # Generic path (unchanged): fit(OLSVAR) + rotation_matrix + compute_irf_point.
-            try
-                var_boot = refit_for_bootstrap(model, Y_boot, n_lags_val)
-                P_boot = rotation_matrix(var_boot, identification)
-                normalize!(P_boot, normalization)
-                irf_view = view(irf_boot, r, :, :, :)
-                copyto!(irf_view, compute_irf_point(var_boot, P_boot, horizon))
-            catch
-                n_failed += 1
-                fill!(view(irf_boot, r, :, :, :), NaN)
-            end
+        ok[r] = _try_draw!(view(irf_boot, r, :, :, :)) do out
+            _bootstrap_irf_draw!(out, ws, model, Y_boot, identification, horizon, normalization)
         end
     end
 
-    _report_bootstrap_failures("Wild bootstrap", n_failed, reps)
-    return irf_boot
+    return _successful_draws("Wild bootstrap", irf_boot, ok, max_failure_rate)
 end
 
 # ============================================================================
@@ -440,7 +470,7 @@ end
 
 Standard i.i.d. bootstrap for VAR impulse responses.
 
-Returns the raw bootstrap IRF draws. For an assembled `IRFResult` with bands, use
+Returns the IRF draws of the successful replications (see `bootstrap_irf`). For an assembled `IRFResult` with bands, use
 `irf(model, identification; inference=Bootstrap(...))`, which calls this.
 
 The standard bootstrap resamples residuals with replacement, treating them
@@ -469,8 +499,10 @@ function bootstrap_irf_standard(
         horizon::Int,
         reps::Int,
         rng::AbstractRNG;
-        normalization::AbstractNormalization = UnitStd()
+        normalization::AbstractNormalization = UnitStd(),
+        max_failure_rate::Real = 0.1
     ) where {T}
+    _check_max_failure_rate(max_failure_rate)
     m = n_vars(model)
     n_lags_val = n_lags(model)
     n_obs = size(model.residuals, 1)
@@ -490,7 +522,7 @@ function bootstrap_irf_standard(
     use_fast = identification isa CholeskyID && identification.ordering === nothing
     ws = use_fast ? _BootstrapWorkspace{T}(n_obs, m, n_lags_val) : nothing
 
-    n_failed = 0
+    ok = falses(reps)
     for r in 1:reps
         # Standard bootstrap: resample rows with replacement
         @inbounds for i in 1:n_obs
@@ -503,40 +535,12 @@ function bootstrap_irf_standard(
         # Simulate bootstrap VAR into the preallocated buffer.
         simulate_var!(Y_boot, intercept_, lags_, ū, Y_original)
 
-        if use_fast
-            ok = _fast_refit_ols!(ws, Y_boot, m, n_lags_val)
-            if ok
-                try
-                    _fast_cholesky_irf!(
-                        view(irf_boot, r, :, :, :), ws, horizon;
-                        normalization = normalization
-                    )
-                catch
-                    n_failed += 1
-                    fill!(view(irf_boot, r, :, :, :), NaN)
-                end
-            else
-                n_failed += 1
-                fill!(view(irf_boot, r, :, :, :), NaN)
-            end
-        else
-            try
-                var_boot = refit_for_bootstrap(model, Y_boot, n_lags_val)
-                P_boot = rotation_matrix(var_boot, identification)
-                normalize!(P_boot, normalization)
-                copyto!(
-                    view(irf_boot, r, :, :, :),
-                    compute_irf_point(var_boot, P_boot, horizon)
-                )
-            catch
-                n_failed += 1
-                fill!(view(irf_boot, r, :, :, :), NaN)
-            end
+        ok[r] = _try_draw!(view(irf_boot, r, :, :, :)) do out
+            _bootstrap_irf_draw!(out, ws, model, Y_boot, identification, horizon, normalization)
         end
     end
 
-    _report_bootstrap_failures("Standard bootstrap", n_failed, reps)
-    return irf_boot
+    return _successful_draws("Standard bootstrap", irf_boot, ok, max_failure_rate)
 end
 
 # ============================================================================
@@ -548,7 +552,7 @@ end
 
 Moving block bootstrap for VAR impulse responses.
 
-Returns the raw bootstrap IRF draws. For an assembled `IRFResult` with bands, use
+Returns the IRF draws of the successful replications (see `bootstrap_irf`). For an assembled `IRFResult` with bands, use
 `irf(model, identification; inference=BlockBootstrap(...))`, which calls this.
 
 The block bootstrap resamples blocks of consecutive residuals to preserve
@@ -604,8 +608,10 @@ function bootstrap_irf_block(
         reps::Int,
         block_length::Int,
         rng::AbstractRNG;
-        normalization::AbstractNormalization = UnitStd()
+        normalization::AbstractNormalization = UnitStd(),
+        max_failure_rate::Real = 0.1
     ) where {T}
+    _check_max_failure_rate(max_failure_rate)
     m = n_vars(model)
     n_lags_val = n_lags(model)
     n_obs = size(model.residuals, 1)  # T
@@ -643,7 +649,7 @@ function bootstrap_irf_block(
     use_fast = identification isa CholeskyID && identification.ordering === nothing
     ws = use_fast ? _BootstrapWorkspace{T}(n_obs, m, n_lags_val) : nothing
 
-    n_failed = 0
+    ok = falses(reps)
     for r in 1:reps
         # Step 1: Sample N random blocks
         for j_blk in 1:N
@@ -672,40 +678,12 @@ function bootstrap_irf_block(
         simulate_var!(Y_boot, intercept_, lags_, ū, Y_original)
 
         # Step 5: Re-estimate and compute IRF
-        if use_fast
-            ok = _fast_refit_ols!(ws, Y_boot, m, n_lags_val)
-            if ok
-                try
-                    _fast_cholesky_irf!(
-                        view(irf_boot, r, :, :, :), ws, horizon;
-                        normalization = normalization
-                    )
-                catch
-                    n_failed += 1
-                    fill!(view(irf_boot, r, :, :, :), NaN)
-                end
-            else
-                n_failed += 1
-                fill!(view(irf_boot, r, :, :, :), NaN)
-            end
-        else
-            try
-                var_boot = refit_for_bootstrap(model, Y_boot, n_lags_val)
-                P_boot = rotation_matrix(var_boot, identification)
-                normalize!(P_boot, normalization)
-                copyto!(
-                    view(irf_boot, r, :, :, :),
-                    compute_irf_point(var_boot, P_boot, horizon)
-                )
-            catch
-                n_failed += 1
-                fill!(view(irf_boot, r, :, :, :), NaN)
-            end
+        ok[r] = _try_draw!(view(irf_boot, r, :, :, :)) do out
+            _bootstrap_irf_draw!(out, ws, model, Y_boot, identification, horizon, normalization)
         end
     end
 
-    _report_bootstrap_failures("Block bootstrap", n_failed, reps)
-    return irf_boot
+    return _successful_draws("Block bootstrap", irf_boot, ok, max_failure_rate)
 end
 
 # ============================================================================
@@ -713,12 +691,17 @@ end
 # ============================================================================
 
 """
-    bootstrap_irf(model, identification, horizon, reps; method=:wild, block_length=10, rng=...)
+    bootstrap_irf(model, identification, horizon, reps; method=:wild, block_length=10, max_failure_rate=0.1, rng=...)
 
 Backward-compatible wrapper that dispatches to `bootstrap_irf_wild`,
 `bootstrap_irf_standard`, or `bootstrap_irf_block` based on `method`.
 
-Returns the raw bootstrap IRF draws `(reps, n_vars, n_shocks, horizon+1)`. Most
+Returns the bootstrap IRF draws `(n_ok, n_vars, n_shocks, horizon+1)`, where
+`n_ok ≤ reps` counts the successful replications. A replication fails when its
+refit raises `PosDefException`, `SingularException`, `LAPACKException`, or
+`DomainError`, or when its responses are not all finite; any other exception
+propagates. Failed replications are dropped with a warning, and the call throws when
+more than a fraction `max_failure_rate` (in `[0, 1)`) of them fail. Most
 users should instead call `irf(model, identification; inference=...)`, which runs
 the same bootstrap internally and returns an `IRFResult` with point estimate,
 standard errors, and confidence bands assembled. This family is the lower-level
@@ -733,6 +716,7 @@ function bootstrap_irf(
         method::Symbol = :wild,
         block_length::Int = 10,
         normalization::AbstractNormalization = UnitStd(),
+        max_failure_rate::Real = 0.1,
         parallel::Symbol = :none,
         rng::AbstractRNG = Random.default_rng()
     ) where {T}
@@ -747,17 +731,17 @@ function bootstrap_irf(
     if method == :wild
         return bootstrap_irf_wild(
             model, identification, horizon, reps, rng;
-            normalization
+            normalization, max_failure_rate
         )
     elseif method == :standard
         return bootstrap_irf_standard(
             model, identification, horizon, reps, rng;
-            normalization
+            normalization, max_failure_rate
         )
     else  # :block
         return bootstrap_irf_block(
             model, identification, horizon, reps, block_length, rng;
-            normalization
+            normalization, max_failure_rate
         )
     end
 end

@@ -341,6 +341,13 @@ Jointly resamples (residuals, instrument) in overlapping blocks with position-sp
 centering. Produces percentile CIs, Hall's CIs, and optionally Anderson-Rubin
 confidence sets.
 
+A replication fails when its re-estimation raises `PosDefException`,
+`SingularException`, `LAPACKException`, or `DomainError`, or produces non-finite
+values; other exceptions propagate. Failed replications are dropped (with a warning)
+from every statistic and from the returned `irf_store`/`irf_norm_store`; `n_failed`
+counts them. The call throws when more than `inf.max_failure_rate` of the
+replications fail.
+
 When `inf.compute_ar == true` and `inf.ar_grid === nothing`, a default grid of
 `range(-10, 10; length=201)` is used.
 
@@ -368,7 +375,8 @@ function proxy_svar_mbb(
         ProxySVARMBB(
             inf.reps; block_length = inf.block_length,
             compute_ar = true, ar_grid = collect(range(-10.0, 10.0; length = 201)),
-            norm_scale = inf.norm_scale, save_draws = inf.save_draws
+            norm_scale = inf.norm_scale, save_draws = inf.save_draws,
+            max_failure_rate = inf.max_failure_rate
         )
     else
         inf
@@ -491,7 +499,7 @@ function _proxy_svar_mbb_impl(
     end
 
     # ── Step 4: Bootstrap loop ────────────────────────────────────────────
-    n_failed = 0
+    ok = falses(n_boot)
     dim_state = 1 + KK * p_val
 
     # Pre-allocate reusable buffers outside the loop
@@ -554,7 +562,10 @@ function _proxy_svar_mbb_impl(
         end
 
         # 4e: Re-estimate proxy-SVAR on bootstrap sample (in-place)
-        try
+        ok[b] = _try_draw!(
+            view(irf_store, :, :, b), view(irf_norm_store, :, :, b),
+            view(fevd_store, :, :, b)
+        ) do irf_b, irf_norm_b, fevd_b
             A_star, U_star, Σ_uu_star,
                 Σ_um_star, H1_star = estimate_proxy_svar!(est_buf, y_star, x_star, m_star)
 
@@ -564,39 +575,43 @@ function _proxy_svar_mbb_impl(
                 p_val, s, n_imp, target
             )
 
-            copyto!(view(irf_store, :, :, b), dyn_buf.irf)
-            copyto!(view(irf_norm_store, :, :, b), dyn_buf.irf_norm)
-            copyto!(view(fevd_store, :, :, b), dyn_buf.fevd)
+            copyto!(irf_b, dyn_buf.irf)
+            copyto!(irf_norm_b, dyn_buf.irf_norm)
+            copyto!(fevd_b, dyn_buf.fevd)
+        end
 
-            # 4g: AR statistics — anchor on target variable's impact
-            if inf.compute_ar
-                svma_star = dyn_buf.svma
-                svma_target = svma_star[target, 1]
-                @inbounds for g in eachindex(inf.ar_grid)
-                    grid_g = inf.ar_grid[g]
-                    for h in 1:n_imp
-                        for k in 1:KK
-                            ar_store[k, h, g, b] = s * svma_star[k, h] -
-                                svma_target * grid_g
-                        end
+        # 4g: AR statistics — anchor on target variable's impact
+        if ok[b] && inf.compute_ar
+            svma_star = dyn_buf.svma
+            svma_target = svma_star[target, 1]
+            @inbounds for g in eachindex(inf.ar_grid)
+                grid_g = inf.ar_grid[g]
+                for h in 1:n_imp
+                    for k in 1:KK
+                        ar_store[k, h, g, b] = s * svma_star[k, h] -
+                            svma_target * grid_g
                     end
                 end
             end
-        catch e
-            n_failed += 1
-            # Fill failed draws with NaN rather than biasing with previous draw
-            fill!(view(irf_store, :, :, b), NaN)
-            fill!(view(irf_norm_store, :, :, b), NaN)
-            fill!(view(fevd_store, :, :, b), NaN)
+            ok[b] = all(isfinite, view(ar_store, :, :, :, b))
         end
     end
 
-    _report_bootstrap_failures("Proxy-SVAR MBB", n_failed, n_boot)
+    # Failed draws are dropped from every store before any statistic is computed.
+    n_failed = count(!, ok)
+    _check_failure_rate("Proxy-SVAR MBB", n_failed, n_boot, inf.max_failure_rate)
+    if n_failed > 0
+        irf_store = irf_store[:, :, ok]
+        irf_norm_store = irf_norm_store[:, :, ok]
+        fevd_store = fevd_store[:, :, ok]
+        ar_store = ar_store === nothing ? nothing : ar_store[:, :, :, ok]
+    end
+    n_ok = n_boot - n_failed
 
     # ── Step 5: Percentile confidence intervals ───────────────────────────
-    ci68_irf, ci95_irf = _percentile_intervals(irf_store, n_boot)
-    ci68_irf_norm, ci95_irf_norm = _percentile_intervals(irf_norm_store, n_boot)
-    ci68_fevd, ci95_fevd = _percentile_intervals(fevd_store, n_boot)
+    ci68_irf, ci95_irf = _percentile_intervals(irf_store, n_ok)
+    ci68_irf_norm, ci95_irf_norm = _percentile_intervals(irf_norm_store, n_ok)
+    ci68_fevd, ci95_fevd = _percentile_intervals(fevd_store, n_ok)
 
     # ── Step 6: Hall's intervals ──────────────────────────────────────────
     # Compute point estimates for Hall's correction
@@ -615,7 +630,7 @@ function _proxy_svar_mbb_impl(
 
     # ── Step 7: AR confidence sets ────────────────────────────────────────
     ar_result = if inf.compute_ar
-        _ar_confidence_sets(ar_store, inf.ar_grid, s, n_boot, target)
+        _ar_confidence_sets(ar_store, inf.ar_grid, s, n_ok, target)
     else
         nothing
     end
@@ -892,29 +907,9 @@ function compute_inference_bands(
     return draws_4d, stderr, lower, upper
 end
 
-# Auto-dispatch: BlockBootstrap + IVIdentification → ProxySVARMBB (J&L corrected)
-function compute_inference_bands(
-        model::VARModel{T},
-        identification::IVIdentification,
-        irf_point::Array{T, 3},
-        inf::BlockBootstrap,
-        coverage::Vector{Float64},
-        normalization::AbstractNormalization,
-        rng::AbstractRNG
-    ) where {T}
-    # Promote to Jentsch-Lunsford MBB which jointly resamples (residuals, proxy)
-    proxy_inf = ProxySVARMBB(
-        inf.reps; block_length = inf.block_length,
-        save_draws = inf.save_draws
-    )
-    return compute_inference_bands(
-        model, identification, irf_point, proxy_inf, coverage, normalization, rng
-    )
-end
-
 # The residual bootstraps refit the VAR on a resampled series without resampling
 # the instrument, so the instrument has no valid alignment with the refitted residuals.
-for B in (:WildBootstrap, :Bootstrap)
+for B in (:WildBootstrap, :Bootstrap, :BlockBootstrap)
     @eval function compute_inference_bands(
             ::VARModel{T}, ::IVIdentification,
             ::Array{T, 3}, ::$B, ::Vector{Float64}, ::AbstractNormalization,

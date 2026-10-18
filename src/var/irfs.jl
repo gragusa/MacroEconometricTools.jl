@@ -1072,7 +1072,7 @@ function compute_inference_bands(
     # Run wild bootstrap
     draws = bootstrap_irf_wild(
         model, identification, horizon, inf.reps, rng;
-        normalization
+        normalization, max_failure_rate = inf.max_failure_rate
     )
 
     # Compute bands from draws
@@ -1097,7 +1097,7 @@ function compute_inference_bands(
     horizon = size(irf_point, 3) - 1
     draws = bootstrap_irf_standard(
         model, identification, horizon, inf.reps, rng;
-        normalization
+        normalization, max_failure_rate = inf.max_failure_rate
     )
     lower, upper = compute_bands_from_draws(irf_point, draws, coverage)
     stderr = dropdims(std(draws; dims = 1); dims = 1)
@@ -1118,12 +1118,29 @@ function compute_inference_bands(
     horizon = size(irf_point, 3) - 1
     draws = bootstrap_irf_block(
         model, identification, horizon, inf.reps,
-        inf.block_length, rng; normalization
+        inf.block_length, rng; normalization, max_failure_rate = inf.max_failure_rate
     )
     lower, upper = compute_bands_from_draws(irf_point, draws, coverage)
     stderr = dropdims(std(draws; dims = 1); dims = 1)
 
     return draws, stderr, lower, upper
+end
+
+# The delta method differentiates the lower-triangular Cholesky factor of Σ, so it
+# is valid only for `CholeskyID` in the model's variable order.
+function _require_default_cholesky(identification::AbstractIdentification)
+    identification isa CholeskyID && identification.ordering === nothing && return nothing
+    got = identification isa CholeskyID ?
+        "CholeskyID with ordering $(identification.ordering)" :
+        string(nameof(typeof(identification)))
+    throw(
+        ArgumentError(
+            "Analytic() inference is valid only for CholeskyID() with the model's " *
+                "variable order (got $got). Use a bootstrap " *
+                "(WildBootstrap, Bootstrap, BlockBootstrap), or reorder the variables " *
+                "when fitting the model."
+        )
+    )
 end
 
 # Method 4: Analytic (Delta Method)
@@ -1136,6 +1153,8 @@ function compute_inference_bands(
         normalization::AbstractNormalization,
         rng::AbstractRNG  # Not used, but keep signature consistent
     ) where {T}
+
+    _require_default_cholesky(identification)
 
     # Delta method doesn't produce draws
     draws = nothing
