@@ -114,72 +114,87 @@ function simulate_var!(
 end
 
 """
-    forecast(model::VARModel, h::Int; Y_init=nothing, include_draws=false, n_draws=1000)
+    forecast(model::VARModel, h::Int; Y_init=nothing, include_draws=false,
+             n_draws=1000, coverage=[0.68, 0.90, 0.95], rng=Random.default_rng())
 
-Forecast h periods ahead from VAR model.
+Forecast `h` periods ahead from the estimated VAR.
+
+The point forecast is the conditional mean: the VAR recursion run forward from
+the last `n_lags` rows of `Y_init` with zero innovations. Row `t` is the
+forecast for `t` periods after the last row of `Y_init`.
+
+With `include_draws = true`, `n_draws` paths are simulated with innovations
+drawn from `N(0, Σ)`, where `Σ = residual_covariance(model)`. The coefficients
+are held at their estimates, so the bands reflect innovation uncertainty only,
+not estimation uncertainty.
 
 # Arguments
 - `model::VARModel`: Estimated VAR model
 - `h::Int`: Forecast horizon
 
 # Keyword Arguments
-- `Y_init::Matrix=nothing`: Initial conditions (default: use last n_lags observations)
-- `include_draws::Bool=false`: Include forecast draws for uncertainty quantification
-- `n_draws::Int=1000`: Number of forecast draws (if include_draws=true)
+- `Y_init::AbstractMatrix=nothing`: Initial conditions (at least `n_lags` rows;
+  the last `n_lags` are used). Default: the last `n_lags` rows of the data.
+- `include_draws::Bool=false`: Also return simulated paths and bands
+- `n_draws::Int=1000`: Number of simulated paths
+- `coverage::Vector{Float64}=[0.68, 0.90, 0.95]`: Coverage levels of the bands
+- `rng::AbstractRNG=Random.default_rng()`: Random number generator for the draws
 
 # Returns
-- `forecast::Matrix`: Point forecast (h × n_vars)
-- If `include_draws=true`: NamedTuple with `forecast`, `draws`, and `bands`
+- `include_draws = false`: point forecast, an `h × n_vars` matrix
+- `include_draws = true`: NamedTuple with `forecast` (`h × n_vars`), `draws`
+  (`n_draws × h × n_vars`), `bands` (NamedTuple of `lower` and `upper`, each
+  `length(coverage) × h × n_vars`), and `coverage` (sorted)
 """
 function forecast(
         model::VARModel{T}, h::Int;
         Y_init::Union{Nothing, AbstractMatrix{T}} = nothing,
         include_draws::Bool = false,
         n_draws::Int = 1000,
-        coverage::Vector{Float64} = [0.68, 0.9, 0.95]
+        coverage::Vector{Float64} = [0.68, 0.9, 0.95],
+        rng::AbstractRNG = Random.default_rng()
     ) where {T}
     h > 0 || throw(ArgumentError("forecast horizon h must be positive"))
 
     n_lags_val = n_lags(model)
     n_vars_val = n_vars(model)
 
-    # Initial conditions
     if Y_init === nothing
         Y_init = model.Y[(end - n_lags_val + 1):end, :]
     end
 
-    if !include_draws
-        # Point forecast (conditional expectation)
-        innovations_zero = zeros(T, h, n_vars_val)
-        forecast_point = simulate_var(model, innovations_zero, Y_init)
-        return forecast_point
-    else
-        # Forecast with uncertainty
-        Σ = residual_covariance(model)
-        L = cholesky(Σ).L
+    # `simulate_var!` copies the last `n_lags` rows of `Y_init` into the first
+    # `n_lags` rows of its output and adds innovation row `t - n_lags` at row `t`,
+    # so with `n_lags + h` rows the forecasts are rows `n_lags+1:n_lags+h` and
+    # innovation rows `1:h` are the ones used.
+    intercept = model.coefficients.intercept
+    lags = model.coefficients.lags
+    Y_sim = zeros(T, n_lags_val + h, n_vars_val)
+    innovations = zeros(T, n_lags_val + h, n_vars_val)
+    forecast_rows = (n_lags_val + 1):(n_lags_val + h)
 
-        # Storage for draws
-        forecast_draws = zeros(T, n_draws, h, n_vars_val)
+    simulate_var!(Y_sim, intercept, lags, innovations, Y_init)
+    forecast_point = Y_sim[forecast_rows, :]
+    include_draws || return forecast_point
 
-        for d in 1:n_draws
-            # Draw innovations from N(0, Σ)
-            innovations = randn(T, h, n_vars_val) * L'
-            forecast_draws[d, :, :] = simulate_var(model, innovations, Y_init)
-        end
+    n_draws > 0 || throw(ArgumentError("n_draws must be positive"))
+    all(0 .< coverage .< 1) || throw(ArgumentError("coverage levels must be in (0, 1)"))
+    coverage = sort(coverage)
 
-        # Point forecast (mean of draws)
-        forecast_point = dropdims(mean(forecast_draws; dims = 1); dims = 1)
-
-        # Confidence bands
-        forecast_bands = compute_forecast_bands(forecast_draws, coverage)
-
-        return (
-            forecast = forecast_point,
-            draws = forecast_draws,
-            bands = forecast_bands,
-            coverage = coverage,
-        )
+    L = cholesky(residual_covariance(model)).L
+    forecast_draws = zeros(T, n_draws, h, n_vars_val)
+    for d in 1:n_draws
+        innovations[1:h, :] .= randn(rng, T, h, n_vars_val) * L'
+        simulate_var!(Y_sim, intercept, lags, innovations, Y_init)
+        forecast_draws[d, :, :] .= view(Y_sim, forecast_rows, :)
     end
+
+    return (
+        forecast = forecast_point,
+        draws = forecast_draws,
+        bands = compute_forecast_bands(forecast_draws, coverage),
+        coverage = coverage,
+    )
 end
 
 """

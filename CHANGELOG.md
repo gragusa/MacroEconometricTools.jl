@@ -80,6 +80,13 @@ backward-compatible).
   inference types and for `IVIdentification`.
 - The `scale` keyword of `irf`. Use `rescale(irf(...), factor)`, which gives
   the same responses, draws, and bands.
+- `confidence_bands(irf, WildBootstrap; coverage)` (an inference type that was
+  not used); use `confidence_bands(irf; coverage)`.
+- `confidence_bands(irf, model, identification, inference; coverage, rng)`;
+  call `irf(model, identification; inference, coverage, rng)` again. The
+  deprecated method forwards to `irf` with the result's horizon and
+  normalization, and throws for rescaled or cumulated results. It previously
+  always failed with a `MethodError`.
 
 ### Changed (breaking)
 
@@ -292,6 +299,14 @@ backward-compatible).
 
 ### Fixed
 
+- `forecast(model, h)` returned `h` rows of which the first `n_lags` were
+  initial data, so only `h - n_lags` periods were forecast. It now returns the
+  `h` forecast periods. With `include_draws = true`, the `forecast` field is
+  the conditional mean instead of the mean of the simulated paths, and the
+  draws use the new `rng` keyword instead of the global RNG.
+- `confidence_bands(irf; coverage)` recomputes percentile bands from saved
+  draws, also for `ProxySVARMBB` results, and throws an `ArgumentError` for
+  Anderson-Rubin bands, which are not percentile bands of the draws.
 - A single failed bootstrap replication made every band and standard error
   `NaN`: failed draws were filled with `NaN` and kept in the mean used for
   centering and in `std`. `proxy_svar_mbb` sorted them into its percentile

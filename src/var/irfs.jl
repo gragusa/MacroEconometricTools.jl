@@ -1014,139 +1014,94 @@ end
 # ============================================================================
 
 """
-    confidence_bands(irf::IRFResult, args...; kwargs...)
+    confidence_bands(irf::IRFResult; coverage=[0.68, 0.90, 0.95])
 
-Compute confidence bands for IRF results using a specified inference method.
+Recompute the percentile bands of `irf` at new coverage levels from its saved
+bootstrap draws. The point estimate, standard errors, draws, identification, and
+inference settings are unchanged. Rescaled or cumulated results work as well,
+because `rescale` and `cumulative_irf` transform the saved draws.
 
-This function allows you to compute confidence bands after computing the IRF,
-either by reusing saved bootstrap draws (fast) or by running new inference (requires model).
-
-# Methods
-
-1. **Recompute from saved draws** (fast, no model needed):
-   ```julia
-   confidence_bands(irf, inference_type; coverage=[...])
-   ```
-   Only works if `irf.bootstrap_draws` is not `nothing`.
-
-2. **Recompute with new inference** (requires model):
-   ```julia
-   confidence_bands(irf, model, identification, inference_type; coverage=[...])
-   ```
-   Can compute any inference type, always works.
-
-# Arguments
-- `irf::IRFResult`: Computed IRF result
-- `model::VARModel`: (Method 2 only) VAR model
-- `identification::AbstractIdentification`: (Method 2 only) Identification scheme
-- `inference_type::InferenceType`: Inference method to use
-
-# Keyword Arguments
-- `coverage::Vector{Float64}=[0.68, 0.90, 0.95]`: Coverage levels
-- `rng::AbstractRNG=Random.default_rng()`: Random number generator (Method 2 only)
-
-# Returns
-- New `IRFResult` with same point estimates but updated confidence bands
+Throws an `ArgumentError` when `irf` has no saved draws (compute it with
+`save_draws = true`) or when its bands are Anderson-Rubin confidence sets
+(`ProxySVARMBB(compute_ar = true)`), which are not percentile bands of the draws.
+To change the inference method, call [`irf`](@ref) again.
 
 # Examples
 ```julia
-# Compute IRF once with saved draws
-irf1 = irf(model, id; inference=WildBootstrap(save_draws=true))
-
-# Fast: compute different coverage from saved draws
-irf2 = confidence_bands(irf1, WildBootstrap(); coverage=[0.75, 0.85, 0.95])
-
-# Slow: compute different inference method (needs model)
-irf3 = confidence_bands(irf1, model, id, BlockBootstrap(block_length=20))
-
-# Delta method (doesn't need draws)
-irf4 = confidence_bands(irf1, model, id, Analytic())
+irf1 = irf(model, CholeskyID(); inference = WildBootstrap(reps = 1000, save_draws = true))
+irf2 = confidence_bands(irf1; coverage = [0.75, 0.85, 0.95])
 ```
 """
-function confidence_bands end
-
-# Method 1: Reuse saved bootstrap draws (fast path)
 function confidence_bands(
-        irf::IRFResult{T},
-        ::Type{<:Union{WildBootstrap, Bootstrap, BlockBootstrap}};
+        irf::IRFResult{T};
         coverage::Vector{Float64} = [0.68, 0.9, 0.95]
     ) where {T}
-
-    # Requires saved draws
     isnothing(irf.bootstrap_draws) && throw(
         ArgumentError(
-            "Bootstrap draws not saved in IRFResult. " *
-                "Pass model and identification to recompute, or use irf() with save_draws=true."
+            "the IRFResult has no saved bootstrap draws; compute it with " *
+                "save_draws = true (e.g. inference = WildBootstrap(reps; save_draws = true))."
         )
     )
-
-    # Sort coverage
+    irf.inference isa ProxySVARMBB && irf.inference.compute_ar && throw(
+        ArgumentError(
+            "the bands of this IRFResult are Anderson-Rubin confidence sets " *
+                "(ProxySVARMBB(compute_ar = true)), not percentile bands of the draws; " *
+                "call irf(model, id; inference = ProxySVARMBB(...; compute_ar = true), " *
+                "coverage) to compute them at other levels."
+        )
+    )
+    all(0 .< coverage .< 1) || throw(ArgumentError("coverage levels must be in (0, 1)"))
     coverage = sort(coverage)
 
-    # Unwrap to raw arrays for band computation
     raw_point = _unwrap_irf_3d(irf.irf)
     raw_draws = _unwrap_irf_4d(irf.bootstrap_draws)
-
-    # Recompute bands from saved draws
     lower_raw, upper_raw = compute_bands_from_draws(raw_point, raw_draws, coverage)
 
-    # Re-wrap in AxisArrays
     names = varnames(irf)
     lower_ax = [_wrap_irf_3d(lb, names) for lb in lower_raw]
     upper_ax = [_wrap_irf_3d(ub, names) for ub in upper_raw]
 
-    # Return new IRFResult with same draws but updated bands
     return IRFResult(
         irf.irf, irf.stderr, irf.bootstrap_draws, lower_ax, upper_ax,
         coverage, irf.identification, irf.inference, irf.metadata
     )
 end
 
-# Method 2: Recompute with new inference method (requires model)
 function confidence_bands(
-        irf::IRFResult{T},
-        model::VARModel{T},
-        identification::AbstractIdentification,
+        irf::IRFResult, ::Type{<:_ResidualBootstrap};
+        coverage::Vector{Float64} = [0.68, 0.9, 0.95]
+    )
+    Base.depwarn(
+        "`confidence_bands(irf, InferenceType; coverage)` is deprecated; " *
+            "use `confidence_bands(irf; coverage)`.", :confidence_bands
+    )
+    return confidence_bands(irf; coverage)
+end
+
+function confidence_bands(
+        result::IRFResult, model::VARModel, identification::AbstractIdentification,
         inf::InferenceType;
         coverage::Vector{Float64} = [0.68, 0.9, 0.95],
         rng::AbstractRNG = Random.default_rng()
-    ) where {T}
-
-    # Sort coverage
-    coverage = sort(coverage)
-
-    # Unwrap point estimate to raw array for compute_inference_bands
-    raw_point = _unwrap_irf_3d(irf.irf)
-
-    # Dispatch to compute_inference_bands (works on raw arrays)
-    draws, stderr_raw,
-        lower_raw,
-        upper_raw = compute_inference_bands(
-        model, identification, raw_point, inf, coverage, rng
     )
-
-    # Determine whether to save draws
-    bootstrap_draws_raw = should_save_draws(inf, draws)
-
-    # Re-wrap in AxisArrays
-    names = Symbol.(model.names)
-    stderr_ax = _wrap_irf_3d(stderr_raw, names)
-    lower_ax = [_wrap_irf_3d(lb, names) for lb in lower_raw]
-    upper_ax = [_wrap_irf_3d(ub, names) for ub in upper_raw]
-    draws_ax = bootstrap_draws_raw === nothing ? nothing :
-        _wrap_irf_4d(bootstrap_draws_raw, names)
-
-    # Update metadata
-    metadata = merge(
-        irf.metadata, (
-            inference_type = typeof(inf),
-            timestamp = now(),
+    Base.depwarn(
+        "`confidence_bands(irf, model, identification, inference)` is deprecated; " *
+            "use `irf(model, identification; horizon, inference, coverage, normalization, rng)`.",
+        :confidence_bands
+    )
+    # `irf` recomputes the result from the model; it cannot reproduce a later
+    # `rescale` or `cumulative_irf`.
+    cumulated = get(result.metadata, :cumulated_vars, nothing)
+    scale = get(result.metadata, :scale, nothing)
+    cumulated === nothing && (scale === nothing || all(isone, scale)) || throw(
+        ArgumentError(
+            "the IRFResult was rescaled or cumulated; call irf(model, identification; " *
+                "inference, coverage, ...) and apply rescale/cumulative_irf to the new result."
         )
     )
-
-    # Return new IRFResult
-    return IRFResult(
-        irf.irf, stderr_ax, draws_ax, lower_ax, upper_ax,
-        coverage, identification, inf, metadata
+    return irf(
+        model, identification;
+        horizon = horizon(result), inference = inf, coverage,
+        normalization = result.metadata.normalization(), rng
     )
 end

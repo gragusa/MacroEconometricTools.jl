@@ -416,13 +416,13 @@ end
 # Generate forecasts
 h_forecast = 12  # 1 year ahead
 fc = forecast(var_model, h_forecast;
-              coverage=[0.68, 0.90],
-              bootstrap_reps=1000)
+              include_draws=true, n_draws=1000, coverage=[0.68, 0.90])
 
-println("12-month ahead forecast:")
+println("12-month ahead forecast (90% band):")
 for (i, name) in enumerate(names)
-    println("  $name: ", round(fc.mean[end, i], digits=3),
-            " ± ", round(fc.std[end, i], digits=3))
+    println("  $name: ", round(fc.forecast[end, i], digits=3),
+            " [", round(fc.bands.lower[2, end, i], digits=3), ", ",
+            round(fc.bands.upper[2, end, i], digits=3), "]")
 end
 ```
 
