@@ -4,4 +4,4 @@
 
 A modern Julia package for macroeconometric analysis featuring Vector Autoregressions (VAR), structural identification, and impulse response analysis.
 
-**Status**: Active development | **Version**: 0.1.0 | **Julia**: ≥ 1.10
+**Status**: Active development | **Version**: 0.1.0 | **Julia**: ≥ 1.13

@@ -119,6 +119,7 @@ backward-compatible).
   `ArgumentError` unless the shocks have unit variance (it rejects
   `normalization = UnitEffect()`, a non-unit `scale`, and rescaled results)
   and no variable is cumulated.
+- Julia 1.13 or later is required.
 
 ### Fixed
 
