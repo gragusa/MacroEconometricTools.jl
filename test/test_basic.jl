@@ -64,7 +64,7 @@ using StableRNGs: StableRNG
 
         # Check that P*P' ≈ Σ
         Σ = vcov(var)
-        @test P * P' ≈ Matrix(Σ) rtol=1e-10
+        @test P * P' ≈ Matrix(Σ) rtol = 1.0e-10
     end
 
     @testset "Matrix-level Cholesky impact with an ordering" begin
@@ -75,13 +75,17 @@ using StableRNGs: StableRNG
         @test structural_impact(Σ_L, CholeskyID()) == Σ_L
         for ordering in ([3, 1, 2], [2, 3, 1], [1, 2, 3])
             P = structural_impact(Σ_L, CholeskyID(ordering); ordering_idx = ordering)
-            @test P * P' ≈ Σ rtol=1e-10
-            @test P ≈ rotation_matrix(var, CholeskyID(ordering)) rtol=1e-10
+            @test P * P' ≈ Σ rtol = 1.0e-10
+            @test P ≈ rotation_matrix(var, CholeskyID(ordering)) rtol = 1.0e-10
         end
-        @test_throws "permutation of 1:3" structural_impact(Σ_L, CholeskyID([1, 2]);
-            ordering_idx = [1, 2])
-        @test_throws ArgumentError structural_impact(Σ_L, CholeskyID([1, 1, 2]);
-            ordering_idx = [1, 1, 2])
+        @test_throws "permutation of 1:3" structural_impact(
+            Σ_L, CholeskyID([1, 2]);
+            ordering_idx = [1, 2]
+        )
+        @test_throws ArgumentError structural_impact(
+            Σ_L, CholeskyID([1, 1, 2]);
+            ordering_idx = [1, 1, 2]
+        )
     end
 
     @testset "Resampling reproducibility" begin

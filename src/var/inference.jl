@@ -153,8 +153,10 @@ This is used in the delta method for computing IRF standard errors.
 # Returns
 - Vector of G matrices, one for each horizon 1:horizon
 """
-function irf_jacobian_matrices(model::VARModel{T, OLSVAR}, irf_point::Array{T, 3},
-        horizon::Int) where {T}
+function irf_jacobian_matrices(
+        model::VARModel{T, OLSVAR}, irf_point::Array{T, 3},
+        horizon::Int
+    ) where {T}
     n_vars_val = n_vars(model)
     n_lags_val = n_lags(model)
     n_comp = n_vars_val * n_lags_val
@@ -216,8 +218,10 @@ Based on Lütkepohl (2005), Section 3.7.
 - Covariance array of size (n_vars^2, n_vars^2, horizon+1); slice `[:, :, h+1]` is
   the covariance of `vec(Θ_h)`
 """
-function irf_effect_covariance(model::VARModel{T, OLSVAR}, P::Matrix{T},
-        irf_point::Array{T, 3}) where {T}
+function irf_effect_covariance(
+        model::VARModel{T, OLSVAR}, P::Matrix{T},
+        irf_point::Array{T, 3}
+    ) where {T}
     horizon = size(irf_point, 3) - 1
     n_vars_val = n_vars(model)
     n_lags_val = n_lags(model)
@@ -283,8 +287,10 @@ Extracts the square root of diagonal elements of the covariance matrix.
 # Returns
 - Standard error array of size (n_vars, n_vars, horizon+1)
 """
-function irf_asymptotic_stderror(model::VARModel{T, OLSVAR}, P::Matrix{T},
-        irf_point::Array{T, 3}) where {T}
+function irf_asymptotic_stderror(
+        model::VARModel{T, OLSVAR}, P::Matrix{T},
+        irf_point::Array{T, 3}
+    ) where {T}
     n_vars_val = n_vars(model)
 
     # Compute covariance

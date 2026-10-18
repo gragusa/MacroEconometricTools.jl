@@ -22,8 +22,12 @@ names, or a vector of integer positions. Throws when an entry is not present.
 function _resolve_selection(names::AbstractVector, selection, label)
     selection === :all && return collect(eachindex(names))
     selection isa AbstractVector ||
-        throw(ArgumentError("`$(label)` must be `:all` or a vector of names or " *
-                            "positions, got $(repr(selection))"))
+        throw(
+        ArgumentError(
+            "`$(label)` must be `:all` or a vector of names or " *
+                "positions, got $(repr(selection))"
+        )
+    )
     return [_resolve_entry(names, s, label) for s in selection]
 end
 
@@ -50,8 +54,12 @@ entry per selected name, in selection order.
 function _resolve_labels(labels, names::AbstractVector, idx, suffix, label)
     labels === nothing && return string.(names[idx]) .* suffix
     length(labels) == length(idx) ||
-        throw(ArgumentError("`$(label)` has $(length(labels)) labels for " *
-                            "$(length(idx)) selected entries"))
+        throw(
+        ArgumentError(
+            "`$(label)` has $(length(labels)) labels for " *
+                "$(length(idx)) selected entries"
+        )
+    )
     return collect(labels)
 end
 
@@ -60,8 +68,10 @@ end
 
 Resolve the variable and shock selection and the panel labels for `irf`.
 """
-function _prepare_irf_plot(irf::AbstractIRFResult; vars = :all, shocks = :all,
-        pretty_vars = nothing, pretty_shocks = nothing)
+function _prepare_irf_plot(
+        irf::AbstractIRFResult; vars = :all, shocks = :all,
+        pretty_vars = nothing, pretty_shocks = nothing
+    )
     vnames = varnames(irf)
     snames = shocknames(irf)
     idxvars = _resolve_selection(vnames, vars, :vars)
@@ -71,17 +81,26 @@ function _prepare_irf_plot(irf::AbstractIRFResult; vars = :all, shocks = :all,
         idxshocks = idxshocks,
         var_labels = _resolve_labels(pretty_vars, vnames, idxvars, "", :pretty_vars),
         shock_labels = _resolve_labels(
-            pretty_shocks, snames, idxshocks, " shock", :pretty_shocks)
+            pretty_shocks, snames, idxshocks, " shock", :pretty_shocks
+        ),
     )
 end
 
 function _check_plot_type(irf::AbstractIRFResult, plot_type)
     plot_type ∈ (:quantiles, :paths, :both) ||
-        throw(ArgumentError("`plot_type` must be :quantiles, :paths, or :both, " *
-                            "got $(repr(plot_type))"))
+        throw(
+        ArgumentError(
+            "`plot_type` must be :quantiles, :paths, or :both, " *
+                "got $(repr(plot_type))"
+        )
+    )
     plot_type === :quantiles || has_draws(irf) ||
-        throw(ArgumentError("`plot_type = $(repr(plot_type))` needs stored draws, " *
-                            "but this $(nameof(typeof(irf))) has none"))
+        throw(
+        ArgumentError(
+            "`plot_type = $(repr(plot_type))` needs stored draws, " *
+                "but this $(nameof(typeof(irf))) has none"
+        )
+    )
     return plot_type
 end
 
@@ -101,7 +120,8 @@ draws), `path_alpha`, `path_color`, `median_color` (point-estimate line, unless
 
 Scale data before plotting with `rescale` / `rescale!`.
 """
-RecipesBase.@recipe function f(irf::AbstractIRFResult;
+RecipesBase.@recipe function f(
+        irf::AbstractIRFResult;
         vars = :all,
         shocks = :all,
         pretty_shocks = nothing,
@@ -111,9 +131,11 @@ RecipesBase.@recipe function f(irf::AbstractIRFResult;
         path_color = :gray,
         median_color = :black,
         drawzero = true,
-        zerolinecol = :lightgray)
+        zerolinecol = :lightgray
+    )
     _check_plot_type(irf, plot_type)
-    info = _prepare_irf_plot(irf;
+    info = _prepare_irf_plot(
+        irf;
         vars = vars,
         shocks = shocks,
         pretty_vars = pretty_vars,

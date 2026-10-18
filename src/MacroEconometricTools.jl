@@ -12,8 +12,8 @@ A modern Julia package for macroeconometric analysis, featuring:
 module MacroEconometricTools
 
 using LinearAlgebra: LinearAlgebra, Diagonal, I, Symmetric, cholesky, cholesky!,
-                     diag, dot, eigen, eigvals, ldiv!, logdet, mul!, pinv, qr,
-                     transpose!
+    diag, dot, eigen, eigvals, ldiv!, logdet, mul!, pinv, qr,
+    transpose!
 using Statistics: Statistics
 using Random: Random, AbstractRNG, randn!
 using Dates: Dates, now
@@ -188,7 +188,7 @@ export rotation_matrix, normalize, normalize!
 # (B, Σ_L) matrices rather than a fitted VARModel — used by spoke packages that
 # loop over reduced-form draws, e.g. BayesianVAR.jl posterior draws).
 export structural_impact, compute_ma_matrices_from_B!, generate_random_orthogonal!,
-       check_sign_restrictions, compute_structural_shocks, check_narrative_restrictions
+    check_sign_restrictions, compute_structural_shocks, check_narrative_restrictions
 export lag, create_lags, create_lags!
 export companion_form
 export variance_decomposition, historical_decomposition

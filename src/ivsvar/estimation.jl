@@ -29,24 +29,31 @@ first_stage_F(model, IVIdentification(proxy_data, 1))
 Returns a `VARModel{T, IVSVAR{I}}` whose `metadata` holds `structural_impact`,
 `first_stage_F`, `first_stage_coef`, `target_shock`, and `iv_coefficients`.
 """
-function StatsBase.fit(::Type{IVSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
-        instrument::AbstractInstrument, kwargs...) where {T <: AbstractFloat}
+function StatsBase.fit(
+        ::Type{IVSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
+        instrument::AbstractInstrument, kwargs...
+    ) where {T <: AbstractFloat}
     Base.depwarn(
         "`fit(IVSVAR, Y, n_lags; instrument)` is deprecated; use " *
-        "`fit(OLSVAR, Y, n_lags)` and `IVIdentification(instrument)`.",
-        :fit)
+            "`fit(OLSVAR, Y, n_lags)` and `IVIdentification(instrument)`.",
+        :fit
+    )
     return _fit_ivsvar(Y, n_lags; instrument, kwargs...)
 end
 
-function _fit_ivsvar(Y::AbstractMatrix{T}, n_lags::Int;
+function _fit_ivsvar(
+        Y::AbstractMatrix{T}, n_lags::Int;
         instrument::AbstractInstrument,
         constraints::Vector{<:AbstractConstraint} = AbstractConstraint[],
         names::Union{Nothing, Vector{Symbol}} = nothing,
-        demean::Bool = false) where {T <: AbstractFloat}
+        demean::Bool = false
+    ) where {T <: AbstractFloat}
 
     # ── Step 1: Reduced-form VAR ──────────────────────────────────────────
-    var_ols = fit(OLSVAR, Y, n_lags;
-        constraints = constraints, names = names, demean = demean)
+    var_ols = fit(
+        OLSVAR, Y, n_lags;
+        constraints = constraints, names = names, demean = demean
+    )
     ν = residuals(var_ols)                 # (T-p) × n
     n_obs, n = size(ν)
     var_names = var_ols.names
@@ -72,12 +79,14 @@ function _fit_ivsvar(Y::AbstractMatrix{T}, n_lags::Int;
         first_stage_F = F_stat,
         first_stage_coef = π_hat,
         target_shock = target,
-        iv_coefficients = β_iv
+        iv_coefficients = β_iv,
     )
 
-    return VARModel(spec, var_ols.Y, var_ols.X, var_ols.coefficients,
+    return VARModel(
+        spec, var_ols.Y, var_ols.X, var_ols.coefficients,
         var_ols.residuals, var_ols.Σ, var_ols.companion, var_names, var_ols.dates,
-        metadata)
+        metadata
+    )
 end
 
 # ============================================================================
@@ -112,7 +121,7 @@ end
 Rows of `Z` in which every column is observed (not `missing`).
 """
 function _observed_rows(Z::AbstractMatrix)
-    [i for i in axes(Z, 1) if all(!ismissing, view(Z, i, :))]
+    return [i for i in axes(Z, 1) if all(!ismissing, view(Z, i, :))]
 end
 
 """
@@ -123,9 +132,12 @@ Return `Z` with a non-missing element type, or throw if any row has a missing va
 """
 function _require_observed(Z::AbstractMatrix, what::AbstractString)
     n_missing = size(Z, 1) - length(_observed_rows(Z))
-    n_missing == 0 || throw(ArgumentError(
-        "$what requires an instrument observed in every residual period; it is " *
-        "missing in $n_missing of $(size(Z, 1)) periods."))
+    n_missing == 0 || throw(
+        ArgumentError(
+            "$what requires an instrument observed in every residual period; it is " *
+                "missing in $n_missing of $(size(Z, 1)) periods."
+        )
+    )
     return convert(Matrix{nonmissingtype(eltype(Z))}, Z)
 end
 
@@ -150,13 +162,19 @@ identification (k proxies for k shocks), system GMM is required.
 - `π_hat`: first-stage coefficients
 """
 function _iv_identify(ν::AbstractMatrix{T}, Z::AbstractMatrix, target::Int) where {T}
-    size(Z, 1) == size(ν, 1) || throw(DimensionMismatch(
-        "instrument has $(size(Z, 1)) rows but the residuals have $(size(ν, 1))"))
+    size(Z, 1) == size(ν, 1) || throw(
+        DimensionMismatch(
+            "instrument has $(size(Z, 1)) rows but the residuals have $(size(ν, 1))"
+        )
+    )
     rows = _observed_rows(Z)
     k_z = size(Z, 2)
-    length(rows) > k_z + 1 || throw(ArgumentError(
-        "instrument is observed in $(length(rows)) residual periods; 2SLS with " *
-        "$k_z instrument(s) needs at least $(k_z + 2)"))
+    length(rows) > k_z + 1 || throw(
+        ArgumentError(
+            "instrument is observed in $(length(rows)) residual periods; 2SLS with " *
+                "$k_z instrument(s) needs at least $(k_z + 2)"
+        )
+    )
     return _iv_identify_complete(Matrix{T}(ν[rows, :]), Matrix{T}(Z[rows, :]), target)
 end
 
@@ -207,8 +225,11 @@ function _resolve_iv(model::VARModel, id::IVIdentification)
     elseif model.spec isa IVSVAR
         return IVIdentification(model.spec.instrument)
     else
-        throw(ArgumentError(
-            "IVIdentification requires an instrument: use IVIdentification(Z, target_shock)"))
+        throw(
+            ArgumentError(
+                "IVIdentification requires an instrument: use IVIdentification(Z, target_shock)"
+            )
+        )
     end
 end
 
@@ -225,8 +246,10 @@ shock index (a `Symbol` target is resolved against `names`).
 `Z` must have `n_obs + n_lags` rows (same length as the data `Y`; the first
 `n_lags` rows are dropped) or `n_obs` rows (already aligned with the residuals).
 """
-function _extract_instrument(instrument::ExternalInstrument,
-        n_obs::Int, n_lags::Int, names::Vector{Symbol})
+function _extract_instrument(
+        instrument::ExternalInstrument,
+        n_obs::Int, n_lags::Int, names::Vector{Symbol}
+    )
     Z = instrument.Z
     n_z = size(Z, 1)
     target = _resolve_target(instrument.target_shock, names)
@@ -235,9 +258,12 @@ function _extract_instrument(instrument::ExternalInstrument,
     elseif n_z == n_obs + n_lags
         return Z[(n_lags + 1):end, :], target
     else
-        throw(DimensionMismatch(
-            "Instrument has $n_z rows; expected $(n_obs + n_lags) (the number of rows of Y) " *
-            "or $n_obs (the number of VAR residuals, Y without its first $n_lags rows)."))
+        throw(
+            DimensionMismatch(
+                "Instrument has $n_z rows; expected $(n_obs + n_lags) (the number of rows of Y) " *
+                    "or $n_obs (the number of VAR residuals, Y without its first $n_lags rows)."
+            )
+        )
     end
 end
 
@@ -313,8 +339,10 @@ This is the matrix-level counterpart to `rotation_matrix(model, ::IVIdentificati
 A package looping over reduced-form draws calls it with each draw's `(ν, Σ)` and
 the fixed instrument.
 """
-function iv_impact(ν::AbstractMatrix{T}, Σ::AbstractMatrix{T}, Z::AbstractMatrix,
-        target::Int) where {T}
+function iv_impact(
+        ν::AbstractMatrix{T}, Σ::AbstractMatrix{T}, Z::AbstractMatrix,
+        target::Int
+    ) where {T}
     β_iv, F_stat, _ = _iv_identify(ν, Z, target)
     P = _build_full_impact_matrix(β_iv, target, Matrix(Σ))
     return P, F_stat
@@ -343,8 +371,10 @@ end
 Re-estimate a proxy-SVAR model on bootstrap data. Used internally by
 the bootstrap machinery.
 """
-function refit_for_bootstrap(model::VARModel{T, <:IVSVAR}, Y_boot::Matrix{T},
-        n_lags_val::Int) where {T}
+function refit_for_bootstrap(
+        model::VARModel{T, <:IVSVAR}, Y_boot::Matrix{T},
+        n_lags_val::Int
+    ) where {T}
     constraints_arg = model.coefficients.constraints
     constraints_arg = constraints_arg === nothing ? AbstractConstraint[] : constraints_arg
 
@@ -352,10 +382,12 @@ function refit_for_bootstrap(model::VARModel{T, <:IVSVAR}, Y_boot::Matrix{T},
     n_resid_boot = size(Y_boot, 1) - n_lags_val
     instrument = _resize_instrument(model.spec.instrument, n_resid_boot)
 
-    return _fit_ivsvar(Y_boot, n_lags_val;
+    return _fit_ivsvar(
+        Y_boot, n_lags_val;
         instrument,
         constraints = constraints_arg,
-        names = model.names)
+        names = model.names
+    )
 end
 
 """
@@ -363,11 +395,15 @@ end
 
 Re-estimate a non-IVSVAR model on bootstrap data. Generic fallback.
 """
-function refit_for_bootstrap(model::VARModel{T}, Y_boot::Matrix{T},
-        n_lags_val::Int) where {T}
+function refit_for_bootstrap(
+        model::VARModel{T}, Y_boot::Matrix{T},
+        n_lags_val::Int
+    ) where {T}
     constraints_arg = model.coefficients.constraints
     constraints_arg = constraints_arg === nothing ? AbstractConstraint[] : constraints_arg
-    return fit(typeof(model.spec), Y_boot, n_lags_val;
+    return fit(
+        typeof(model.spec), Y_boot, n_lags_val;
         constraints = constraints_arg,
-        names = model.names)
+        names = model.names
+    )
 end

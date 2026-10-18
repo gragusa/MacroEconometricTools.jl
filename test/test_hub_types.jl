@@ -24,19 +24,23 @@ using AxisArrays
         )
 
         # Create lower/upper bounds
-        coverage = [0.68, 0.90]
-        lower = [AxisArray(
-                     randn(n_vars, n_shocks, n_horizons),
-                     Axis{:variable}([:GDP, :INF, :RATE]),
-                     Axis{:shock}([:GDP, :INF, :RATE]),
-                     Axis{:horizon}(0:10)
-                 ) for _ in coverage]
-        upper = [AxisArray(
-                     randn(n_vars, n_shocks, n_horizons),
-                     Axis{:variable}([:GDP, :INF, :RATE]),
-                     Axis{:shock}([:GDP, :INF, :RATE]),
-                     Axis{:horizon}(0:10)
-                 ) for _ in coverage]
+        coverage = [0.68, 0.9]
+        lower = [
+            AxisArray(
+                randn(n_vars, n_shocks, n_horizons),
+                Axis{:variable}([:GDP, :INF, :RATE]),
+                Axis{:shock}([:GDP, :INF, :RATE]),
+                Axis{:horizon}(0:10)
+            ) for _ in coverage
+        ]
+        upper = [
+            AxisArray(
+                randn(n_vars, n_shocks, n_horizons),
+                Axis{:variable}([:GDP, :INF, :RATE]),
+                Axis{:shock}([:GDP, :INF, :RATE]),
+                Axis{:horizon}(0:10)
+            ) for _ in coverage
+        ]
 
         id = CholeskyID()
         metadata = (max_horizon = 10, n_draws = n_draws)
@@ -65,15 +69,23 @@ using AxisArrays
             Axis{:horizon}(0:5)
         )
 
-        coverage = [0.68, 0.90]
-        lower = [AxisArray(zeros(num_vars, num_shocks, num_horizons),
-                     Axis{:variable}([:Y1, :Y2]),
-                     Axis{:shock}([:S1, :S2]),
-                     Axis{:horizon}(0:5)) for _ in coverage]
-        upper = [AxisArray(ones(num_vars, num_shocks, num_horizons),
-                     Axis{:variable}([:Y1, :Y2]),
-                     Axis{:shock}([:S1, :S2]),
-                     Axis{:horizon}(0:5)) for _ in coverage]
+        coverage = [0.68, 0.9]
+        lower = [
+            AxisArray(
+                zeros(num_vars, num_shocks, num_horizons),
+                Axis{:variable}([:Y1, :Y2]),
+                Axis{:shock}([:S1, :S2]),
+                Axis{:horizon}(0:5)
+            ) for _ in coverage
+        ]
+        upper = [
+            AxisArray(
+                ones(num_vars, num_shocks, num_horizons),
+                Axis{:variable}([:Y1, :Y2]),
+                Axis{:shock}([:S1, :S2]),
+                Axis{:horizon}(0:5)
+            ) for _ in coverage
+        ]
 
         id = CholeskyID()
         metadata = (max_horizon = 5, n_draws = num_draws)
@@ -124,14 +136,22 @@ using AxisArrays
         )
 
         coverage = [0.68, 0.95]
-        lower = [AxisArray(Array(data) .- 1.0,
-                     Axis{:response}([:y]),
-                     Axis{:shock}([:x]),
-                     Axis{:horizon}(0:12)) for _ in coverage]
-        upper = [AxisArray(Array(data) .+ 1.0,
-                     Axis{:response}([:y]),
-                     Axis{:shock}([:x]),
-                     Axis{:horizon}(0:12)) for _ in coverage]
+        lower = [
+            AxisArray(
+                Array(data) .- 1.0,
+                Axis{:response}([:y]),
+                Axis{:shock}([:x]),
+                Axis{:horizon}(0:12)
+            ) for _ in coverage
+        ]
+        upper = [
+            AxisArray(
+                Array(data) .+ 1.0,
+                Axis{:response}([:y]),
+                Axis{:shock}([:x]),
+                Axis{:horizon}(0:12)
+            ) for _ in coverage
+        ]
 
         metadata = (horizon = 12, term = :x)
 
@@ -161,15 +181,23 @@ using AxisArrays
             Axis{:horizon}(0:5)
         )
 
-        coverage = [0.90]
-        lower = [AxisArray(Array(data) .- 1.96 .* Array(stderr),
-            Axis{:response}([:y]),
-            Axis{:shock}([:x]),
-            Axis{:horizon}(0:5))]
-        upper = [AxisArray(Array(data) .+ 1.96 .* Array(stderr),
-            Axis{:response}([:y]),
-            Axis{:shock}([:x]),
-            Axis{:horizon}(0:5))]
+        coverage = [0.9]
+        lower = [
+            AxisArray(
+                Array(data) .- 1.96 .* Array(stderr),
+                Axis{:response}([:y]),
+                Axis{:shock}([:x]),
+                Axis{:horizon}(0:5)
+            ),
+        ]
+        upper = [
+            AxisArray(
+                Array(data) .+ 1.96 .* Array(stderr),
+                Axis{:response}([:y]),
+                Axis{:shock}([:x]),
+                Axis{:horizon}(0:5)
+            ),
+        ]
 
         metadata = (horizon = 5, term = :x)
 
@@ -204,12 +232,14 @@ end
     end
 
     @testset "NarrativeRestriction construction from explicit restrictions" begin
-        sign_restrictions = [1 0;
-                             -1 0]
+        sign_restrictions = [
+            1 0;
+            -1 0
+        ]
 
         narrative_shocks = [
             NarrativeShockRestriction(1, 50, 1),
-            NarrativeShockRestriction(1, 75, -1)
+            NarrativeShockRestriction(1, 75, -1),
         ]
 
         # Default horizon
@@ -226,7 +256,7 @@ end
     @testset "NarrativeRestriction with only narrative shocks" begin
         narrative_shocks = [
             NarrativeShockRestriction(1, 50, 1),
-            NarrativeShockRestriction(2, 75, -1)
+            NarrativeShockRestriction(2, 75, -1),
         ]
 
         # Should auto-create zero sign_restrictions matrix
@@ -248,44 +278,68 @@ end
 @testset "IRF Result Type Hierarchy" begin
     @testset "All IRF types are AbstractIRFResult" begin
         # BayesianIRFResult
-        data_b = AxisArray(randn(10, 2, 2, 5),
+        data_b = AxisArray(
+            randn(10, 2, 2, 5),
             Axis{:draw}(1:10),
             Axis{:variable}([:A, :B]),
             Axis{:shock}([:A, :B]),
-            Axis{:horizon}(0:4))
-        lower_b = [AxisArray(randn(2, 2, 5),
-            Axis{:variable}([:A, :B]),
-            Axis{:shock}([:A, :B]),
-            Axis{:horizon}(0:4))]
-        upper_b = [AxisArray(randn(2, 2, 5),
-            Axis{:variable}([:A, :B]),
-            Axis{:shock}([:A, :B]),
-            Axis{:horizon}(0:4))]
+            Axis{:horizon}(0:4)
+        )
+        lower_b = [
+            AxisArray(
+                randn(2, 2, 5),
+                Axis{:variable}([:A, :B]),
+                Axis{:shock}([:A, :B]),
+                Axis{:horizon}(0:4)
+            ),
+        ]
+        upper_b = [
+            AxisArray(
+                randn(2, 2, 5),
+                Axis{:variable}([:A, :B]),
+                Axis{:shock}([:A, :B]),
+                Axis{:horizon}(0:4)
+            ),
+        ]
         irf_b = BayesianIRFResult{Float64, typeof(data_b), CholeskyID}(
-            data_b, lower_b, upper_b, [0.90], CholeskyID(), (;))
+            data_b, lower_b, upper_b, [0.9], CholeskyID(), (;)
+        )
 
         @test irf_b isa AbstractIRFResult
         @test irf_b isa AbstractIRFResult{Float64}
 
         # LocalProjectionIRFResult
-        data_l = AxisArray(randn(1, 1, 5),
+        data_l = AxisArray(
+            randn(1, 1, 5),
             Axis{:response}([:y]),
             Axis{:shock}([:x]),
-            Axis{:horizon}(0:4))
-        stderr_l = AxisArray(abs.(randn(1, 1, 5)),
+            Axis{:horizon}(0:4)
+        )
+        stderr_l = AxisArray(
+            abs.(randn(1, 1, 5)),
             Axis{:response}([:y]),
             Axis{:shock}([:x]),
-            Axis{:horizon}(0:4))
-        lower_l = [AxisArray(Array(data_l) .- 1.0,
-            Axis{:response}([:y]),
-            Axis{:shock}([:x]),
-            Axis{:horizon}(0:4))]
-        upper_l = [AxisArray(Array(data_l) .+ 1.0,
-            Axis{:response}([:y]),
-            Axis{:shock}([:x]),
-            Axis{:horizon}(0:4))]
+            Axis{:horizon}(0:4)
+        )
+        lower_l = [
+            AxisArray(
+                Array(data_l) .- 1.0,
+                Axis{:response}([:y]),
+                Axis{:shock}([:x]),
+                Axis{:horizon}(0:4)
+            ),
+        ]
+        upper_l = [
+            AxisArray(
+                Array(data_l) .+ 1.0,
+                Axis{:response}([:y]),
+                Axis{:shock}([:x]),
+                Axis{:horizon}(0:4)
+            ),
+        ]
         irf_l = LocalProjectionIRFResult{Float64, typeof(data_l)}(
-            data_l, stderr_l, lower_l, upper_l, [0.90], (;))
+            data_l, stderr_l, lower_l, upper_l, [0.9], (;)
+        )
 
         @test irf_l isa AbstractIRFResult
         @test irf_l isa AbstractIRFResult{Float64}
@@ -318,22 +372,30 @@ include("minimal_irf_result.jl")
 
     @testset "shared result types" begin
         names = [:Y1, :Y2]
-        data = AxisArray(randn(4, 2, 2, 3), Axis{:draw}(1:4), Axis{:variable}(names),
-            Axis{:shock}([:S1, :S2]), Axis{:horizon}(0:2))
-        band = AxisArray(zeros(2, 2, 3), Axis{:variable}(names),
-            Axis{:shock}([:S1, :S2]), Axis{:horizon}(0:2))
+        data = AxisArray(
+            randn(4, 2, 2, 3), Axis{:draw}(1:4), Axis{:variable}(names),
+            Axis{:shock}([:S1, :S2]), Axis{:horizon}(0:2)
+        )
+        band = AxisArray(
+            zeros(2, 2, 3), Axis{:variable}(names),
+            Axis{:shock}([:S1, :S2]), Axis{:horizon}(0:2)
+        )
         b = BayesianIRFResult{Float64, typeof(data), CholeskyID}(
-            data, [band], [band], [0.9], CholeskyID(), (;))
+            data, [band], [band], [0.9], CholeskyID(), (;)
+        )
         @test shocknames(b) == [:S1, :S2]
         @test MacroEconometricTools.n_shocks(b) == 2
         @test size(b) == (2, 2, 3)
         @test horizon(b) == 2
         @test occursin("Draws: 4", sprint(show, MIME"text/plain"(), b))
 
-        lp_data = AxisArray(randn(1, 1, 3), Axis{:response}([:y]), Axis{:shock}([:x]),
-            Axis{:horizon}(0:2))
+        lp_data = AxisArray(
+            randn(1, 1, 3), Axis{:response}([:y]), Axis{:shock}([:x]),
+            Axis{:horizon}(0:2)
+        )
         lp = LocalProjectionIRFResult{Float64, typeof(lp_data)}(
-            lp_data, lp_data, [lp_data], [lp_data], [0.9], (;))
+            lp_data, lp_data, [lp_data], [lp_data], [0.9], (;)
+        )
         @test varnames(lp) == [:y]
         @test shocknames(lp) == [:x]
         @test size(lp) == (1, 1, 3)
@@ -341,15 +403,17 @@ include("minimal_irf_result.jl")
         @test coverages(lp) === lp.coverage
         @test_throws "LocalProjectionIRFResult does not store draws" get_draws(lp)
         @test sprint(show, lp) ==
-              "LocalProjectionIRFResult(1 variables × 1 shocks, horizon 2)"
+            "LocalProjectionIRFResult(1 variables × 1 shocks, horizon 2)"
     end
 end
 
 @testset "Spoke-owned specifications are not defined in the hub" begin
     # BayesianVAR.jl and LocalProjections.jl export their own names; hub
     # definitions would clash with them under `using`.
-    for name in (:BayesianVAR, :LocalProjection, :AbstractPrior, :MinnesotaPrior,
-        :NormalWishartPrior)
+    for name in (
+            :BayesianVAR, :LocalProjection, :AbstractPrior, :MinnesotaPrior,
+            :NormalWishartPrior,
+        )
         @test !isdefined(MacroEconometricTools, name)
     end
 end
@@ -361,36 +425,51 @@ end
     model = fit(OLSVAR, Y, 1)
     @test concrete_fields(model)
     @test dates(model) === nothing
-    constrained = fit(OLSVAR, Y, 1; names = [:a, :b],
-        constraints = [ZeroConstraint(:a, [:b], [1])])
+    constrained = fit(
+        OLSVAR, Y, 1; names = [:a, :b],
+        constraints = [ZeroConstraint(:a, [:b], [1])]
+    )
     @test constrained.coefficients.constraints isa Vector{AbstractConstraint}
     @test_throws "dates must have one entry per residual row" VARModel(
         OLSVAR(), model.Y, model.X, model.coefficients, model.residuals, model.Σ,
-        model.companion, model.names, [1, 2], model.metadata)
+        model.companion, model.names, [1, 2], model.metadata
+    )
 
     @test concrete_fields(irf(model, CholeskyID(); horizon = 3))
-    @test concrete_fields(irf(model, SignRestriction([1 0; 0 0]); horizon = 2,
-        n_draws = 10))
+    @test concrete_fields(
+        irf(
+            model, SignRestriction([1 0; 0 0]); horizon = 2,
+            n_draws = 10
+        )
+    )
 
     # Spoke call forms: partial type parameters, bands in an abstractly typed vector
-    data = AxisArray(randn(5, 2, 2, 3), Axis{:draw}(1:5), Axis{:variable}([:a, :b]),
-        Axis{:shock}([:a, :b]), Axis{:horizon}(0:2))
+    data = AxisArray(
+        randn(5, 2, 2, 3), Axis{:draw}(1:5), Axis{:variable}([:a, :b]),
+        Axis{:shock}([:a, :b]), Axis{:horizon}(0:2)
+    )
     band = AxisArray(randn(2, 2, 3), AxisArrays.axes(data)[2:end]...)
     lower = AxisArray{Float64, 3}[band, band]
     b = BayesianIRFResult{Float64, typeof(data), CholeskyID}(
-        data, lower, lower, [0.68, 0.9], CholeskyID(), (;))
+        data, lower, lower, [0.68, 0.9], CholeskyID(), (;)
+    )
     @test concrete_fields(b)
     @test lowerbounds(b) === b.lower
     @test b.lower == lower
     @test BayesianIRFResult(data, lower, lower, [0.68, 0.9], CholeskyID(), (;)) isa
-          typeof(b)
+        typeof(b)
 
-    lp_data = AxisArray(randn(1, 1, 3), Axis{:response}([:y]), Axis{:shock}([:x]),
-        Axis{:horizon}(0:2))
+    lp_data = AxisArray(
+        randn(1, 1, 3), Axis{:response}([:y]), Axis{:shock}([:x]),
+        Axis{:horizon}(0:2)
+    )
     lp = LocalProjectionIRFResult{Float64, typeof(lp_data)}(
-        lp_data, copy(lp_data), [lp_data], [lp_data], [0.9], (;))
+        lp_data, copy(lp_data), [lp_data], [lp_data], [0.9], (;)
+    )
     @test concrete_fields(lp)
     @test lp.lower[1] === lp_data
-    @test LocalProjectionIRFResult(lp_data, copy(lp_data), [lp_data], [lp_data], [0.9],
-        (;)) isa typeof(lp)
+    @test LocalProjectionIRFResult(
+        lp_data, copy(lp_data), [lp_data], [lp_data], [0.9],
+        (;)
+    ) isa typeof(lp)
 end

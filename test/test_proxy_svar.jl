@@ -26,8 +26,10 @@ where ε_t ~ N(0, I).
 Returns (Y, ε) where Y is (T × K) and ε is (T × K).
 A_coefs is a vector of matrices [A₁, A₂, ...].
 """
-function simulate_var_dgp(T::Int, A_coefs::Vector{Matrix{Float64}},
-        H::Matrix{Float64}; rng = StableRNG(42), burn::Int = 500)
+function simulate_var_dgp(
+        T::Int, A_coefs::Vector{Matrix{Float64}},
+        H::Matrix{Float64}; rng = StableRNG(42), burn::Int = 500
+    )
     p = length(A_coefs)
     K = size(H, 1)
     T_total = T + burn
@@ -55,13 +57,17 @@ end
     K = 3
     T = 5000  # large sample for near-exact recovery
 
-    H_true = [1.0 0.0 0.0;
-              0.5 1.0 0.0;
-              0.3 0.2 1.0]
+    H_true = [
+        1.0 0.0 0.0;
+        0.5 1.0 0.0;
+        0.3 0.2 1.0
+    ]
 
-    A1 = [0.3 0.0 0.1;
-          0.1 0.5 0.0;
-          0.0 0.0 0.4]
+    A1 = [
+        0.3 0.0 0.1;
+        0.1 0.5 0.0;
+        0.0 0.0 0.4
+    ]
 
     Y, ε = simulate_var_dgp(T, [A1], H_true; rng = rng)
 
@@ -78,9 +84,9 @@ end
     θ_true = H_true[:, 1]
 
     @testset "Point estimates close to truth" begin
-        @test θ_est[1] ≈ 1.0 atol=1e-10   # unit effect normalization (exact)
-        @test θ_est[2] ≈ θ_true[2] atol=0.05  # 0.5
-        @test θ_est[3] ≈ θ_true[3] atol=0.05  # 0.3
+        @test θ_est[1] ≈ 1.0 atol = 1.0e-10   # unit effect normalization (exact)
+        @test θ_est[2] ≈ θ_true[2] atol = 0.05  # 0.5
+        @test θ_est[3] ≈ θ_true[3] atol = 0.05  # 0.3
     end
 
     @testset "First-stage F-statistic is very large" begin
@@ -94,13 +100,13 @@ end
 
         # Impact response = first column of H
         for i in 1:K
-            @test irf_data[i, 1, 1] ≈ θ_true[i] atol=0.05
+            @test irf_data[i, 1, 1] ≈ θ_true[i] atol = 0.05
         end
 
         # At horizon 1: Θ₁ = A₁ * H[:,1]
         Θ₁_true = A1 * H_true[:, 1]
         for i in 1:K
-            @test irf_data[i, 1, 2] ≈ Θ₁_true[i] atol=0.05
+            @test irf_data[i, 1, 2] ≈ Θ₁_true[i] atol = 0.05
         end
     end
 end
@@ -114,12 +120,16 @@ end
     rng = StableRNG(2024)
     K = 3
     T = 500
-    H_true = [1.0 0.0 0.0;
-              0.5 0.8 0.0;
-              0.3 0.2 1.0]
-    A1 = [0.3 0.0 0.1;
-          0.1 0.5 0.0;
-          0.0 0.0 0.4]
+    H_true = [
+        1.0 0.0 0.0;
+        0.5 0.8 0.0;
+        0.3 0.2 1.0
+    ]
+    A1 = [
+        0.3 0.0 0.1;
+        0.1 0.5 0.0;
+        0.0 0.0 0.4
+    ]
     Y, ε = simulate_var_dgp(T, [A1], H_true; rng = rng)
 
     p = 1
@@ -133,26 +143,27 @@ end
     id_full = IVIdentification(reshape(ε[:, 1], :, 1), 1)
 
     @testset "Coefficients match" begin
-        @test rotation_matrix(model, id_full) ≈ rotation_matrix(model, id_trimmed) atol=1e-12
-        @test first_stage_F(model, id_full) ≈ first_stage_F(model, id_trimmed) atol=1e-10
+        @test rotation_matrix(model, id_full) ≈ rotation_matrix(model, id_trimmed) atol = 1.0e-12
+        @test first_stage_F(model, id_full) ≈ first_stage_F(model, id_trimmed) atol = 1.0e-10
     end
 
     @testset "IRFs match" begin
         irf_t = irf(model, id_trimmed; horizon = 10)
         irf_f = irf(model, id_full; horizon = 10)
-        @test Array(irf_t.irf) ≈ Array(irf_f.irf) atol=1e-12
+        @test Array(irf_t.irf) ≈ Array(irf_f.irf) atol = 1.0e-12
     end
 
     @testset "Also works with vector input" begin
         id_vec = IVIdentification(vec(ε[:, 1]), 1)
-        @test rotation_matrix(model, id_vec) ≈ rotation_matrix(model, id_trimmed) atol=1e-12
+        @test rotation_matrix(model, id_vec) ≈ rotation_matrix(model, id_trimmed) atol = 1.0e-12
     end
 
     @testset "Other instrument lengths are rejected" begin
         for n_z in (T - p - 1, T + 1, 2T)
             id_bad = IVIdentification(randn(rng, n_z), 1)
             @test_throws "expected $T (the number of rows of Y) or $(T - p)" rotation_matrix(
-                model, id_bad)
+                model, id_bad
+            )
         end
     end
 end
@@ -169,13 +180,17 @@ end
     T = 10000  # very large for asymptotic equivalence
 
     # Lower-triangular H → Cholesky-identified DGP
-    H_true = [1.0 0.0 0.0;
-              0.7 0.8 0.0;
-              -0.2 0.3 0.9]
+    H_true = [
+        1.0 0.0 0.0;
+        0.7 0.8 0.0;
+        -0.2 0.3 0.9
+    ]
 
-    A1 = [0.4 0.0 0.0;
-          0.1 0.5 0.0;
-          0.0 0.1 0.3]
+    A1 = [
+        0.4 0.0 0.0;
+        0.1 0.5 0.0;
+        0.0 0.1 0.3
+    ]
 
     Y, ε = simulate_var_dgp(T, [A1], H_true; rng = rng)
 
@@ -204,7 +219,7 @@ end
 
     @testset "Normalized first columns match" begin
         for i in 1:K
-            @test iv_col1[i] ≈ chol_col1_normalized[i] atol=0.05
+            @test iv_col1[i] ≈ chol_col1_normalized[i] atol = 0.05
         end
     end
 
@@ -220,7 +235,7 @@ end
             for i in 1:K
                 irf_chol_norm = irf_chol_data[i, 1, h] / scale
                 irf_iv_val = irf_iv_data[i, 1, h]
-                @test irf_iv_val ≈ irf_chol_norm atol=0.1
+                @test irf_iv_val ≈ irf_chol_norm atol = 0.1
             end
         end
     end
@@ -234,13 +249,19 @@ end
     K = 2
     T = 500
 
-    H_true = [sqrt(2)/2 sqrt(2)/2;
-              (sqrt(2)-sqrt(6))/4 (sqrt(2)+sqrt(6))/4]
+    H_true = [
+        sqrt(2) / 2 sqrt(2) / 2;
+        (sqrt(2) - sqrt(6)) / 4 (sqrt(2) + sqrt(6)) / 4
+    ]
 
-    A1 = [0.44 0.66;
-          -0.11 1.32]
-    A2 = [-0.18 0.0;
-          -0.18 -0.09]
+    A1 = [
+        0.44 0.66;
+        -0.11 1.32
+    ]
+    A2 = [
+        -0.18 0.0;
+        -0.18 -0.09
+    ]
 
     Y, ε = simulate_var_dgp(T, [A1, A2], H_true; rng = rng)
 
@@ -272,7 +293,7 @@ end
     @testset "IRF computation succeeds" begin
         result = irf(model, id; horizon = 20)
         @test size(result.irf) == (K, K, 21)  # (variable, shock, horizon)
-        @test Array(result.irf)[1, 1, 1] ≈ 1.0 atol=1e-10  # unit effect
+        @test Array(result.irf)[1, 1, 1] ≈ 1.0 atol = 1.0e-10  # unit effect
     end
 
     @testset "Constraints are supported" begin
@@ -300,13 +321,19 @@ end
     T = 2000  # large sample
 
     # Exact J&L DGP parameters
-    H_true = [sqrt(2)/2 sqrt(2)/2;
-              (sqrt(2)-sqrt(6))/4 (sqrt(2)+sqrt(6))/4]
+    H_true = [
+        sqrt(2) / 2 sqrt(2) / 2;
+        (sqrt(2) - sqrt(6)) / 4 (sqrt(2) + sqrt(6)) / 4
+    ]
 
-    A1 = [0.44 0.66;
-          -0.11 1.32]
-    A2 = [-0.18 0.0;
-          -0.18 -0.09]
+    A1 = [
+        0.44 0.66;
+        -0.11 1.32
+    ]
+    A2 = [
+        -0.18 0.0;
+        -0.18 -0.09
+    ]
 
     Y, ε = simulate_var_dgp(T, [A1, A2], H_true; rng = rng)
 
@@ -328,7 +355,7 @@ end
     @testset "Estimates converge to truth (large T)" begin
         # With T=2000 and ψ=1, estimates should be very close
         @test θ_est[1] == 1.0
-        @test θ_est[2] ≈ H1_true_norm[2] atol=0.15
+        @test θ_est[2] ≈ H1_true_norm[2] atol = 0.15
     end
 
     @testset "Identification formula: H1 = Σ_um / φ" begin
@@ -349,6 +376,6 @@ end
         ratio_python = H1_python[2] / H1_python[1]
         ratio_julia = θ_est[2] / θ_est[1]
 
-        @test ratio_julia ≈ ratio_python atol=1e-10
+        @test ratio_julia ≈ ratio_python atol = 1.0e-10
     end
 end

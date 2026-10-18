@@ -74,8 +74,10 @@ companion matrix. `temp` is an `(n_vars, n_vars)` work buffer. `Φ` must be
 
 See the file header for the `B` layout.
 """
-function compute_ma_matrices_from_B!(Φ::Array{T, 3}, B::AbstractMatrix{T}, temp::Matrix{T},
-        horizon::Int, n_vars::Int, n_lags::Int) where {T}
+function compute_ma_matrices_from_B!(
+        Φ::Array{T, 3}, B::AbstractMatrix{T}, temp::Matrix{T},
+        horizon::Int, n_vars::Int, n_lags::Int
+    ) where {T}
     @inbounds for j in 1:n_vars
         for i in 1:n_vars
             Φ[i, j, 1] = i == j ? one(T) : zero(T)
@@ -130,8 +132,10 @@ Fill `Q_out` with a random orthogonal matrix, using `X_buffer` (same size) for
 the random normal draw. The result is normalized by the signs of the `R`
 diagonal so the mapping from the normal draw to `Q` is deterministic.
 """
-function generate_random_orthogonal!(Q_out::AbstractMatrix{T}, X_buffer::AbstractMatrix{T},
-        rng::AbstractRNG) where {T}
+function generate_random_orthogonal!(
+        Q_out::AbstractMatrix{T}, X_buffer::AbstractMatrix{T},
+        rng::AbstractRNG
+    ) where {T}
     n = size(Q_out, 1)
     randn!(rng, X_buffer)
     qr_fact = qr(X_buffer)
@@ -155,8 +159,10 @@ Check whether impact matrix `P` satisfies sign restrictions, given precomputed
 MA matrices `Φ` (`(n_vars, n_vars, horizon+1)`). Restrictions are `+1`/`-1`/`0`
 on `[response, shock]`; impact (h=0) is `P` itself, later horizons are `Φ_h P`.
 """
-function check_sign_restrictions(P::AbstractMatrix{T}, restrictions::Matrix{Int},
-        Φ::Array{T, 3}, horizon::Int) where {T}
+function check_sign_restrictions(
+        P::AbstractMatrix{T}, restrictions::Matrix{Int},
+        Φ::Array{T, 3}, horizon::Int
+    ) where {T}
     n_vars = size(P, 1)
 
     for i in 1:n_vars
@@ -205,9 +211,11 @@ Check whether structural shocks `ε` (`n_obs × n_vars`) satisfy the narrative
 sign restrictions. `dates` resolves date-based restrictions to row indices; it
 must be supplied when any restriction carries a `Dates.TimeType` date.
 """
-function check_narrative_restrictions(ε::AbstractMatrix{T},
+function check_narrative_restrictions(
+        ε::AbstractMatrix{T},
         narrative_shocks::Vector{<:NarrativeShockRestriction},
-        dates = nothing) where {T}
+        dates = nothing
+    ) where {T}
     for nr in narrative_shocks
         date_idx = _resolve_narrative_date(nr, dates)
         shock_value = ε[date_idx, nr.shock]
@@ -228,8 +236,10 @@ through; `Dates.TimeType` dates are looked up in `dates`.
 """
 _resolve_narrative_date(nr::NarrativeShockRestriction{Int}, dates) = nr.date
 
-function _resolve_narrative_date(nr::NarrativeShockRestriction{D},
-        dates) where {D <: Dates.TimeType}
+function _resolve_narrative_date(
+        nr::NarrativeShockRestriction{D},
+        dates
+    ) where {D <: Dates.TimeType}
     dates === nothing &&
         error("Cannot use date-based NarrativeShockRestriction without dates")
     idx = findfirst(==(nr.date), dates)
@@ -255,13 +265,18 @@ and `P * P' ≈ Σ`. This matches `rotation_matrix(model, CholeskyID(ordering))`
 This is the matrix-level counterpart to `rotation_matrix(model, ::CholeskyID)`;
 it takes the stored factor directly and decomposes only when reordering.
 """
-function structural_impact(Σ_L::AbstractMatrix{T}, ::CholeskyID;
-        ordering_idx::Union{Nothing, AbstractVector{Int}} = nothing) where {T}
+function structural_impact(
+        Σ_L::AbstractMatrix{T}, ::CholeskyID;
+        ordering_idx::Union{Nothing, AbstractVector{Int}} = nothing
+    ) where {T}
     ordering_idx === nothing && return Σ_L
     Base.require_one_based_indexing(Σ_L, ordering_idx)
     n = LinearAlgebra.checksquare(Σ_L)
-    length(ordering_idx) == n || throw(ArgumentError(
-        "ordering_idx must be a permutation of 1:$n; got $(ordering_idx)"))
+    length(ordering_idx) == n || throw(
+        ArgumentError(
+            "ordering_idx must be a permutation of 1:$n; got $(ordering_idx)"
+        )
+    )
     inv_perm = invperm(ordering_idx)
     L_rows = Σ_L[ordering_idx, :]
     P_ordered = cholesky(Symmetric(L_rows * L_rows')).L

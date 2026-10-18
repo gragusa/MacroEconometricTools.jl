@@ -18,16 +18,20 @@ Simulate VAR process given innovations and initial conditions.
 # Returns
 - Simulated data matrix (T × n_vars)
 """
-function simulate_var(model::VARModel{T}, innovations::AbstractMatrix{T},
-        Y_init::AbstractMatrix{T}; burn_in::Int = 0) where {T}
+function simulate_var(
+        model::VARModel{T}, innovations::AbstractMatrix{T},
+        Y_init::AbstractMatrix{T}; burn_in::Int = 0
+    ) where {T}
     n_lags_val = n_lags(model)
     n_vars_val = n_vars(model)
     n_periods = size(innovations, 1)
     n_total = n_periods + burn_in
 
     Y_sim = zeros(T, n_total, n_vars_val)
-    simulate_var!(Y_sim, model.coefficients.intercept, model.coefficients.lags,
-        innovations, Y_init; burn_in = burn_in)
+    simulate_var!(
+        Y_sim, model.coefficients.intercept, model.coefficients.lags,
+        innovations, Y_init; burn_in = burn_in
+    )
 
     # Return data after burn-in
     return burn_in == 0 ? Y_sim : Y_sim[(burn_in + 1):end, :]
@@ -52,7 +56,8 @@ function simulate_var!(
         lags::AbstractArray{T, 3},
         innovations::AbstractMatrix{T},
         Y_init::AbstractMatrix{T};
-        burn_in::Int = 0) where {T}
+        burn_in::Int = 0
+    ) where {T}
     n_vars_val = size(intercept, 1)
     n_lags_val = size(lags, 3)
     n_periods = size(innovations, 1)
@@ -67,10 +72,16 @@ function simulate_var!(
         throw(ArgumentError("Y_init must have at least $n_lags_val rows"))
     size(Y_init, 2) == n_vars_val ||
         throw(ArgumentError("Y_init must have $n_vars_val columns"))
-    size(Y_sim, 1) == n_total || throw(ArgumentError(
-        "Y_sim must have $n_total rows (got $(size(Y_sim, 1)))"))
-    size(Y_sim, 2) == n_vars_val || throw(ArgumentError(
-        "Y_sim must have $n_vars_val columns (got $(size(Y_sim, 2)))"))
+    size(Y_sim, 1) == n_total || throw(
+        ArgumentError(
+            "Y_sim must have $n_total rows (got $(size(Y_sim, 1)))"
+        )
+    )
+    size(Y_sim, 2) == n_vars_val || throw(
+        ArgumentError(
+            "Y_sim must have $n_vars_val columns (got $(size(Y_sim, 2)))"
+        )
+    )
 
     # Seed the first n_lags rows from Y_init (preserving original scalar loop
     # order to match the allocating implementation bit-for-bit).
@@ -120,11 +131,13 @@ Forecast h periods ahead from VAR model.
 - `forecast::Matrix`: Point forecast (h × n_vars)
 - If `include_draws=true`: NamedTuple with `forecast`, `draws`, and `bands`
 """
-function forecast(model::VARModel{T}, h::Int;
+function forecast(
+        model::VARModel{T}, h::Int;
         Y_init::Union{Nothing, AbstractMatrix{T}} = nothing,
         include_draws::Bool = false,
         n_draws::Int = 1000,
-        coverage::Vector{Float64} = [0.68, 0.90, 0.95]) where {T}
+        coverage::Vector{Float64} = [0.68, 0.9, 0.95]
+    ) where {T}
     h > 0 || throw(ArgumentError("forecast horizon h must be positive"))
 
     n_lags_val = n_lags(model)
@@ -164,7 +177,7 @@ function forecast(model::VARModel{T}, h::Int;
             forecast = forecast_point,
             draws = forecast_draws,
             bands = forecast_bands,
-            coverage = coverage
+            coverage = coverage,
         )
     end
 end
@@ -216,9 +229,11 @@ Simulate VAR using structural shocks.
 # Returns
 - Simulated data matrix
 """
-function simulate_structural(model::VARModel{T}, identification::AbstractIdentification,
+function simulate_structural(
+        model::VARModel{T}, identification::AbstractIdentification,
         structural_shocks::AbstractMatrix{T},
-        Y_init::AbstractMatrix{T}; burn_in::Int = 0) where {T}
+        Y_init::AbstractMatrix{T}; burn_in::Int = 0
+    ) where {T}
     # Get impact matrix
     P = rotation_matrix(model, identification)
 
@@ -279,7 +294,7 @@ function historical_decomposition(model::VARModel{T}, identification::AbstractId
     return (
         contributions = contributions,
         initial_condition = initial_condition,
-        structural_shocks = structural_shocks
+        structural_shocks = structural_shocks,
     )
 end
 
@@ -311,24 +326,34 @@ function variance_decomposition(irf::IRFResult; horizon::Union{Nothing, Int} = n
     md = irf.metadata
     norm = get(md, :normalization, UnitStd)
     norm === UnitStd ||
-        throw(ArgumentError("variance_decomposition requires unit-variance shocks " *
-                            "(normalization = UnitStd()), got $norm"))
+        throw(
+        ArgumentError(
+            "variance_decomposition requires unit-variance shocks " *
+                "(normalization = UnitStd()), got $norm"
+        )
+    )
     scale = get(md, :scale, nothing)
     scale === nothing || all(isone, scale) ||
         throw(ArgumentError("variance_decomposition requires unscaled IRFs, got scale = $scale"))
     cumulated = get(md, :cumulated_vars, nothing)
     cumulated === nothing ||
-        throw(ArgumentError("variance_decomposition requires non-cumulated IRFs, " *
-                            "got cumulated variables $cumulated"))
+        throw(
+        ArgumentError(
+            "variance_decomposition requires non-cumulated IRFs, " *
+                "got cumulated variables $cumulated"
+        )
+    )
 
     Θ = Array(point_estimate(irf))  # (variable, shock, horizon 0:H)
     # Forecast error variance contributions: cumulative sum of squared responses
     contrib = cumsum(Θ .^ 2; dims = 3)
     shares = contrib ./ sum(contrib; dims = 2)
-    fevd = AxisArray(shares,
+    fevd = AxisArray(
+        shares,
         Axis{:variable}(varnames(irf)),
         Axis{:shock}(shocknames(irf)),
-        Axis{:horizon}(1:size(shares, 3)))
+        Axis{:horizon}(1:size(shares, 3))
+    )
 
     horizon === nothing && return fevd
     1 <= horizon <= size(fevd, 3) ||

@@ -22,10 +22,10 @@ function _report_bootstrap_failures(method_name::String, n_failed::Int, reps::In
     n_failed == 0 && return
     pct = round(100 * n_failed / reps; digits = 1)
     n_eff = reps - n_failed
-    @warn "$method_name: $n_failed / $reps replications failed ($pct%). " *
-          "Effective bootstrap replications: $n_eff. " *
-          "Failed draws are filled with NaN and excluded from quantile computation. " *
-          "If the failure rate is high, check model stability or increase sample size."
+    return @warn "$method_name: $n_failed / $reps replications failed ($pct%). " *
+        "Effective bootstrap replications: $n_eff. " *
+        "Failed draws are filled with NaN and excluded from quantile computation. " *
+        "If the failure rate is high, check model stability or increase sample size."
 end
 
 # ============================================================================
@@ -109,7 +109,8 @@ end
 # important because our reshape of A back into lag matrices relies on it.
 @inline function _fill_X_from_Y!(
         X::AbstractMatrix{T}, Y::AbstractMatrix{T},
-        n_obs::Int, n_vars_val::Int, n_lags_val::Int) where {T}
+        n_obs::Int, n_vars_val::Int, n_lags_val::Int
+    ) where {T}
     n_eff = n_obs - n_lags_val
     @inbounds for t in 1:n_eff
         # t-th row of X corresponds to time index (t + n_lags) in Y.
@@ -141,7 +142,8 @@ function _fast_refit_ols!(
         ws::_BootstrapWorkspace{T},
         Y_boot::AbstractMatrix{T},
         n_vars_val::Int,
-        n_lags_val::Int) where {T}
+        n_lags_val::Int
+    ) where {T}
     n_obs = size(Y_boot, 1)
     n_eff = n_obs - n_lags_val
 
@@ -246,7 +248,8 @@ function _fast_cholesky_irf!(
         irf_out::AbstractArray{T, 3},
         ws::_BootstrapWorkspace{T},
         horizon::Int;
-        normalization::AbstractNormalization = UnitStd()) where {T}
+        normalization::AbstractNormalization = UnitStd()
+    ) where {T}
     K = size(ws.Σ, 1)
     # Apply normalization to produce the identification matrix P.
     # For UnitStd, P = L (no change). For UnitEffect, divide columns by P[k,k].
@@ -350,7 +353,7 @@ function bootstrap_irf_wild(
         reps::Int,
         rng::AbstractRNG;
         normalization::AbstractNormalization = UnitStd()
-) where {T}
+    ) where {T}
     m = n_vars(model)
     n_lags_val = n_lags(model)
 
@@ -397,8 +400,10 @@ function bootstrap_irf_wild(
             ok = _fast_refit_ols!(ws, Y_boot, m, n_lags_val)
             if ok
                 try
-                    _fast_cholesky_irf!(view(irf_boot, r, :, :, :), ws, horizon;
-                        normalization = normalization)
+                    _fast_cholesky_irf!(
+                        view(irf_boot, r, :, :, :), ws, horizon;
+                        normalization = normalization
+                    )
                 catch
                     n_failed += 1
                     fill!(view(irf_boot, r, :, :, :), NaN)
@@ -465,7 +470,7 @@ function bootstrap_irf_standard(
         reps::Int,
         rng::AbstractRNG;
         normalization::AbstractNormalization = UnitStd()
-) where {T}
+    ) where {T}
     m = n_vars(model)
     n_lags_val = n_lags(model)
     n_obs = size(model.residuals, 1)
@@ -502,8 +507,10 @@ function bootstrap_irf_standard(
             ok = _fast_refit_ols!(ws, Y_boot, m, n_lags_val)
             if ok
                 try
-                    _fast_cholesky_irf!(view(irf_boot, r, :, :, :), ws, horizon;
-                        normalization = normalization)
+                    _fast_cholesky_irf!(
+                        view(irf_boot, r, :, :, :), ws, horizon;
+                        normalization = normalization
+                    )
                 catch
                     n_failed += 1
                     fill!(view(irf_boot, r, :, :, :), NaN)
@@ -517,8 +524,10 @@ function bootstrap_irf_standard(
                 var_boot = refit_for_bootstrap(model, Y_boot, n_lags_val)
                 P_boot = rotation_matrix(var_boot, identification)
                 normalize!(P_boot, normalization)
-                copyto!(view(irf_boot, r, :, :, :),
-                    compute_irf_point(var_boot, P_boot, horizon))
+                copyto!(
+                    view(irf_boot, r, :, :, :),
+                    compute_irf_point(var_boot, P_boot, horizon)
+                )
             catch
                 n_failed += 1
                 fill!(view(irf_boot, r, :, :, :), NaN)
@@ -596,7 +605,7 @@ function bootstrap_irf_block(
         block_length::Int,
         rng::AbstractRNG;
         normalization::AbstractNormalization = UnitStd()
-) where {T}
+    ) where {T}
     m = n_vars(model)
     n_lags_val = n_lags(model)
     n_obs = size(model.residuals, 1)  # T
@@ -667,8 +676,10 @@ function bootstrap_irf_block(
             ok = _fast_refit_ols!(ws, Y_boot, m, n_lags_val)
             if ok
                 try
-                    _fast_cholesky_irf!(view(irf_boot, r, :, :, :), ws, horizon;
-                        normalization = normalization)
+                    _fast_cholesky_irf!(
+                        view(irf_boot, r, :, :, :), ws, horizon;
+                        normalization = normalization
+                    )
                 catch
                     n_failed += 1
                     fill!(view(irf_boot, r, :, :, :), NaN)
@@ -682,8 +693,10 @@ function bootstrap_irf_block(
                 var_boot = refit_for_bootstrap(model, Y_boot, n_lags_val)
                 P_boot = rotation_matrix(var_boot, identification)
                 normalize!(P_boot, normalization)
-                copyto!(view(irf_boot, r, :, :, :),
-                    compute_irf_point(var_boot, P_boot, horizon))
+                copyto!(
+                    view(irf_boot, r, :, :, :),
+                    compute_irf_point(var_boot, P_boot, horizon)
+                )
             catch
                 n_failed += 1
                 fill!(view(irf_boot, r, :, :, :), NaN)
@@ -714,29 +727,37 @@ entry point for callers that want the draws themselves.
 The `parallel` keyword is deprecated; use Julia's built-in threading
 or Distributed.pmap externally if parallel bootstrap is needed.
 """
-function bootstrap_irf(model::VARModel{T}, identification::AbstractIdentification,
+function bootstrap_irf(
+        model::VARModel{T}, identification::AbstractIdentification,
         horizon::Int, reps::Int;
         method::Symbol = :wild,
         block_length::Int = 10,
         normalization::AbstractNormalization = UnitStd(),
         parallel::Symbol = :none,
-        rng::AbstractRNG = Random.default_rng()) where {T}
+        rng::AbstractRNG = Random.default_rng()
+    ) where {T}
     method ∈ [:wild, :standard, :block] ||
         throw(ArgumentError("method must be :wild, :standard, or :block"))
 
     if parallel != :none
         @warn "parallel keyword is deprecated in bootstrap_irf. " *
-              "Falling back to serial execution."
+            "Falling back to serial execution."
     end
 
     if method == :wild
-        return bootstrap_irf_wild(model, identification, horizon, reps, rng;
-            normalization)
+        return bootstrap_irf_wild(
+            model, identification, horizon, reps, rng;
+            normalization
+        )
     elseif method == :standard
-        return bootstrap_irf_standard(model, identification, horizon, reps, rng;
-            normalization)
+        return bootstrap_irf_standard(
+            model, identification, horizon, reps, rng;
+            normalization
+        )
     else  # :block
-        return bootstrap_irf_block(model, identification, horizon, reps, block_length, rng;
-            normalization)
+        return bootstrap_irf_block(
+            model, identification, horizon, reps, block_length, rng;
+            normalization
+        )
     end
 end

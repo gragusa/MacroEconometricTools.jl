@@ -38,7 +38,7 @@ const IRFResult = MacroEconometricTools.IRFResult
         @test size(K) == (9, 9)
 
         # Test property: L * D = I
-        @test L * D ≈ I(6) rtol=1e-10
+        @test L * D ≈ I(6) rtol = 1.0e-10
     end
 
     @testset "Variance Computations" begin
@@ -47,7 +47,7 @@ const IRFResult = MacroEconometricTools.IRFResult
         @test size(Σ_α) == (n_v * n_l * n_v, n_v * n_l * n_v)
         @test all(isfinite.(Σ_α))
         # Check symmetry with tolerance for numerical precision
-        @test maximum(abs.(Σ_α - Σ_α')) < 1e-10
+        @test maximum(abs.(Σ_α - Σ_α')) < 1.0e-10
 
         valid_idx = (n_l + 1):size(var.Y, 1)
         XXinv_lags = inv(var.X[valid_idx, :]' * var.X[valid_idx, :])[2:end, 2:end]
@@ -59,7 +59,7 @@ const IRFResult = MacroEconometricTools.IRFResult
         @test size(Σ_σ) == (n_vech, n_vech)
         @test all(isfinite.(Σ_σ))
         # Check symmetry with tolerance
-        @test maximum(abs.(Σ_σ - Σ_σ')) < 1e-10
+        @test maximum(abs.(Σ_σ - Σ_σ')) < 1.0e-10
     end
 
     @testset "IRF with Delta Method" begin
@@ -101,11 +101,13 @@ const IRFResult = MacroEconometricTools.IRFResult
         id = CholeskyID()
 
         irf_delta = irf(var, id; horizon = horizon, inference = Analytic())
-        irf_boot = irf(var, id; horizon = horizon, inference = WildBootstrap(100),
-            rng = StableRNG(789))
+        irf_boot = irf(
+            var, id; horizon = horizon, inference = WildBootstrap(100),
+            rng = StableRNG(789)
+        )
 
         # Both should give similar point estimates (same identification)
-        @test Array(irf_delta.irf) ≈ Array(irf_boot.irf) rtol=1e-10
+        @test Array(irf_delta.irf) ≈ Array(irf_boot.irf) rtol = 1.0e-10
 
         # Just check both methods produce finite standard errors
         # We can't reliably compare magnitudes with low bootstrap reps
@@ -122,16 +124,16 @@ const IRFResult = MacroEconometricTools.IRFResult
         n_lags_dgp = 3
 
         A = [
-            [0.35 0.08; -0.05 0.30],
-            [0.10 -0.04; 0.03 0.08],
-            [-0.05 0.02; 0.01 -0.04]
+            [0.35 0.08; -0.05 0.3],
+            [0.1 -0.04; 0.03 0.08],
+            [-0.05 0.02; 0.01 -0.04],
         ]
         innovation_factor = [1.0 0.0; 0.3 0.8]
         Y_large = zeros(n_obs + burn_in, 2)
         for t in 4:size(Y_large, 1)
             innovation = innovation_factor * randn(rng, 2)
             Y_large[t, :] = sum(A[lag] * Y_large[t - lag, :] for lag in 1:3) +
-                            innovation
+                innovation
         end
         Y_large = Y_large[(burn_in + 1):end, :]
 
@@ -139,15 +141,17 @@ const IRFResult = MacroEconometricTools.IRFResult
         horizon = 8
         id = CholeskyID()
         analytic = irf(var_large, id; horizon = horizon, inference = Analytic())
-        bootstrap = irf(var_large, id; horizon = horizon,
-            inference = Bootstrap(1_000), rng = StableRNG(20260724))
+        bootstrap = irf(
+            var_large, id; horizon = horizon,
+            inference = Bootstrap(1_000), rng = StableRNG(20260724)
+        )
 
         analytic_se = Array(analytic.stderr)
         bootstrap_se = Array(bootstrap.stderr)
 
         # With a large sample and a stable, low-persistence DGP, the delta-method
         # and bootstrap estimates of sampling uncertainty should be close.
-        @test analytic_se≈bootstrap_se rtol=0.20 atol=0.002
+        @test analytic_se ≈ bootstrap_se rtol = 0.2 atol = 0.002
     end
 
     @testset "Delta Method Jacobian Matrices" begin
@@ -184,7 +188,7 @@ const IRFResult = MacroEconometricTools.IRFResult
         # Each slice should be symmetric (with tolerance)
         for h in 1:(horizon + 1)
             V_h = V[:, :, h]
-            @test maximum(abs.(V_h - V_h')) < 1e-8
+            @test maximum(abs.(V_h - V_h')) < 1.0e-8
         end
 
         # At impact, Θ₀ = P and uncertainty comes entirely from Σ.

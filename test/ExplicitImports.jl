@@ -11,7 +11,9 @@ using MacroEconometricTools
     # functions (`Tables.istable`, `Tables.rows`, `Tables.getcolumn`) are accessed
     # by qualification as Tables.jl intends, but Tables.jl declares none of them
     # `public`.
-    test_explicit_imports(MacroEconometricTools;
+    test_explicit_imports(
+        MacroEconometricTools;
         all_explicit_imports_are_public = VERSION >= v"1.11",
-        all_qualified_accesses_are_public = false)
+        all_qualified_accesses_are_public = false
+    )
 end

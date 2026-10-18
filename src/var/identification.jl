@@ -134,11 +134,13 @@ addprocs(4)
 P = rotation_matrix(model, id; max_draws=50000, parallel=:distributed)
 ```
 """
-function rotation_matrix(model::VARModel{T}, id::SignRestriction;
+function rotation_matrix(
+        model::VARModel{T}, id::SignRestriction;
         max_draws::Int = 10000,
         parallel::Symbol = :none,
         verbose::Bool = false,
-        rng::AbstractRNG = Random.default_rng()) where {T}
+        rng::AbstractRNG = Random.default_rng()
+    ) where {T}
     parallel ∈ [:none, :distributed] ||
         throw(ArgumentError("parallel must be :none or :distributed"))
 
@@ -154,9 +156,11 @@ end
 
 Serial sign restriction search.
 """
-function identify_sign_serial(model::VARModel{T}, id::SignRestriction,
+function identify_sign_serial(
+        model::VARModel{T}, id::SignRestriction,
         max_draws::Int, verbose::Bool,
-        rng::AbstractRNG) where {T}
+        rng::AbstractRNG
+    ) where {T}
     n_vars_val = n_vars(model)
     Σ = vcov(model)
 
@@ -194,9 +198,11 @@ Distributed sign restriction search using multiple processes.
 
 Divides search across workers and stops when first valid rotation is found.
 """
-function identify_sign_distributed(model::VARModel{T}, id::SignRestriction,
+function identify_sign_distributed(
+        model::VARModel{T}, id::SignRestriction,
         max_draws::Int, verbose::Bool,
-        rng::AbstractRNG) where {T}
+        rng::AbstractRNG
+    ) where {T}
 
     # Check if Distributed is available
     # if !isdefined(Main, :Distributed)
@@ -245,8 +251,10 @@ function identify_sign_distributed(model::VARModel{T}, id::SignRestriction,
     end
 
     base_seed = rand(rng, UInt64)
-    work_specs = [(draws_per_worker[i], i, base_seed)
-                  for i in 1:n_w if draws_per_worker[i] > 0]
+    work_specs = [
+        (draws_per_worker[i], i, base_seed)
+            for i in 1:n_w if draws_per_worker[i] > 0
+    ]
     active_workers = length(work_specs)
 
     if verbose
@@ -301,8 +309,10 @@ Check if impact matrix satisfies sign restrictions.
 # Returns
 - `true` if restrictions are satisfied
 """
-function check_sign_restrictions(P::Matrix{T}, restrictions::Matrix{Int},
-        model::VARModel, horizon::Int) where {T}
+function check_sign_restrictions(
+        P::Matrix{T}, restrictions::Matrix{Int},
+        model::VARModel, horizon::Int
+    ) where {T}
     n_vars_val = size(P, 1)
 
     # Check impact (horizon 0)
@@ -390,9 +400,11 @@ indices; a `Dates.TimeType` restriction then fails fast.
 # Returns
 - Rotation matrix `P` satisfying the sign and narrative restrictions
 """
-function rotation_matrix(model::VARModel{T}, id::NarrativeRestriction;
+function rotation_matrix(
+        model::VARModel{T}, id::NarrativeRestriction;
         max_draws::Int = 10000,
-        rng::AbstractRNG = Random.default_rng()) where {T}
+        rng::AbstractRNG = Random.default_rng()
+    ) where {T}
     n_vars_val = n_vars(model)
     n_lags_val = n_lags(model)
 

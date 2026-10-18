@@ -27,28 +27,38 @@ Named tuple with:
 - `bounded68::Bool`: Whether 68% set is bounded
 - `bounded95::Bool`: Whether 95% set is bounded
 """
-function msw_confidence_set(model::VARModel{T}, id::IVIdentification;
+function msw_confidence_set(
+        model::VARModel{T}, id::IVIdentification;
         norm_scale::Float64 = -1.0,
-        horizon::Int = 20) where {T}
+        horizon::Int = 20
+    ) where {T}
     resolved = _resolve_iv(model, id)
     ν = model.residuals
     Z,
-    target = _extract_instrument(resolved.instrument, size(ν, 1), n_lags(model), model.names)
-    return _msw_impl(model, vec(_require_observed(Z, "msw_confidence_set")),
-        target; norm_scale = norm_scale, horizon = horizon)
+        target = _extract_instrument(resolved.instrument, size(ν, 1), n_lags(model), model.names)
+    return _msw_impl(
+        model, vec(_require_observed(Z, "msw_confidence_set")),
+        target; norm_scale = norm_scale, horizon = horizon
+    )
 end
 
 # Deprecated `IVSVAR` models carry the instrument in the spec.
-function msw_confidence_set(model::VARModel{T, <:IVSVAR};
+function msw_confidence_set(
+        model::VARModel{T, <:IVSVAR};
         norm_scale::Float64 = -1.0,
-        horizon::Int = 20) where {T}
-    return msw_confidence_set(model, IVIdentification(model.spec.instrument);
-        norm_scale = norm_scale, horizon = horizon)
+        horizon::Int = 20
+    ) where {T}
+    return msw_confidence_set(
+        model, IVIdentification(model.spec.instrument);
+        norm_scale = norm_scale, horizon = horizon
+    )
 end
 
-function _msw_impl(model::VARModel{T}, proxy::Vector{T}, target::Int;
+function _msw_impl(
+        model::VARModel{T}, proxy::Vector{T}, target::Int;
         norm_scale::Float64 = -1.0,
-        horizon::Int = 20) where {T}
+        horizon::Int = 20
+    ) where {T}
     ν = model.residuals
     TT, KK = size(ν)
     p_val = n_lags(model)
@@ -182,15 +192,15 @@ function _msw_impl(model::VARModel{T}, proxy::Vector{T}, target::Int;
             # b coefficient
             bpart1 = -TT * temp1 * γ_est[target]
             bpart2 = (temp2 * V31[target:target, :]')[1] +
-                     (Φ_h[k:k, :] * V33[:, target:target])[1]
+                (Φ_h[k:k, :] * V33[:, target:target])[1]
             bb68 = 2 * s * (bpart1 + crit68 * bpart2)
             bb95 = 2 * s * (bpart1 + crit95 * bpart2)
 
             # c coefficient
             cpart1 = TT * temp1^2
             cpart2 = (temp2 * V11 * temp2')[1] +
-                     2 * (temp2 * V31' * Φ_h[k:k, :]')[1] +
-                     (Φ_h[k:k, :] * V33 * Φ_h[k:k, :]')[1]
+                2 * (temp2 * V31' * Φ_h[k:k, :]')[1] +
+                (Φ_h[k:k, :] * V33 * Φ_h[k:k, :]')[1]
             cc68 = s^2 * (cpart1 - crit68 * cpart2)
             cc95 = s^2 * (cpart1 - crit95 * cpart2)
 
@@ -220,7 +230,7 @@ function _msw_impl(model::VARModel{T}, proxy::Vector{T}, target::Int;
         vcv_matrix = V,
         wald_stat = wald,
         bounded68 = bounded68,
-        bounded95 = bounded95
+        bounded95 = bounded95,
     )
 end
 
@@ -229,12 +239,14 @@ end
 
 Solve the MSW quadratic inequality and store roots in confidence set array.
 """
-function _solve_msw_quadratic!(cs::Array{T, 3},
+function _solve_msw_quadratic!(
+        cs::Array{T, 3},
         aa::T, bb::T, cc::T,
-        h::Int, k::Int, bounded::Bool) where {T}
+        h::Int, k::Int, bounded::Bool
+    ) where {T}
     disc = bb^2 - 4 * aa * cc
 
-    if bounded
+    return if bounded
         # Bounded set: standard quadratic roots
         if disc > 0
             sq = sqrt(disc)

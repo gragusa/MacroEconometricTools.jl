@@ -89,8 +89,10 @@ In-place creation of lagged matrix for VAR estimation.
 - `p::Int`: Number of lags
 - `include_intercept::Bool`: Whether to include intercept column
 """
-function create_lags!(dest::AbstractMatrix{T}, X::AbstractMatrix{T}, p::Int,
-        include_intercept::Bool = true) where {T}
+function create_lags!(
+        dest::AbstractMatrix{T}, X::AbstractMatrix{T}, p::Int,
+        include_intercept::Bool = true
+    ) where {T}
     n_obs, n_vars = size(X)
     offset = include_intercept ? 1 : 0
 
@@ -385,11 +387,11 @@ function Base.show(io::IO, model::VARModel{T, S}) where {T, S}
     println(io, "  Variables: ", join(model.names, ", "))
     println(io, "  Observations: ", effective_obs(model), " (", nobs(model), " total)")
     println(io, "  Lags: ", n_lags(model))
-    if !isnothing(model.coefficients.constraints)
+    return if !isnothing(model.coefficients.constraints)
         println(io, "  Constraints: ", length(model.coefficients.constraints), " applied")
     end
 end
 
 function Base.show(io::IO, ::MIME"text/plain", model::VARModel{T, S}) where {T, S}
-    show(io, model)
+    return show(io, model)
 end

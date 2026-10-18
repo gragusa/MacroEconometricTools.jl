@@ -36,11 +36,13 @@ constraints = [BlockExogeneity([:Foreign], [:Domestic])]
 var = fit(OLSVAR, Y, 4; constraints=constraints)
 ```
 """
-function StatsBase.fit(::Type{OLSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
+function StatsBase.fit(
+        ::Type{OLSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
         constraints::Vector{<:AbstractConstraint} = AbstractConstraint[],
         names::Union{Nothing, Vector{Symbol}} = nothing,
         demean::Bool = false,
-        dates = nothing) where {T <: AbstractFloat}
+        dates = nothing
+    ) where {T <: AbstractFloat}
     n_obs_total, n_vars = size(Y)
     n_lags > 0 || throw(ArgumentError("n_lags must be positive"))
     n_obs_total > n_lags || throw(ArgumentError("Not enough observations for $n_lags lags"))
@@ -94,8 +96,10 @@ function StatsBase.fit(::Type{OLSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
     # Build coefficient structure
     intercept = A[1, :]
     lags_matrix = Array(reshape(A[2:end, :]', (n_vars, n_vars, n_lags)))
-    coefs = VARCoefficients(intercept, lags_matrix, isempty(constraints) ? nothing :
-                                                    constraints)
+    coefs = VARCoefficients(
+        intercept, lags_matrix, isempty(constraints) ? nothing :
+            constraints
+    )
 
     # Companion form
     F = companion_form(lags_matrix)
@@ -108,11 +112,13 @@ function StatsBase.fit(::Type{OLSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
         n_obs_total = n_obs_total,
         n_obs_used = n_eff,
         demean = demean,
-        timestamp = now()
+        timestamp = now(),
     )
 
-    return VARModel(OLSVAR(), Y_work, X, coefs, residuals, Σ, F, names, model_dates,
-        metadata)
+    return VARModel(
+        OLSVAR(), Y_work, X, coefs, residuals, Σ, F, names, model_dates,
+        metadata
+    )
 end
 
 """
@@ -132,9 +138,11 @@ Estimate VAR coefficients under linear constraints.
 
 Uses restricted least squares with selection matrix approach.
 """
-function constrained_ols(X::AbstractMatrix{T}, Y::AbstractMatrix{T},
+function constrained_ols(
+        X::AbstractMatrix{T}, Y::AbstractMatrix{T},
         constraints::Vector{<:AbstractConstraint},
-        names::Vector{Symbol}, n_lags::Int, n_vars::Int) where {T}
+        names::Vector{Symbol}, n_lags::Int, n_vars::Int
+    ) where {T}
 
     # Check if we only have zero/block constraints (easy case)
     only_zero = all(c -> c isa Union{ZeroConstraint, BlockExogeneity}, constraints)
@@ -155,9 +163,11 @@ Restricted OLS using selection matrix (for zero constraints only).
 
 Estimates each equation separately, applying constraints.
 """
-function constrained_ols_selection(X::AbstractMatrix{T}, Y::AbstractMatrix{T},
+function constrained_ols_selection(
+        X::AbstractMatrix{T}, Y::AbstractMatrix{T},
         constraints::Vector{<:AbstractConstraint},
-        names::Vector{Symbol}, n_lags::Int, n_vars::Int) where {T}
+        names::Vector{Symbol}, n_lags::Int, n_vars::Int
+    ) where {T}
     n_coef_per_eq = 1 + n_vars * n_lags
     A = zeros(T, n_coef_per_eq, n_vars)
 
@@ -214,9 +224,11 @@ Restricted OLS with general linear equality constraints.
 
 Handles both zero and fixed value constraints.
 """
-function constrained_ols_general(X::AbstractMatrix{T}, Y::AbstractMatrix{T},
+function constrained_ols_general(
+        X::AbstractMatrix{T}, Y::AbstractMatrix{T},
         constraints::Vector{<:AbstractConstraint},
-        names::Vector{Symbol}, n_lags::Int, n_vars::Int) where {T}
+        names::Vector{Symbol}, n_lags::Int, n_vars::Int
+    ) where {T}
 
     # Start with unconstrained estimate
     A = X \ Y
@@ -246,10 +258,12 @@ end
 
 Re-estimate holding fixed constraints at their specified values.
 """
-function reestimate_with_fixed(X::AbstractMatrix{T}, Y::AbstractMatrix{T},
+function reestimate_with_fixed(
+        X::AbstractMatrix{T}, Y::AbstractMatrix{T},
         A_init::AbstractMatrix{T},
         constraints::Vector{<:AbstractConstraint},
-        names::Vector{Symbol}, n_lags::Int, n_vars::Int) where {T}
+        names::Vector{Symbol}, n_lags::Int, n_vars::Int
+    ) where {T}
 
     # Build modified system: Y_adj = Y - X_fixed * A_fixed
     # Then estimate free parameters
@@ -313,8 +327,10 @@ Extract VAR coefficients.
 - `NamedTuple` with `intercept` and `lags` fields
 """
 function StatsBase.coef(model::VARModel)
-    return (intercept = model.coefficients.intercept,
-        lags = model.coefficients.lags)
+    return (
+        intercept = model.coefficients.intercept,
+        lags = model.coefficients.lags,
+    )
 end
 
 """

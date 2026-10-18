@@ -11,7 +11,7 @@ function correctness_fixture(; n_obs = 600, burn_in = 100)
     Y = zeros(n_obs + burn_in, 2)
     for t in 3:size(Y, 1)
         Y[t, :] = intercept + lags[:, :, 1] * Y[t - 1, :] +
-                  lags[:, :, 2] * Y[t - 2, :] + impact * randn(rng, 2)
+            lags[:, :, 2] * Y[t - 2, :] + impact * randn(rng, 2)
     end
     sample = Y[(burn_in + 1):end, :]
     return (; sample, model = fit(OLSVAR, sample, 2; names = [:output, :price]))
@@ -48,9 +48,13 @@ function reference_irf(alpha, sigma_half, n, p, horizon)
     companion = zeros(eltype(alpha), n * p, n * p)
     companion[1:n, :] = reshape(alpha, n, n * p)
     if p > 1
-        companion[(n + 1):end, 1:(n * (p - 1))] = Matrix{eltype(alpha)}(I, n * (p - 1), n *
-                                                                                        (p -
-                                                                                         1))
+        companion[(n + 1):end, 1:(n * (p - 1))] = Matrix{eltype(alpha)}(
+            I, n * (p - 1), n *
+                (
+                p -
+                    1
+            )
+        )
     end
     impact = Matrix(cholesky(Symmetric(unvech(sigma_half, n))).L)
     selection = [Matrix{eltype(alpha)}(I, n, n) zeros(eltype(alpha), n, n * (p - 1))]
@@ -63,7 +67,7 @@ function reference_irf(alpha, sigma_half, n, p, horizon)
     return responses
 end
 
-function central_jacobian(f, x; relative_step = 1e-5)
+function central_jacobian(f, x; relative_step = 1.0e-5)
     jacobian = zeros(eltype(x), length(vec(f(x))), length(x))
     for j in eachindex(x)
         step = relative_step * max(abs(x[j]), one(eltype(x)))
