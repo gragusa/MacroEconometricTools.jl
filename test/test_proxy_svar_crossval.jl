@@ -45,23 +45,22 @@ const DATADIR = joinpath(@__DIR__, "data")
     # ── Julia estimation ──────────────────────────────────────────────────
     # Proxy aligned with VAR residuals (drop first p observations)
     Z_proxy = reshape(proxy_py[(p + 1):end], :, 1)
-    instrument = ExternalInstrument(Z_proxy, 1)
+    id = IVIdentification(Z_proxy, 1)
 
-    model = fit(IVSVAR, Y_py, p;
-        instrument = instrument, names = [:Y1, :Y2])
+    model = fit(OLSVAR, Y_py, p; names = [:Y1, :Y2])
 
-    θ_julia = model.metadata.iv_coefficients
+    θ_julia = rotation_matrix(model, id)[:, 1]
     ν_julia = residuals(model)
 
     # ── Test 1: VAR coefficients match ────────────────────────────────────
     @testset "VAR coefficients match Python" begin
         # Python A_est is K × (K*p + 1): [const | A1 | A2]
         # Julia stores intercept + lag arrays separately
-        coefs = coef(model)
+        coefs = model.coefficients
 
         # Intercepts (Python column 0)
         for i in 1:K
-            @test coefs.intercept[i] ≈ A_est_py[i, 1] atol=1e-10
+            @test coefs.intercept[i] ≈ A_est_py[i, 1] atol = 1.0e-10
         end
 
         # Lag coefficients: Python A_est[:, 1:K*p+1] vs Julia lags[:,:,lag]
@@ -76,7 +75,7 @@ const DATADIR = joinpath(@__DIR__, "data")
                 for var in 1:K
                     py_val = A_est_py[eq, 1 + (lag - 1) * K + var]
                     jl_val = coefs.lags[eq, var, lag]
-                    @test jl_val ≈ py_val atol=1e-10
+                    @test jl_val ≈ py_val atol = 1.0e-10
                 end
             end
         end
@@ -86,7 +85,7 @@ const DATADIR = joinpath(@__DIR__, "data")
     @testset "VAR residuals match Python" begin
         @test size(ν_julia) == size(U_est_py)
         for i in 1:K
-            @test ν_julia[:, i] ≈ U_est_py[:, i] atol=1e-8
+            @test ν_julia[:, i] ≈ U_est_py[:, i] atol = 1.0e-8
         end
     end
 
@@ -98,7 +97,7 @@ const DATADIR = joinpath(@__DIR__, "data")
         ratio_py = H1_py[2] / H1_py[1]
         ratio_jl = θ_julia[2] / θ_julia[1]
 
-        @test ratio_jl ≈ ratio_py atol=1e-10
+        @test ratio_jl ≈ ratio_py atol = 1.0e-10
     end
 
     # ── Test 4: Replicate Python identification formula in Julia ──────────
@@ -108,25 +107,25 @@ const DATADIR = joinpath(@__DIR__, "data")
         Σ_uu_jl = ν_julia' * ν_julia / T_eff
         Σ_um_jl = ν_julia' * m / T_eff
 
-        @test Σ_uu_jl ≈ covUU_py atol=1e-10
-        @test Σ_um_jl ≈ covUM_py atol=1e-10
+        @test Σ_uu_jl ≈ covUU_py atol = 1.0e-10
+        @test Σ_um_jl ≈ covUM_py atol = 1.0e-10
 
         # φ² = Σ_um' Σ_uu⁻¹ Σ_um
         φ²_jl = dot(Σ_um_jl, Σ_uu_jl \ Σ_um_jl)
         φ_jl = sqrt(φ²_jl)
 
-        @test φ_jl ≈ params["phi"] atol=1e-6
+        @test φ_jl ≈ params["phi"] atol = 1.0e-6
 
         # H1 = Σ_um / φ
         H1_jl = Σ_um_jl ./ φ_jl
 
-        @test H1_jl ≈ H1_py atol=1e-6
+        @test H1_jl ≈ H1_py atol = 1.0e-6
     end
 
     # ── Test 5: IRFs match ────────────────────────────────────────────────
     @testset "IRFs match Python (normalized)" begin
         n_imp = Int(params["n_imp"])
-        irf_result = irf(model, IVIdentification(); horizon = n_imp-1)
+        irf_result = irf(model, id; horizon = n_imp - 1)
 
         # Python IRF is in H1 scale (φ-normalized)
         # Julia IRF is in unit-effect scale (θ[1]=1)
@@ -139,7 +138,7 @@ const DATADIR = joinpath(@__DIR__, "data")
                 irf_jl = irf_data[i, 1, h + 1]
                 irf_py_scaled = irf_py[i, h + 1] / scale
 
-                @test irf_jl ≈ irf_py_scaled atol=1e-4
+                @test irf_jl ≈ irf_py_scaled atol = 1.0e-4
             end
         end
     end

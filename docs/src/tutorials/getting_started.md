@@ -109,32 +109,32 @@ VARModel{Float64,OLSVAR}
 println("Variable names: ", varnames(var_model))
 println("Number of variables: ", n_vars(var_model))
 println("Number of lags: ", n_lags(var_model))
-println("Effective observations: ", n_obs(var_model))
-println("Total observations: ", raw_nobs(var_model))
+println("Effective observations: ", nobs(var_model))
 ```
 
 ### Examining Coefficients
 
 ```julia
-# Extract coefficients
-coefs = coef(var_model)
+# Coefficient matrix B, (1 + n_vars * n_lags) × n_vars: row 1 is the intercept,
+# column j is equation j
+B = coef(var_model)
 
 # Intercepts
 println("Intercepts:")
 for (i, name) in enumerate(names)
-    println("  $name: ", round(coefs.intercept[i], digits=4))
+    println("  $name: ", round(intercept(var_model)[i], digits=4))
 end
 
-# First lag coefficients (3×3 matrix)
+# First lag coefficients (3×3 matrix, row = equation)
 println("\nFirst lag coefficients (A₁):")
-display(round.(coefs.lags[:,:,1], digits=3))
+display(round.(var_model.coefficients.lags[:,:,1], digits=3))
 ```
 
 ### Model Diagnostics
 
 ```julia
 # Residual covariance matrix
-Σ = vcov(var_model)
+Σ = residual_covariance(var_model)
 println("Residual covariance:")
 display(round.(Σ, digits=4))
 
@@ -287,7 +287,7 @@ fevd_result = variance_decomposition(irf_result)
 h = 24
 println("Oil price variance decomposition at horizon $h:")
 for (j, shock_name) in enumerate(["Supply", "Demand", "Speculative"])
-    contrib = fevd_result[h+1, 3, j]  # variable 3 = oil price
+    contrib = fevd_result[3, j, h]  # variable 3 = oil price, forecast horizon h
     println("  $shock_name shock: ", round(contrib * 100, digits=1), "%")
 end
 ```
@@ -341,7 +341,7 @@ VARModel{Float64,OLSVAR}
 
 ```julia
 # Verify constraints are satisfied
-coefs_c = coef(var_constrained)
+coefs_c = var_constrained.coefficients
 
 # Check that oil production equation has zeros
 println("Checking constraints in oil production equation:")
@@ -368,8 +368,8 @@ Checking constraints in oil production equation:
 
 ```julia
 # Likelihood ratio test (informal)
-ll_unrestricted = log_likelihood(var_model)
-ll_restricted = log_likelihood(var_constrained)
+ll_unrestricted = loglikelihood(var_model)
+ll_restricted = loglikelihood(var_constrained)
 
 LR_stat = 2 * (ll_unrestricted - ll_restricted)
 df = 2 * p  # 2 constraints × p lags
@@ -416,13 +416,13 @@ end
 # Generate forecasts
 h_forecast = 12  # 1 year ahead
 fc = forecast(var_model, h_forecast;
-              coverage=[0.68, 0.90],
-              bootstrap_reps=1000)
+              include_draws=true, n_draws=1000, coverage=[0.68, 0.90])
 
-println("12-month ahead forecast:")
+println("12-month ahead forecast (90% band):")
 for (i, name) in enumerate(names)
-    println("  $name: ", round(fc.mean[end, i], digits=3),
-            " ± ", round(fc.std[end, i], digits=3))
+    println("  $name: ", round(fc.forecast[end, i], digits=3),
+            " [", round(fc.bands.lower[2, end, i], digits=3), ", ",
+            round(fc.bands.upper[2, end, i], digits=3), "]")
 end
 ```
 

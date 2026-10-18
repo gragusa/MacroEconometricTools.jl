@@ -13,14 +13,15 @@ module MacroEconometricTools
 
 using LinearAlgebra: LinearAlgebra, Diagonal, I, Symmetric, cholesky, cholesky!,
                      diag, dot, eigen, eigvals, ldiv!, logdet, mul!, pinv, qr,
-                     transpose!
+                     transpose!, LAPACK, SingularException
+using FastLapackInterface: FastLapackInterface, QRWs, QROrmWs
 using Statistics: Statistics
 using Random: Random, AbstractRNG, randn!
 using Dates: Dates, now
 using Distributed: Distributed
-using StatsBase: StatsBase, fit
+using StatsBase: StatsBase, aic, bic, confint, dof_residual, fit, loglikelihood
 using StatsFuns: StatsFuns, norminvcdf
-using Distributions: Distributions, mean, median, quantile, scale, std
+using Distributions: Distributions, Chisq, mean, median, quantile, scale, std
 using GLM: GLM, coef, dof, fitted, nobs, residuals, stderror, vcov
 using AxisArrays: AxisArrays, AxisArray, Axis
 using Tables: Tables
@@ -52,9 +53,6 @@ include("ivsvar/msw.jl")
 include("simulation.jl")
 include("bootstrap.jl")
 
-# Parallel computing utilities
-include("parallel.jl")
-
 # Plotting recipes (will work when Plots.jl is loaded)
 include("plots_recipes.jl")
 
@@ -66,13 +64,14 @@ Plot impulse response functions using Makie.  Returns a `Makie.Figure`.
 Requires a Makie backend (e.g., `CairoMakie` or `GLMakie`) to be loaded.
 
 All scaling should be applied to the IRF result *before* plotting
-using `rescale` / `rescale!`.
+using `rescale`.
 
 # Selection
-- `vars = :all`: variables to plot (`:all`, or `Vector{Symbol}`)
-- `shocks = :all`: shocks to plot
-- `pretty_vars = nothing`: custom labels for variables
-- `pretty_shocks = nothing`: custom labels for shocks
+- `vars = :all`: variables to plot (`:all`, a vector of names from `varnames(irf)`,
+  or a vector of positions)
+- `shocks = :all`: shocks to plot (`:all`, names from `shocknames(irf)`, or positions)
+- `pretty_vars = nothing`: labels for the selected variables, in selection order
+- `pretty_shocks = nothing`: labels for the selected shocks, in selection order
 
 # Appearance
 - `bandcolor = :steelblue`: fill colour for confidence / credible bands
@@ -84,8 +83,9 @@ using `rescale` / `rescale!`.
 - `zerolinestyle = :dash`: line style of the zero line
 - `xtickstep = 4`: spacing of x-axis ticks (set `0` to disable)
 
-# Paths (SignRestrictedIRFResult, BayesianIRFResult only)
-- `plot_type = :quantiles`: `:quantiles`, `:paths`, or `:both`
+# Paths (results with stored draws, see `has_draws`)
+- `plot_type = :quantiles`: `:quantiles`, `:paths`, or `:both`; `:paths` and `:both`
+  throw an `ArgumentError` when the result has no draws
 - `path_alpha = 0.02`: opacity of individual draw lines
 - `path_color = :gray`: colour of individual draw lines
 - `path_linewidth = 0.5`: width of individual draw lines
@@ -120,13 +120,14 @@ save("irfs.pdf", fig)
 function irfplot end
 
 """
-    irfplot!(ax, irf::AbstractIRFResult; var::Symbol, shock::Symbol, kwargs...)
+    irfplot!(ax, irf::AbstractIRFResult; var, shock, kwargs...)
 
 Draw a single IRF panel (one variable–shock pair) onto an existing `Makie.Axis`.
+`var` and `shock` are a name from `varnames(irf)` / `shocknames(irf)` or a position.
 Returns `ax`.  Requires a Makie backend (e.g., `CairoMakie` or `GLMakie`).
 
 All scaling should be applied to the IRF result *before* plotting
-using `rescale` / `rescale!`.
+using `rescale`.
 
 Use this to compose custom multi-panel figures:
 
@@ -147,53 +148,73 @@ Accepts the same appearance keywords as `irfplot`:
 `bandcolor`, `bandalpha`, `linecolor`, `linewidth`,
 `drawzero`, `zerolinecolor`, `zerolinestyle`, `xtickstep`.
 
-For set-identified / Bayesian results, also accepts:
+For results with stored draws, also accepts:
 `plot_type` (`:quantiles`, `:paths`, `:both`), `path_alpha`, `path_color`,
 `path_linewidth`.
 """
 function irfplot! end
 
-# Export main types
-export AbstractVARSpec, OLSVAR, BayesianVAR, IVSVAR, LocalProjection
+# Without a Makie backend, `irfplot`/`irfplot!` have no methods; the hint says
+# which package to load.
+function _irfplot_hint(io, exc, argtypes, kwargs)
+    exc.f === irfplot || exc.f === irfplot! || return
+    Base.get_extension(@__MODULE__, :MacroEconometricToolsMakieExt) === nothing || return
+    print(
+        io, "\n`$(exc.f)` is implemented by the Makie extension; load a Makie ",
+        "backend first, e.g. `using CairoMakie` or `using GLMakie`."
+    )
+    return
+end
+
+function __init__()
+    Base.Experimental.register_error_hint(_irfplot_hint, MethodError)
+    return
+end
+
+# Exported: the end-user API. Deprecated names are reachable as
+# `MacroEconometricTools.name` but not exported.
+export AbstractVARSpec, OLSVAR
 export VARModel, VARCoefficients
 export VAR
 export AbstractConstraint, ZeroConstraint, FixedConstraint, BlockExogeneity
 export AbstractIdentification, CholeskyID, SignRestriction, IVIdentification
-export AbstractInstrument, ExternalInstrument, ProxyIV
+export AbstractInstrument, ExternalInstrument
 export AbstractIRFResult, IRFResult, SignRestrictedIRFResult
 export BayesianIRFResult, LocalProjectionIRFResult
 export NarrativeShockRestriction, NarrativeRestriction
 export point_estimate, mean_estimate, has_draws, n_draws, get_draws
 export lowerbounds, upperbounds, coverages, horizon
-export IRFScale, get_scale, rescale, rescale!
-
-# Export inference types
+export IRFScale, get_scale, rescale
 export InferenceType, Analytic, WildBootstrap, Bootstrap, BlockBootstrap, ProxySVARMBB
 export AbstractNormalization, UnitStd, UnitEffect
-
-# Export main functions
-export fit
-export irf, impulse_response
-export coef, vcov, residuals, fitted, dates
-export n_vars, n_lags, effective_obs, varnames, intercept
-# StatsBase methods (not exported, use via StatsBase): nobs, dof, dof_residual, modelmatrix, rss
-export log_likelihood, aic, bic, hqic
-export bootstrap_irf, bootstrap_irf_wild, bootstrap_irf_standard, bootstrap_irf_block
+export fit, irf
+export coef, vcov, stderror, confint, residuals, fitted, dates, residual_covariance
+export nobs, dof, dof_residual
+export n_vars, n_lags, varnames, shocknames, intercept
+export loglikelihood, aic, bic, hqic, select_lags
 export forecast
-export rotation_matrix, normalize, normalize!
-# Matrix-level structural core (advanced building blocks; operate on raw
-# (B, Σ_L) matrices rather than a fitted VARModel — used by spoke packages that
-# loop over reduced-form draws, e.g. BayesianVAR.jl posterior draws).
-export structural_impact, compute_ma_matrices_from_B!, generate_random_orthogonal!,
-       check_sign_restrictions, compute_structural_shocks, check_narrative_restrictions
-export lag, create_lags, create_lags!
-export companion_form
+export rotation_matrix, normalize_impact, normalize_impact!
+export create_lags
 export variance_decomposition, historical_decomposition
 export cumulative_irf
 export is_stable, long_run_effect, long_run_mean
 export confidence_bands
 export irfplot, irfplot!
-export first_stage_F, iv_summary, refit_for_bootstrap
-export iv_impact, iv_instrument
+export first_stage_F, iv_summary
+
+# Public, not exported: building blocks for spoke packages and advanced use.
+# Matrix-level structural core: operates on raw (B, Σ_L) matrices rather than a
+# fitted VARModel, for loops over reduced-form draws (e.g. posterior draws).
+public structural_impact, compute_ma_matrices_from_B!, compute_ma_matrices,
+       generate_random_orthogonal!, check_sign_restrictions, compute_structural_shocks,
+       check_narrative_restrictions, compute_irf_point, n_shocks
+public iv_impact, iv_instrument, estimate_proxy_svar, proxy_svar_dynamics
+public bootstrap_irf, refit_for_bootstrap, proxy_svar_mbb, msw_confidence_set
+public lag, create_lags!, companion_form
+public apply_constraints!, build_selection_matrix, check_constraints
+public coefficient_covariance, sigma_covariance, irf_jacobian_matrices,
+       irf_effect_covariance, irf_asymptotic_stderror
+public duplication_matrix, elimination_matrix, commutation_matrix
+public simulate_var, simulate_structural
 
 end # module

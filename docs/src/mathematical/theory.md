@@ -404,7 +404,7 @@ $$
 ### Checking Stability
 
 ```julia
-F = companion_form(model)
+F = MacroEconometricTools.companion_form(model)
 eigenvalues = eigvals(F)
 is_stable = all(abs.(eigenvalues) .< 1)
 ```

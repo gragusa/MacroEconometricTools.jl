@@ -1,54 +1,29 @@
 # ============================================================================
 # IV-SVAR Instrument Utilities
 # ============================================================================
-# Types are defined in types.jl (ExternalInstrument, ProxyIV)
+# The type is defined in types.jl (ExternalInstrument)
 
 # --- ExternalInstrument constructors ------------------------------------------
 
-# Keyword-only: matrix input (default target_shock=1)
-function ExternalInstrument(Z::AbstractMatrix{T};
-        target_shock::Union{Int, Symbol} = 1,
-        method::Symbol = :tsls) where {T <: AbstractFloat}
-    return ExternalInstrument(Matrix{T}(Z), target_shock; method = method)
+_target_shock(target::Integer) = Int(target)
+_target_shock(target::Symbol) = target
+
+function ExternalInstrument(Z::AbstractMatrix, target_shock::Union{Integer, Symbol})
+    target = _target_shock(target_shock)
+    S = nonmissingtype(eltype(Z))
+    S === Union{} && throw(ArgumentError("instrument has no observed values"))
+    return ExternalInstrument{float(S), typeof(target)}(Z, target)
 end
 
-# Keyword-only: vector input (auto-reshape to T×1)
-function ExternalInstrument(Z::AbstractVector{T};
-        target_shock::Union{Int, Symbol} = 1,
-        method::Symbol = :tsls) where {T <: AbstractFloat}
-    return ExternalInstrument(reshape(Z, :, 1), target_shock; method = method)
+function ExternalInstrument(Z::AbstractVector, target_shock::Union{Integer, Symbol})
+    return ExternalInstrument(reshape(Z, :, 1), target_shock)
 end
 
-# Positional backward compat: vector input
-function ExternalInstrument(Z::AbstractVector{T}, target_shock::Int;
-        method::Symbol = :tsls) where {T <: AbstractFloat}
-    return ExternalInstrument(reshape(Z, :, 1), target_shock; method = method)
+function ExternalInstrument(Z::AbstractVecOrMat; target_shock::Union{Integer, Symbol} = 1)
+    return ExternalInstrument(Z, target_shock)
 end
 
-# --- ProxyIV constructors ----------------------------------------------------
-
-# Keyword-only: matrix input (default target_shock=1)
-function ProxyIV(proxies::AbstractMatrix{T};
-        target_shock::Union{Int, Symbol} = 1,
-        relevance_threshold::Float64 = 10.0) where {T <: AbstractFloat}
-    return ProxyIV(Matrix{T}(proxies), target_shock;
-        relevance_threshold = relevance_threshold)
-end
-
-# Keyword-only: vector input (auto-reshape to T×1)
-function ProxyIV(proxy::AbstractVector{T};
-        target_shock::Union{Int, Symbol} = 1,
-        relevance_threshold::Float64 = 10.0) where {T <: AbstractFloat}
-    return ProxyIV(reshape(proxy, :, 1), target_shock;
-        relevance_threshold = relevance_threshold)
-end
-
-# Positional backward compat: vector input
-function ProxyIV(proxy::AbstractVector{T}, target_shock::Union{Int, Symbol};
-        relevance_threshold::Float64 = 10.0) where {T <: AbstractFloat}
-    return ProxyIV(reshape(proxy, :, 1), target_shock;
-        relevance_threshold = relevance_threshold)
-end
+Base.@deprecate_binding ProxyIV ExternalInstrument false
 
 # --- Target resolution --------------------------------------------------------
 

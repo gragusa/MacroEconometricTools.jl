@@ -66,38 +66,33 @@ proxy = epsilon[:, 1] .+ 0.5 .* randn(rng, T + p)
 
 ### Creating the Instrument
 
-The proxy should cover the same sample as the data Y. When you pass a proxy with $T$ rows (same as Y), the first $p$ rows are dropped automatically to align with the VAR residuals. There is no need to trim manually.
+The proxy must have either as many rows as the data Y (the first $p$ rows are then dropped to align with the VAR residuals) or as many rows as the residuals ($T - p$). Any other length is an error.
 
 ```julia
-# Create instrument from full-length proxy: identify shock 1
-instrument = ExternalInstrument(proxy, 1)
+# Identify shock 1 with the full-length proxy
+id = IVIdentification(proxy, 1)
 ```
 
-The first argument is the proxy (vector or matrix), the second is the index of the target shock. A vector is automatically reshaped to a $T \times 1$ matrix.
+The first argument is the proxy (vector or matrix), the second is the target shock, given as an index or a variable name (`IVIdentification(proxy, :Y1)`). A vector is reshaped to a one-column matrix.
 
-**Alternative**: `ProxyIV` provides an additional relevance threshold check:
+### Instruments Available for Part of the Sample
+
+Instruments often cover a shorter period than the VAR data (for example, high-frequency policy surprises that start later than the macro series). Keep the full length and set the periods without an instrument to `missing`:
 
 ```julia
-# ProxyIV with relevance threshold (warns if F < threshold)
-instrument = ProxyIV(proxy, 1; relevance_threshold=10.0)
+z = Vector{Union{Missing, Float64}}(proxy)
+z[1:100] .= missing             # instrument not available in the first 100 periods
+id_sub = IVIdentification(z, 1)
 ```
 
-### Fitting the IV-SVAR
+The reduced-form VAR (coefficients and residual covariance) is estimated on the full sample; the 2SLS estimate of the impact column and the first-stage F use only the periods in which the instrument is observed. `NaN` is not accepted as a marker for unavailable periods. `ProxySVARMBB` and `msw_confidence_set` require an instrument observed in every residual period and throw otherwise.
 
-The instrument is passed at estimation time. Internally, `fit` runs OLS on the VAR, then performs 2SLS on the residuals using the proxy.
+### Fitting the Reduced-Form VAR
+
+The instrument is not needed at estimation time: fit the reduced-form VAR by OLS. The 2SLS step on the residuals runs when the identification is used.
 
 ```julia
-model = fit(IVSVAR, Y, p;
-    instrument = ExternalInstrument(proxy, 1),
-    names = [:Y1, :Y2])
-```
-
-Output:
-```
-VARModel{Float64,IVSVAR{ExternalInstrument{Float64}}}
-  Variables: Y1, Y2
-  Observations: 198 (200 total)
-  Lags: 2
+model = fit(OLSVAR, Y, p; names = [:Y1, :Y2])
 ```
 
 ---
@@ -109,7 +104,7 @@ VARModel{Float64,IVSVAR{ExternalInstrument{Float64}}}
 The first-stage F-statistic tests whether the proxy is sufficiently correlated with the target reduced-form residual. The conventional threshold is $F > 10$ (Stock, Wright & Yogo 2002).
 
 ```julia
-F = first_stage_F(model)
+F = first_stage_F(model, id)
 println("First-stage F = $(round(F; digits=2))")
 ```
 
@@ -121,12 +116,12 @@ First-stage F = 85.23
 A value well above 10 indicates a strong instrument. For a full summary:
 
 ```julia
-iv_summary(model)
+iv_summary(model, id)
 ```
 
 Output:
 ```
-Proxy-SVAR Identification Summary
+SVAR-IV Identification Summary
 ==================================================
 Target shock: variable Y1 (index 1)
 First-stage F-statistic: 85.23  ✓
@@ -145,7 +140,7 @@ If $F < 10$, the instrument is considered weak. Standard bootstrap CIs may be un
 ### Point Estimates
 
 ```julia
-result = irf(model, IVIdentification(); horizon=20)
+result = irf(model, id; horizon=20)
 
 println("IRF dimensions: ", size(result.irf))
 # (21, 2, 2) = (horizons, variables, shocks)
@@ -177,7 +172,7 @@ Jentsch & Lunsford (2022) propose a moving block bootstrap (MBB) that jointly re
 #### High-Level Interface via `irf()`
 
 ```julia
-result_mbb = irf(model, IVIdentification();
+result_mbb = irf(model, id;
     horizon = 20,
     inference = ProxySVARMBB(2000; block_length=4),
     coverage = [0.68, 0.90, 0.95])
@@ -189,11 +184,14 @@ upper_90 = result_mbb.upper[2]  # 90% upper bounds: (21, 2, 2)
 
 #### Direct Interface for Full Control
 
-The `proxy_svar_mbb()` function returns a richer result with percentile CIs, Hall's bias-corrected CIs, and FEVD CIs:
+`proxy_svar_mbb` returns more detail: percentile CIs, Hall's bias-corrected CIs, and FEVD CIs. It and `msw_confidence_set` are public but not exported:
 
 ```julia
-mbb = proxy_svar_mbb(model, 20,
+using MacroEconometricTools: proxy_svar_mbb, msw_confidence_set
+
+mbb = proxy_svar_mbb(model, id, 20,
     ProxySVARMBB(2000; block_length=4, norm_scale=-1.0);
+    coverage = [0.68, 0.95],
     rng = Random.Xoshiro(123))
 ```
 
@@ -201,17 +199,17 @@ mbb = proxy_svar_mbb(model, 20,
 
 | Field | Shape | Description |
 |-------|-------|-------------|
-| `ci68_irf_norm` | (2, 21, 2) | 68% percentile CI for normalized IRFs |
-| `ci95_irf_norm` | (2, 21, 2) | 95% percentile CI for normalized IRFs |
-| `halls68_irf_norm` | (2, 21, 2) | 68% Hall's bias-corrected CI |
-| `halls95_irf_norm` | (2, 21, 2) | 95% Hall's bias-corrected CI |
-| `ci68_fevd` | (2, 21, 2) | 68% CI for forecast error variance decomposition |
-| `ci95_fevd` | (2, 21, 2) | 95% CI for forecast error variance decomposition |
-| `point_irf_norm` | (2, 21) | Point estimate of normalized IRFs |
+| `coverage` | (2,) | Coverage levels, sorted |
+| `irf_bands` | `(lower, upper)` | Percentile CIs for IRFs |
+| `irf_norm_bands` | `(lower, upper)` | Percentile CIs for normalized IRFs |
+| `halls_irf_norm_bands` | `(lower, upper)` | Hall's bias-corrected CIs for normalized IRFs |
+| `fevd_bands` | `(lower, upper)` | Percentile CIs for the forecast error variance decomposition |
+| `point_irf`, `point_irf_norm`, `point_fevd` | (2, 21) | Point estimates |
 | `point_svma` | (2, 21) | Structural VMA coefficients |
+| `irf_draws`, `irf_norm_draws` | (n, 2, 21) | Successful bootstrap draws |
 | `n_failed` | Int | Number of failed bootstrap replications |
 
-The first dimension of each CI array is `[lower, upper]`.
+Matrices are `(variable, horizon)`, impact first. In each `(lower, upper)` pair, `lower[i]` and `upper[i]` are the bounds at level `coverage[i]`.
 
 #### Accessing Results
 
@@ -219,9 +217,9 @@ The first dimension of each CI array is `[lower, upper]`.
 # Normalized IRF point estimate at horizon h for variable k
 point_h5_Y2 = mbb.point_irf_norm[2, 6]  # k=2, h=5 (1-indexed)
 
-# 95% percentile CI
-lower = mbb.ci95_irf_norm[1, 6, 2]
-upper = mbb.ci95_irf_norm[2, 6, 2]
+# 95% percentile CI (coverage[2] == 0.95)
+lower = mbb.irf_norm_bands.lower[2][2, 6]
+upper = mbb.irf_norm_bands.upper[2][2, 6]
 println("Y2 at h=5: $(round(point_h5_Y2; digits=4)) [$(round(lower; digits=4)), $(round(upper; digits=4))]")
 ```
 
@@ -239,9 +237,9 @@ The block length $\ell$ controls the trade-off between capturing serial dependen
 ```julia
 # Try different block lengths
 for bl in [3, 4, 6, 8]
-    m = proxy_svar_mbb(model, 20, ProxySVARMBB(1000; block_length=bl);
-        rng = Random.Xoshiro(42))
-    w95 = m.ci95_irf_norm[2, 1, 2] - m.ci95_irf_norm[1, 1, 2]  # Y2 impact width
+    m = proxy_svar_mbb(model, id, 20, ProxySVARMBB(1000; block_length=bl);
+        coverage = [0.95], rng = Random.Xoshiro(42))
+    w95 = m.irf_norm_bands.upper[1][2, 1] - m.irf_norm_bands.lower[1][2, 1]  # Y2 impact width
     println("  block_length=$bl: 95% CI width at impact = $(round(w95; digits=4))")
 end
 ```
@@ -255,12 +253,13 @@ Anderson-Rubin (AR) confidence sets are robust to weak instruments. They are con
 ```julia
 ar_grid = collect(range(-3.0, 3.0; length=601))
 
-mbb_ar = proxy_svar_mbb(model, 20,
+mbb_ar = proxy_svar_mbb(model, id, 20,
     ProxySVARMBB(2000;
         block_length = 4,
         compute_ar = true,
         ar_grid = ar_grid,
         norm_scale = -1.0);
+    coverage = [0.68, 0.90, 0.95],
     rng = Random.Xoshiro(456))
 ```
 
@@ -268,11 +267,11 @@ The AR results are in `mbb_ar.ar`:
 
 | Field | Shape | Description |
 |-------|-------|-------------|
-| `index68` | (601, 21, 2) | Boolean: grid point in 68% set |
-| `index90` | (601, 21, 2) | Boolean: grid point in 90% set |
-| `index95` | (601, 21, 2) | Boolean: grid point in 95% set |
+| `included` | 3 × (601, 2, 21) | Boolean, one array per level: grid point in the set at `coverage[i]` |
 | `grid` | (601,) | The grid values |
-| `rates` | (2, 21, 601) | Rejection rates at each grid point |
+| `rates` | (601, 2, 21) | Fraction of draws with test statistic ≤ 0 at each grid point |
+
+Arrays are `(grid, variable, horizon)`. At level `α`, a grid point is in the set when its rate lies in `[(1 - α)/2, (1 + α)/2]`.
 
 #### Extracting Confidence Sets
 
@@ -280,7 +279,7 @@ The AR results are in `mbb_ar.ar`:
 # 95% AR confidence set for Y2 at horizon 5
 h = 6  # 1-indexed
 k = 2  # Y2
-included = mbb_ar.ar.index95[:, h, k]
+included = mbb_ar.ar.included[3][:, k, h]  # coverage[3] == 0.95
 if any(included)
     grid_vals = ar_grid[included]
     println("95% AR set for Y2 at h=5: [$(round(minimum(grid_vals); digits=3)), $(round(maximum(grid_vals); digits=3))]")
@@ -304,40 +303,41 @@ end
 Montiel Olea, Stock & Watson (2021) provide analytic confidence sets that are robust to weak instruments. No bootstrap is required, making them very fast to compute.
 
 ```julia
-msw = msw_confidence_set(model; norm_scale=-1.0, horizon=20)
+msw = msw_confidence_set(model, id; coverage=[0.68, 0.95], norm_scale=-1.0, horizon=20)
 ```
 
 **Output fields**:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `cs68_irf_norm` | Array | 68% confidence set for normalized IRFs |
-| `cs95_irf_norm` | Array | 95% confidence set for normalized IRFs |
+| `coverage` | Vector{Float64} | Coverage levels, sorted |
+| `cs_irf_norm` | Vector of arrays | Confidence set for normalized IRFs at each level |
+| `bounded` | Vector{Bool} | Whether the set at each level is bounded |
 | `vcv_matrix` | Matrix | Full variance-covariance matrix |
 | `wald_stat` | Float64 | Wald statistic for instrument strength |
-| `bounded68` | Bool | Whether the 68% set is bounded |
-| `bounded95` | Bool | Whether the 95% set is bounded |
+
+The critical value at level `α` is the `α` quantile of the χ²(1) distribution.
 
 #### Bounded vs. Unbounded Sets
 
-When the instrument is strong, confidence sets are bounded intervals (shape `(2, n_imp, K)`):
+When the instrument is strong, confidence sets are bounded intervals (shape `(2, K, n_imp)`):
 
 ```julia
-if msw.bounded95
-    # Standard bounded interval
-    lower = msw.cs95_irf_norm[1, 6, 2]  # Y2 at h=5
-    upper = msw.cs95_irf_norm[2, 6, 2]
+if msw.bounded[2]  # coverage[2] == 0.95
+    lower = msw.cs_irf_norm[2][1, 2, 6]  # Y2 at h=5
+    upper = msw.cs_irf_norm[2][2, 2, 6]
     println("95% MSW set for Y2 at h=5: [$lower, $upper]")
 end
 ```
 
-When the instrument is weak, the confidence set becomes unbounded, consisting of two disjoint intervals (shape `(4, n_imp, K)`):
+When the instrument is weak, the confidence set becomes unbounded, consisting of two disjoint intervals (shape `(4, K, n_imp)`):
 
 ```julia
-if !msw.bounded95
-    # Unbounded: two disjoint intervals
-    # (-Inf, cs[2,...]) ∪ (cs[3,...], +Inf)
-    println("95% MSW set: (-Inf, $(msw.cs95_irf_norm[2,h,k])] ∪ [$(msw.cs95_irf_norm[3,h,k]), +Inf)")
+k = 2; h = 6
+if !msw.bounded[2]
+    # Unbounded: (-Inf, cs[2, k, h]] ∪ [cs[3, k, h], +Inf)
+    cs = msw.cs_irf_norm[2]
+    println("95% MSW set: (-Inf, $(cs[2, k, h])] ∪ [$(cs[3, k, h]), +Inf)")
 end
 ```
 
@@ -347,8 +347,8 @@ The Wald statistic tests the null that $\gamma_1 = 0$ (the proxy is irrelevant).
 
 ```julia
 println("MSW Wald statistic: $(round(msw.wald_stat; digits=2))")
-println("68% set bounded: $(msw.bounded68)")
-println("95% set bounded: $(msw.bounded95)")
+println("68% set bounded: $(msw.bounded[1])")
+println("95% set bounded: $(msw.bounded[2])")
 ```
 
 ---
@@ -372,25 +372,27 @@ println("95% set bounded: $(msw.bounded95)")
 
 ```julia
 # All three methods on the same model
-mbb = proxy_svar_mbb(model, 20,
+mbb = proxy_svar_mbb(model, id, 20,
     ProxySVARMBB(2000; block_length=4, compute_ar=true,
         ar_grid=collect(range(-3.0, 3.0; length=301)), norm_scale=-1.0);
-    rng=Random.Xoshiro(42))
-msw = msw_confidence_set(model; norm_scale=-1.0, horizon=20)
+    coverage=[0.95], rng=Random.Xoshiro(42))
+msw = msw_confidence_set(model, id; coverage=[0.95], norm_scale=-1.0, horizon=20)
 
 h = 6; k = 2  # Y2 at horizon 5
+pct = mbb.irf_norm_bands
+hall = mbb.halls_irf_norm_bands
 println("Y2 at h=5:")
-println("  Percentile 95%: [$(round(mbb.ci95_irf_norm[1,h,k]; digits=3)), $(round(mbb.ci95_irf_norm[2,h,k]; digits=3))]")
-println("  Hall's 95%:     [$(round(mbb.halls95_irf_norm[1,h,k]; digits=3)), $(round(mbb.halls95_irf_norm[2,h,k]; digits=3))]")
+println("  Percentile 95%: [$(round(pct.lower[1][k,h]; digits=3)), $(round(pct.upper[1][k,h]; digits=3))]")
+println("  Hall's 95%:     [$(round(hall.lower[1][k,h]; digits=3)), $(round(hall.upper[1][k,h]; digits=3))]")
 
-ar_in = mbb.ar.index95[:, h, k]
+ar_in = mbb.ar.included[1][:, k, h]
 grid = mbb.ar.grid
 if any(ar_in)
     println("  AR 95%:         [$(round(minimum(grid[ar_in]); digits=3)), $(round(maximum(grid[ar_in]); digits=3))]")
 end
 
-if msw.bounded95
-    println("  MSW 95%:        [$(round(msw.cs95_irf_norm[1,h,k]; digits=3)), $(round(msw.cs95_irf_norm[2,h,k]; digits=3))]")
+if msw.bounded[1]
+    println("  MSW 95%:        [$(round(msw.cs_irf_norm[1][1,k,h]; digits=3)), $(round(msw.cs_irf_norm[1][2,k,h]; digits=3))]")
 end
 ```
 
@@ -403,16 +405,16 @@ end
 The MBB also produces bootstrap CIs for the forecast error variance decomposition:
 
 ```julia
-mbb = proxy_svar_mbb(model, 20,
+mbb = proxy_svar_mbb(model, id, 20,
     ProxySVARMBB(2000; block_length=4, norm_scale=-1.0);
-    rng=Random.Xoshiro(42))
+    coverage=[0.95], rng=Random.Xoshiro(42))
 
 # FEVD point estimate and 95% CI for Y2 at horizon 10
 h = 11  # 1-indexed
 k = 2
 println("FEVD of Y2 at h=10:")
 println("  Point: $(round(mbb.point_fevd[k, h]; digits=3))")
-println("  95% CI: [$(round(mbb.ci95_fevd[1,h,k]; digits=3)), $(round(mbb.ci95_fevd[2,h,k]; digits=3))]")
+println("  95% CI: [$(round(mbb.fevd_bands.lower[1][k,h]; digits=3)), $(round(mbb.fevd_bands.upper[1][k,h]; digits=3))]")
 ```
 
 ### Normalization
@@ -421,11 +423,11 @@ The `norm_scale` parameter controls how normalized IRFs are scaled. The default 
 
 ```julia
 # Negative one-unit shock (default)
-mbb_neg = proxy_svar_mbb(model, 20, ProxySVARMBB(500; norm_scale=-1.0);
+mbb_neg = proxy_svar_mbb(model, id, 20, ProxySVARMBB(500; norm_scale=-1.0);
     rng=Random.Xoshiro(1))
 
 # Positive one-unit shock
-mbb_pos = proxy_svar_mbb(model, 20, ProxySVARMBB(500; norm_scale=1.0);
+mbb_pos = proxy_svar_mbb(model, id, 20, ProxySVARMBB(500; norm_scale=1.0);
     rng=Random.Xoshiro(1))
 
 # They are mirror images
@@ -438,13 +440,10 @@ mbb_pos = proxy_svar_mbb(model, 20, ProxySVARMBB(500; norm_scale=1.0);
 
 ```julia
 Z_matrix = hcat(proxy1, proxy2)  # Two instruments for one shock
-instrument = ExternalInstrument(Z_matrix, 1; method=:tsls)
+id = IVIdentification(Z_matrix, 1)
 ```
 
-The `method` keyword controls the estimation approach:
-- `:tsls` (default) — two-stage least squares
-- `:liml` — limited information maximum likelihood
-- `:fuller` — Fuller's modified LIML
+The impact column is estimated by two-stage least squares.
 
 ---
 

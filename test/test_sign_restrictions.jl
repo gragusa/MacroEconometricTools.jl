@@ -43,16 +43,19 @@ using Dates: Date, Month
 
         # Test 1: Same seed → same results (use rotation_matrix directly for kwargs)
         P1 = rotation_matrix(
-            var, id; max_draws = 1000, parallel = :none, rng = StableRNG(42))
+            var, id; max_draws = 1000, parallel = :none, rng = StableRNG(42)
+        )
         P2 = rotation_matrix(
-            var, id; max_draws = 1000, parallel = :none, rng = StableRNG(42))
+            var, id; max_draws = 1000, parallel = :none, rng = StableRNG(42)
+        )
 
         @test P1 ≈ P2
         @test size(P1) == (n_v, n_v)
 
         # Test 2: Different seeds → different results (set identification)
         P3 = rotation_matrix(
-            var, id; max_draws = 1000, parallel = :none, rng = StableRNG(123))
+            var, id; max_draws = 1000, parallel = :none, rng = StableRNG(123)
+        )
         @test !(P1 ≈ P3)
 
         # Test 3: Verify restrictions are satisfied
@@ -60,9 +63,9 @@ using Dates: Date, Month
         @test P3[1, 1] > 0
 
         # Test 4: Verify P*P' ≈ Σ
-        Σ = Matrix(vcov(var))
-        @test P1 * P1' ≈ Σ rtol=1e-10
-        @test P3 * P3' ≈ Σ rtol=1e-10
+        Σ = Matrix(residual_covariance(var))
+        @test P1 * P1' ≈ Σ rtol = 1.0e-10
+        @test P3 * P3' ≈ Σ rtol = 1.0e-10
     end
 
     @testset "Distributed Sign Restriction Reproducibility" begin
@@ -77,9 +80,11 @@ using Dates: Date, Month
 
             # Test 1: Same seed → same results (distributed)
             P1_dist = rotation_matrix(
-                var, id; max_draws = 1000, parallel = :distributed, rng = StableRNG(42))
+                var, id; max_draws = 1000, parallel = :distributed, rng = StableRNG(42)
+            )
             P2_dist = rotation_matrix(
-                var, id; max_draws = 1000, parallel = :distributed, rng = StableRNG(42))
+                var, id; max_draws = 1000, parallel = :distributed, rng = StableRNG(42)
+            )
 
             @test P1_dist ≈ P2_dist
             @test size(P1_dist) == (n_v, n_v)
@@ -88,8 +93,8 @@ using Dates: Date, Month
             @test P1_dist[1, 1] > 0
 
             # Test 3: Verify P*P' ≈ Σ
-            Σ = Matrix(vcov(var))
-            @test P1_dist * P1_dist' ≈ Σ rtol=1e-10
+            Σ = Matrix(residual_covariance(var))
+            @test P1_dist * P1_dist' ≈ Σ rtol = 1.0e-10
         end
     end
 
@@ -104,7 +109,8 @@ using Dates: Date, Month
 
         # Find rotation satisfying restrictions
         P = rotation_matrix(
-            var, id; max_draws = 5000, parallel = :none, rng = StableRNG(999))
+            var, id; max_draws = 5000, parallel = :none, rng = StableRNG(999)
+        )
 
         # Verify all restrictions
         @test P[1, 1] > 0
@@ -112,8 +118,8 @@ using Dates: Date, Month
         @test P[2, 2] > 0
 
         # Verify P*P' ≈ Σ
-        Σ = Matrix(vcov(var))
-        @test P * P' ≈ Σ rtol=1e-10
+        Σ = Matrix(residual_covariance(var))
+        @test P * P' ≈ Σ rtol = 1.0e-10
     end
 
     # Note: Sign restrictions on IRF horizons > 0 would require passing parameters
@@ -128,11 +134,12 @@ using Dates: Date, Month
 
         # Find rotation satisfying restrictions on IRFs
         P = rotation_matrix(
-            var, id; max_draws = 5000, parallel = :none, rng = StableRNG(777))
+            var, id; max_draws = 5000, parallel = :none, rng = StableRNG(777)
+        )
 
         # Verify P*P' ≈ Σ
-        Σ = Matrix(vcov(var))
-        @test P * P' ≈ Σ rtol=1e-10
+        Σ = Matrix(residual_covariance(var))
+        @test P * P' ≈ Σ rtol = 1.0e-10
 
         # Basic check: impact should satisfy restrictions
         @test P[1, 1] > 0
@@ -150,12 +157,13 @@ using Dates: Date, Month
 
         # Test with sign restriction-specific method (returns SignRestrictedIRFResult)
         irf_result = irf(
-            var, id; horizon = horizon, n_draws = n_draws, rng = StableRNG(333))
+            var, id; horizon = horizon, n_draws = n_draws, rng = StableRNG(333)
+        )
 
         @test irf_result isa SignRestrictedIRFResult
         # AxisArray layout: (variable, shock, horizon) and (draw, variable, shock, horizon)
-        @test size(irf_result.irf_median) == (n_v, n_v, horizon+1)
-        @test size(irf_result.irf_draws) == (n_draws, n_v, n_v, horizon+1)
+        @test size(irf_result.irf_median) == (n_v, n_v, horizon + 1)
+        @test size(irf_result.irf_draws) == (n_draws, n_v, n_v, horizon + 1)
         median_data = Array(irf_result.irf_median)
         draws_data = Array(irf_result.irf_draws)
         @test median_data[1, 1, 1] > 0  # Median should satisfy restriction
@@ -163,7 +171,8 @@ using Dates: Date, Month
 
         # Test reproducibility
         irf_result2 = irf(
-            var, id; horizon = horizon, n_draws = n_draws, rng = StableRNG(333))
+            var, id; horizon = horizon, n_draws = n_draws, rng = StableRNG(333)
+        )
         @test Array(irf_result.irf_median) ≈ Array(irf_result2.irf_median)
         @test Array(irf_result.irf_draws) ≈ Array(irf_result2.irf_draws)
     end
@@ -194,8 +203,10 @@ end
     row_idx = 20                 # Restrict shock 1 to be positive at this residual row
 
     @testset "Integer-indexed restriction returns correct result" begin
-        id = NarrativeRestriction(sign_restrictions,
-            [NarrativeShockRestriction(1, row_idx, 1)]; horizon = 0)
+        id = NarrativeRestriction(
+            sign_restrictions,
+            [NarrativeShockRestriction(1, row_idx, 1)]; horizon = 0
+        )
 
         horizon = 10
         n_draws = 50
@@ -216,8 +227,10 @@ end
     end
 
     @testset "Reproducible under seeded RNG" begin
-        id = NarrativeRestriction(sign_restrictions,
-            [NarrativeShockRestriction(1, row_idx, 1)]; horizon = 0)
+        id = NarrativeRestriction(
+            sign_restrictions,
+            [NarrativeShockRestriction(1, row_idx, 1)]; horizon = 0
+        )
 
         r1 = irf(var, id; horizon = 8, n_draws = 30, rng = StableRNG(99))
         r2 = irf(var, id; horizon = 8, n_draws = 30, rng = StableRNG(99))
@@ -235,8 +248,10 @@ end
         @test length(dates(var_dated)) == n_eff
 
         restriction_date = dates(var_dated)[row_idx]
-        id = NarrativeRestriction(sign_restrictions,
-            [NarrativeShockRestriction(1, restriction_date, 1)]; horizon = 0)
+        id = NarrativeRestriction(
+            sign_restrictions,
+            [NarrativeShockRestriction(1, restriction_date, 1)]; horizon = 0
+        )
 
         result = irf(var_dated, id; horizon = 6, n_draws = 20, rng = StableRNG(5))
         @test result isa SignRestrictedIRFResult
@@ -248,18 +263,24 @@ end
         # A model without dates falls back to integer rows: a date-based
         # restriction then cannot be resolved and fails fast.
         @test dates(var) === nothing
-        @test_throws "Cannot use date-based NarrativeShockRestriction without dates" irf(
-            var, id; horizon = 6, n_draws = 5, rng = StableRNG(1))
+        @test_throws "needs a model fitted with `dates`" irf(
+            var, id; horizon = 6, n_draws = 5, rng = StableRNG(1)
+        )
     end
 
     @testset "Exhaustion fails fast" begin
         # Contradictory restrictions at the same row: no rotation can satisfy both
-        id = NarrativeRestriction(sign_restrictions,
-            [NarrativeShockRestriction(1, row_idx, 1),
-                NarrativeShockRestriction(1, row_idx, -1)]; horizon = 0)
+        id = NarrativeRestriction(
+            sign_restrictions,
+            [
+                NarrativeShockRestriction(1, row_idx, 1),
+                NarrativeShockRestriction(1, row_idx, -1)
+            ]; horizon = 0
+        )
 
         @test_throws "Could not find impact matrix satisfying narrative restrictions" irf(
-            var, id; horizon = 5, n_draws = 1, max_attempts = 50, rng = StableRNG(1))
+            var, id; horizon = 5, n_draws = 1, max_attempts = 50, rng = StableRNG(1)
+        )
     end
 
     println("✓ All narrative restriction tests passed!")
@@ -285,8 +306,10 @@ end
 
     @testset "irf(::SignRestriction; cumulate=Int)" begin
         plain = irf(var, sr; horizon = horizon, n_draws = 30, rng = StableRNG(7))
-        cum = irf(var, sr; horizon = horizon, n_draws = 30, cumulate = [1],
-            rng = StableRNG(7))
+        cum = irf(
+            var, sr; horizon = horizon, n_draws = 30, cumulate = [1],
+            rng = StableRNG(7)
+        )
 
         @test cum isa SignRestrictedIRFResult
         # Set-identified: each draw is cumulated, then bands/median recomputed.
@@ -294,20 +317,30 @@ end
         # median, since median is nonlinear). Draw axes: (draw, var, shock, horizon).
         plain_draws = Array(plain.irf_draws)
         cum_draws = Array(cum.irf_draws)
-        @test all(cum_draws[r, 1, :, :] ≈ cumsum(plain_draws[r, 1, :, :]; dims = 2)
-        for r in axes(plain_draws, 1))
+        @test all(
+            cum_draws[r, 1, :, :] ≈ cumsum(plain_draws[r, 1, :, :]; dims = 2)
+        for r in axes(plain_draws, 1)
+        )
         # Non-cumulated variables are untouched.
-        @test all(cum_draws[r, 2, :, :] ≈ plain_draws[r, 2, :, :]
-        for r in axes(plain_draws, 1))
-        @test all(cum_draws[r, 3, :, :] ≈ plain_draws[r, 3, :, :]
-        for r in axes(plain_draws, 1))
+        @test all(
+            cum_draws[r, 2, :, :] ≈ plain_draws[r, 2, :, :]
+        for r in axes(plain_draws, 1)
+        )
+        @test all(
+            cum_draws[r, 3, :, :] ≈ plain_draws[r, 3, :, :]
+        for r in axes(plain_draws, 1)
+        )
     end
 
     @testset "irf(::SignRestriction; cumulate=Symbol)" begin
-        by_sym = irf(var, sr; horizon = horizon, n_draws = 30,
-            cumulate = [names[1]], rng = StableRNG(7))
-        by_int = irf(var, sr; horizon = horizon, n_draws = 30, cumulate = [1],
-            rng = StableRNG(7))
+        by_sym = irf(
+            var, sr; horizon = horizon, n_draws = 30,
+            cumulate = [names[1]], rng = StableRNG(7)
+        )
+        by_int = irf(
+            var, sr; horizon = horizon, n_draws = 30, cumulate = [1],
+            rng = StableRNG(7)
+        )
         @test Array(by_sym.irf_median) ≈ Array(by_int.irf_median)
     end
 
@@ -317,18 +350,26 @@ end
         @test cum isa SignRestrictedIRFResult
         plain_draws = Array(plain.irf_draws)
         cum_draws = Array(cum.irf_draws)
-        @test all(cum_draws[r, 1, :, :] ≈ cumsum(plain_draws[r, 1, :, :]; dims = 2)
-        for r in axes(plain_draws, 1))
-        @test all(cum_draws[r, 2, :, :] ≈ plain_draws[r, 2, :, :]
-        for r in axes(plain_draws, 1))
+        @test all(
+            cum_draws[r, 1, :, :] ≈ cumsum(plain_draws[r, 1, :, :]; dims = 2)
+        for r in axes(plain_draws, 1)
+        )
+        @test all(
+            cum_draws[r, 2, :, :] ≈ plain_draws[r, 2, :, :]
+        for r in axes(plain_draws, 1)
+        )
     end
 
     @testset "irf(::CholeskyID; inference, cumulate=Int)" begin
-        plain = irf(var, CholeskyID(); horizon = horizon,
-            inference = WildBootstrap(60; save_draws = true), rng = StableRNG(13))
-        cum = irf(var, CholeskyID(); horizon = horizon,
+        plain = irf(
+            var, CholeskyID(); horizon = horizon,
+            inference = WildBootstrap(60; save_draws = true), rng = StableRNG(13)
+        )
+        cum = irf(
+            var, CholeskyID(); horizon = horizon,
             inference = WildBootstrap(60; save_draws = true), cumulate = [1],
-            rng = StableRNG(13))
+            rng = StableRNG(13)
+        )
         @test cum isa IRFResult
         plain_pt = Array(point_estimate(plain))   # (variable, shock, horizon)
         cum_pt = Array(point_estimate(cum))
@@ -337,8 +378,10 @@ end
     end
 
     @testset "cumulative_irf(::IRFResult)" begin
-        plain = irf(var, CholeskyID(); horizon = horizon,
-            inference = WildBootstrap(60; save_draws = true), rng = StableRNG(17))
+        plain = irf(
+            var, CholeskyID(); horizon = horizon,
+            inference = WildBootstrap(60; save_draws = true), rng = StableRNG(17)
+        )
         cum = cumulative_irf(plain; vars = [1])
         @test cum isa IRFResult
         plain_pt = Array(point_estimate(plain))

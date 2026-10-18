@@ -36,8 +36,12 @@ var = VAR(df, [:GDP, :Inflation], 2; demean = true)
 function VAR(df::DataFrame, variables::Vector{Symbol}, lags::Int; kwargs...)
     for v in variables
         hasproperty(df, v) ||
-            throw(ArgumentError("Column :$v not found in DataFrame. " *
-                                "Available: $(propertynames(df))"))
+            throw(
+                ArgumentError(
+                "Column :$v not found in DataFrame. " *
+                "Available: $(propertynames(df))"
+            )
+            )
     end
     Y = Matrix{Float64}(df[:, variables])
     return fit(OLSVAR, Y, lags; names = variables, kwargs...)

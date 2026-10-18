@@ -50,26 +50,14 @@ Computes lower-triangular Cholesky factor: Σ = P*P'
 - `id::CholeskyID`: Cholesky identification with optional variable ordering
 
 # Returns
-- Lower-triangular rotation matrix
+- Rotation matrix `P` with `P * P' ≈ Σ`; lower triangular in the data ordering
+  when `id.ordering` is `nothing`. Computed by [`structural_impact`](@ref).
 """
 function rotation_matrix(model::VARModel{T}, id::CholeskyID) where {T}
-    Σ = vcov(model)
-
-    # Handle variable ordering
-    if id.ordering !== nothing
-        perm = get_permutation(model.names, id.ordering)
-        Σ_ordered = Σ[perm, perm]
-        P_ordered = Matrix(cholesky(Σ_ordered).L)
-
-        # Permute back to original ordering
-        inv_perm = invperm(perm)
-        P = P_ordered[inv_perm, inv_perm]
-    else
-        # Use data ordering
-        P = Matrix(cholesky(Σ).L)
-    end
-
-    return P
+    Σ_L = Matrix(cholesky(residual_covariance(model)).L)
+    ordering_idx = id.ordering === nothing ? nothing :
+                   get_permutation(model.names, id.ordering)
+    return structural_impact(Σ_L, id; ordering_idx)
 end
 
 """
@@ -134,11 +122,13 @@ addprocs(4)
 P = rotation_matrix(model, id; max_draws=50000, parallel=:distributed)
 ```
 """
-function rotation_matrix(model::VARModel{T}, id::SignRestriction;
+function rotation_matrix(
+        model::VARModel{T}, id::SignRestriction;
         max_draws::Int = 10000,
         parallel::Symbol = :none,
         verbose::Bool = false,
-        rng::AbstractRNG = Random.default_rng()) where {T}
+        rng::AbstractRNG = Random.default_rng()
+) where {T}
     parallel ∈ [:none, :distributed] ||
         throw(ArgumentError("parallel must be :none or :distributed"))
 
@@ -154,14 +144,17 @@ end
 
 Serial sign restriction search.
 """
-function identify_sign_serial(model::VARModel{T}, id::SignRestriction,
+function identify_sign_serial(
+        model::VARModel{T}, id::SignRestriction,
         max_draws::Int, verbose::Bool,
-        rng::AbstractRNG) where {T}
+        rng::AbstractRNG
+) where {T}
     n_vars_val = n_vars(model)
-    Σ = vcov(model)
+    Σ = residual_covariance(model)
 
     # Cholesky as starting point
     P_chol = Matrix(cholesky(Σ).L)
+    Φ = compute_ma_matrices(model.companion, id.horizon, n_vars_val, n_lags(model))
 
     # Search for valid rotation
     for iter in 1:max_draws
@@ -172,7 +165,7 @@ function identify_sign_serial(model::VARModel{T}, id::SignRestriction,
         P_candidate = P_chol * Q
 
         # Check sign restrictions on impact or IRFs
-        if check_sign_restrictions(P_candidate, id.restrictions, model, id.horizon)
+        if check_sign_restrictions(P_candidate, id.restrictions, Φ, id.horizon)
             if verbose
                 println("Found valid rotation at attempt $iter")
             end
@@ -194,9 +187,11 @@ Distributed sign restriction search using multiple processes.
 
 Divides search across workers and stops when first valid rotation is found.
 """
-function identify_sign_distributed(model::VARModel{T}, id::SignRestriction,
+function identify_sign_distributed(
+        model::VARModel{T}, id::SignRestriction,
         max_draws::Int, verbose::Bool,
-        rng::AbstractRNG) where {T}
+        rng::AbstractRNG
+) where {T}
 
     # Check if Distributed is available
     # if !isdefined(Main, :Distributed)
@@ -212,8 +207,9 @@ function identify_sign_distributed(model::VARModel{T}, id::SignRestriction,
     end
 
     n_vars_val = n_vars(model)
-    Σ = vcov(model)
+    Σ = residual_covariance(model)
     P_chol = Matrix(cholesky(Σ).L)
+    Φ = compute_ma_matrices(model.companion, id.horizon, n_vars_val, n_lags(model))
 
     # Function to search for valid rotation (returns nothing if not found)
     # Takes (n_attempts, worker_id, base_seed) for independent streams
@@ -228,7 +224,7 @@ function identify_sign_distributed(model::VARModel{T}, id::SignRestriction,
             Q = generate_random_orthogonal(n_vars_val, rng_local)
             P_candidate = P_chol * Q
 
-            if check_sign_restrictions(P_candidate, id.restrictions, model, id.horizon)
+            if check_sign_restrictions(P_candidate, id.restrictions, Φ, id.horizon)
                 return (found = true, P = P_candidate, attempt = attempt)
             end
         end
@@ -275,69 +271,31 @@ end
 """
     generate_random_orthogonal(n::Int, rng::AbstractRNG)
 
-Generate random orthogonal matrix via QR decomposition of random normal matrix.
+Allocating form of [`generate_random_orthogonal!`](@ref): an `n × n` random
+orthogonal `Float64` matrix.
 """
 function generate_random_orthogonal(n::Int, rng::AbstractRNG)
-    X = randn(rng, n, n)
-    Q, R = qr(X)
-    # Normalize to ensure det(Q) = 1
-    D = Diagonal(sign.(diag(R)))
-    return Matrix(Q * D)
+    return generate_random_orthogonal!(
+        Matrix{Float64}(undef, n, n), Matrix{Float64}(undef, n, n), rng
+    )
 end
 
 generate_random_orthogonal(n::Int) = generate_random_orthogonal(n, Random.default_rng())
 
 """
-    check_sign_restrictions(P, restrictions, model, horizon)
+    check_sign_restrictions(P, restrictions, model::VARModel, horizon) -> Bool
 
-Check if impact matrix satisfies sign restrictions.
-
-# Arguments
-- `P::Matrix`: Candidate impact matrix
-- `restrictions::Matrix{Int}`: Sign restriction matrix (+1, -1, 0 for no restriction)
-- `model::VARModel`: VAR model
-- `horizon::Int`: Horizon over which restrictions apply
-
-# Returns
-- `true` if restrictions are satisfied
+Check whether impact matrix `P` satisfies sign restrictions, computing the MA
+matrices from `model`. Delegates to the matrix-level method
+`check_sign_restrictions(P, restrictions, Φ, horizon)`; when checking many
+candidates against one model, compute `Φ` once and call that method directly.
 """
-function check_sign_restrictions(P::Matrix{T}, restrictions::Matrix{Int},
-        model::VARModel, horizon::Int) where {T}
-    n_vars_val = size(P, 1)
-
-    # Check impact (horizon 0)
-    for i in 1:n_vars_val
-        for j in 1:n_vars_val
-            if restrictions[i, j] == 1 && P[i, j] < 0
-                return false
-            elseif restrictions[i, j] == -1 && P[i, j] > 0
-                return false
-            end
-        end
-    end
-
-    # Check restrictions on IRFs up to horizon if horizon > 0
-    if horizon > 0
-        # Compute IRFs
-        F = model.companion
-        n_lags_val = n_lags(model)
-        Φ = compute_ma_matrices(F, horizon, n_vars_val, n_lags_val)
-
-        for h in 1:horizon
-            IRF_h = Φ[:, :, h + 1] * P
-            for i in 1:n_vars_val
-                for j in 1:n_vars_val
-                    if restrictions[i, j] == 1 && IRF_h[i, j] < 0
-                        return false
-                    elseif restrictions[i, j] == -1 && IRF_h[i, j] > 0
-                        return false
-                    end
-                end
-            end
-        end
-    end
-
-    return true
+function check_sign_restrictions(
+        P::AbstractMatrix, restrictions::Matrix{Int},
+        model::VARModel, horizon::Int
+)
+    Φ = compute_ma_matrices(model.companion, horizon, n_vars(model), n_lags(model))
+    return check_sign_restrictions(P, restrictions, Φ, horizon)
 end
 
 # ============================================================================
@@ -349,9 +307,9 @@ end
 
 SVAR-IV identification via external instruments (Stock & Watson 2018).
 
-When `id` carries an instrument, 2SLS identification is performed on the model's
-residuals. When `id` has no instrument (backward compat `IVIdentification()`),
-the structural impact matrix is extracted from an IVSVAR model's metadata.
+The impact column of the target shock is estimated by 2SLS on the model's
+residuals. The deprecated `IVIdentification()` (no instrument) takes the
+instrument from a model fitted with `fit(IVSVAR, ...)`.
 """
 function rotation_matrix(model::VARModel{T}, id::IVIdentification) where {T}
     resolved = _resolve_iv(model, id)
@@ -361,7 +319,7 @@ function rotation_matrix(model::VARModel{T}, id::IVIdentification) where {T}
     ν = residuals(model)
     Z, target = _extract_instrument(inst, size(ν, 1), n_lags(model), model.names)
     β_iv, _, _ = _iv_identify(ν, Z, target)
-    return _build_full_impact_matrix(β_iv, target, Matrix(vcov(model)))
+    return _build_full_impact_matrix(β_iv, target, Matrix(residual_covariance(model)))
 end
 
 # ============================================================================
@@ -390,13 +348,15 @@ indices; a `Dates.TimeType` restriction then fails fast.
 # Returns
 - Rotation matrix `P` satisfying the sign and narrative restrictions
 """
-function rotation_matrix(model::VARModel{T}, id::NarrativeRestriction;
+function rotation_matrix(
+        model::VARModel{T}, id::NarrativeRestriction;
         max_draws::Int = 10000,
-        rng::AbstractRNG = Random.default_rng()) where {T}
+        rng::AbstractRNG = Random.default_rng()
+) where {T}
     n_vars_val = n_vars(model)
     n_lags_val = n_lags(model)
 
-    Σ_L = Matrix(cholesky(vcov(model)).L)
+    Σ_L = Matrix(cholesky(residual_covariance(model)).L)
     U = residuals(model)
     Φ = compute_ma_matrices(model.companion, id.horizon, n_vars_val, n_lags_val)
     model_dates = dates(model)
@@ -422,28 +382,22 @@ end
 # ============================================================================
 
 """
-    normalize!(P::Matrix, norm::AbstractNormalization)
+    normalize_impact!(P::AbstractMatrix, norm::AbstractNormalization)
 
-Normalize impact matrix according to normalization scheme.
+Rescale the columns of the impact matrix `P` in place according to `norm` and
+return `P`.
 
-# Arguments
-- `P::Matrix`: Impact matrix
-- `norm::AbstractNormalization`: Normalization scheme
-
-# Returns
-- Normalized impact matrix (modifies in place)
+- `UnitStd()`: no change (each column is the response to a one-standard-deviation
+  shock).
+- `UnitEffect()`: divide column `j` by `P[j, j]`, so shock `j` moves variable `j`
+  by one unit on impact. Columns with `|P[j, j]| ≤ eps` are left unchanged.
 """
-function normalize!(P::Matrix{T}, ::UnitStd) where {T}
-    # Already normalized with Cholesky: P*P' = Σ implies structural shocks have unit variance
-    return P
-end
+normalize_impact!(P::AbstractMatrix, ::UnitStd) = P
 
-function normalize!(P::Matrix{T}, ::UnitEffect) where {T}
-    # Normalize so diagonal elements are 1 (unit effect on impact)
-    n = size(P, 1)
-    for j in 1:n
+function normalize_impact!(P::AbstractMatrix, ::UnitEffect)
+    for j in axes(P, 2)
         scale = P[j, j]
-        if abs(scale) > eps(T)
+        if abs(scale) > eps(real(eltype(P)))
             P[:, j] ./= scale
         end
     end
@@ -451,50 +405,48 @@ function normalize!(P::Matrix{T}, ::UnitEffect) where {T}
 end
 
 """
-    normalize(P::Matrix, norm::AbstractNormalization)
+    normalize_impact(P::AbstractMatrix, norm::AbstractNormalization)
 
-Non-mutating version of normalize!
+Non-mutating [`normalize_impact!`](@ref).
 """
-normalize(P::Matrix, norm::AbstractNormalization) = normalize!(copy(P), norm)
+function normalize_impact(P::AbstractMatrix, norm::AbstractNormalization)
+    normalize_impact!(copy(P), norm)
+end
+
+@deprecate normalize!(P::AbstractMatrix, norm::AbstractNormalization) normalize_impact!(P, norm) false
+@deprecate normalize(P::AbstractMatrix, norm::AbstractNormalization) normalize_impact(P, norm) false
 
 # ============================================================================
 # MA Representation
 # ============================================================================
 
 """
-    compute_ma_matrices(F::Matrix, horizon::Int, n_vars::Int, n_lags::Int)
+    compute_ma_matrices(F::AbstractMatrix, horizon::Int, n_vars::Int, n_lags::Int)
 
-Compute moving average (MA) representation matrices Φ_h = F^h.
+Moving-average matrices `Φ_h` (the top-left `n_vars × n_vars` block of `F^h`)
+from the companion matrix `F`, for `h = 0, …, horizon`. Only the first
+`n_vars` rows of `F` (`[A_1 … A_p]`) are read; the recursion is
+[`compute_ma_matrices_from_B!`](@ref).
 
 # Returns
-- Array of size (n_vars, n_vars, horizon+1) with MA coefficients
+- Array of size (n_vars, n_vars, horizon+1) with `Φ[:, :, 1] = I`
 """
-function compute_ma_matrices(F::Matrix{T}, horizon::Int, n_vars::Int, n_lags::Int) where {T}
+function compute_ma_matrices(
+        F::AbstractMatrix{T}, horizon::Int, n_vars::Int, n_lags::Int
+) where {T}
+    Base.require_one_based_indexing(F)
     n_comp = n_vars * n_lags
-
-    # Preallocate
-    Φ = zeros(T, n_vars, n_vars, horizon + 1)
-
-    # Φ_0 = I
-    for i in 1:n_vars
-        Φ[i, i, 1] = one(T)
+    size(F) == (n_comp, n_comp) || throw(
+        DimensionMismatch(
+        "companion matrix must be $(n_comp)×$(n_comp) for n_vars=$n_vars, n_lags=$n_lags; got $(size(F))"
+    )
+    )
+    B = zeros(T, 1 + n_comp, n_vars)
+    if n_comp > 0
+        B[2:end, :] .= transpose(view(F, 1:n_vars, :))
     end
-
-    # Since J selects the first n_vars rows and J' selects the first n_vars columns,
-    # Φ_h = F_power[1:n_vars, 1:n_vars]. No need to form J explicitly.
-    F_power = copy(F)
-    F_power_buf = similar(F)
-
-    for h in 1:horizon
-        # Extract Φ_h = F^h[1:n_vars, 1:n_vars]
-        @inbounds for j in 1:n_vars, i in 1:n_vars
-
-            Φ[i, j, h + 1] = F_power[i, j]
-        end
-        # F_power <- F_power * F  (in-place via buffer swap)
-        mul!(F_power_buf, F_power, F)
-        F_power, F_power_buf = F_power_buf, F_power
-    end
-
-    return Φ
+    Φ = Array{T, 3}(undef, n_vars, n_vars, horizon + 1)
+    return compute_ma_matrices_from_B!(
+        Φ, B, Matrix{T}(undef, n_vars, n_vars), horizon, n_vars, n_lags
+    )
 end

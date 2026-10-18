@@ -5,6 +5,7 @@
 # produces identical results to the old API and works with all inference types.
 
 using MacroEconometricTools
+using MacroEconometricTools: proxy_svar_mbb, msw_confidence_set
 using Test
 using LinearAlgebra
 using Random
@@ -14,8 +15,10 @@ using StableRNGs: StableRNG
 # ============================================================================
 # Helper: simulate a bivariate VAR with known structural parameters
 # ============================================================================
-function simulate_var_dgp(T::Int, A_coefs::Vector{Matrix{Float64}},
-        H::Matrix{Float64}; rng = StableRNG(42), burn::Int = 500)
+function simulate_var_dgp(
+        T::Int, A_coefs::Vector{Matrix{Float64}},
+        H::Matrix{Float64}; rng = StableRNG(42), burn::Int = 500
+)
     p = length(A_coefs)
     K = size(H, 1)
     T_total = T + burn
@@ -51,19 +54,24 @@ Y, ε = simulate_var_dgp(T_sim, [A1], H_true; rng = StableRNG(2024))
 # ============================================================================
 # Test 1: New API matches old API exactly
 # ============================================================================
-@testset "New API matches old API" begin
-    # Old API
+@testset "Deprecated fit(IVSVAR) matches OLSVAR + IVIdentification" begin
+    # Deprecated API
     Z_trimmed = reshape(ε[(p_lag + 1):end, 1], :, 1)
-    model_old = fit(IVSVAR, Y, p_lag;
-        instrument = ExternalInstrument(Z_trimmed, 1), names = [:Y1, :Y2, :Y3])
-    irf_old = irf(model_old, IVIdentification(); horizon = 10)
+    model_old = @test_deprecated r"fit\(IVSVAR" fit(
+        MacroEconometricTools.IVSVAR, Y, p_lag;
+        instrument = ExternalInstrument(Z_trimmed, 1), names = [:Y1, :Y2, :Y3]
+    )
+    id_empty = @test_deprecated r"IVIdentification\(\)" IVIdentification()
+    @test id_empty.instrument === nothing
+    irf_old = irf(model_old, id_empty; horizon = 10)
+    @test Array(irf(model_old; horizon = 10).irf) ≈ Array(irf_old.irf)
 
     # New API
     model_new = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
     id = IVIdentification(ε[:, 1], 1)  # full-length, auto-trimmed
     irf_new = irf(model_new, id; horizon = 10)
 
-    @test Array(irf_old.irf) ≈ Array(irf_new.irf) atol=1e-10
+    @test Array(irf_old.irf) ≈ Array(irf_new.irf) atol = 1.0e-10
 end
 
 # ============================================================================
@@ -75,7 +83,7 @@ end
 
     P = rotation_matrix(model, id)
     @test size(P) == (K, K)
-    @test P[1, 1] ≈ 1.0 atol=1e-10  # unit effect normalization
+    @test P[1, 1] ≈ 1.0 atol = 1.0e-10  # unit effect normalization
 end
 
 # ============================================================================
@@ -88,11 +96,13 @@ end
     F = first_stage_F(model, id)
     @test F > 1000  # perfect instrument
 
-    # Compare with old API
-    model_old = fit(IVSVAR, Y, p_lag;
-        instrument = ExternalInstrument(ε[:, 1], 1), names = [:Y1, :Y2, :Y3])
-    F_old = first_stage_F(model_old)
-    @test F ≈ F_old atol=1e-10
+    # Compare with the deprecated API
+    model_old = @test_deprecated fit(
+        MacroEconometricTools.IVSVAR, Y, p_lag;
+        instrument = ExternalInstrument(ε[:, 1], 1), names = [:Y1, :Y2, :Y3]
+    )
+    @test first_stage_F(model_old) ≈ F atol = 1.0e-10
+    @test model_old.metadata.first_stage_F ≈ F atol = 1.0e-10
 
     # iv_summary should not error
     old_stdout = stdout
@@ -108,50 +118,40 @@ end
 # ============================================================================
 # Test 4: irf with various inference types
 # ============================================================================
-@testset "irf with WildBootstrap + IVIdentification" begin
+@testset "WildBootstrap and Bootstrap reject IVIdentification" begin
     model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
     id = IVIdentification(ε[:, 1], 1)
 
-    result = irf(model, id; horizon = 10,
-        inference = WildBootstrap(50; save_draws = false),
-        rng = Random.Xoshiro(42))
-
-    @test size(result.irf) == (K, K, 11)
-    @test length(result.lower) == 3  # 68%, 90%, 95%
-    @test all(isfinite, Array(result.irf))
+    @test_throws "WildBootstrap does not resample the instrument" irf(
+        model, id;
+        horizon = 10, inference = WildBootstrap(50), rng = Random.Xoshiro(42)
+    )
+    @test_throws "Bootstrap does not resample the instrument" irf(
+        model, id;
+        horizon = 10, inference = Bootstrap(50), rng = Random.Xoshiro(42)
+    )
 end
 
-@testset "irf with Bootstrap + IVIdentification" begin
+@testset "irf with BlockBootstrap + IVIdentification throws" begin
     model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
     id = IVIdentification(ε[:, 1], 1)
 
-    result = irf(model, id; horizon = 10,
-        inference = Bootstrap(50),
-        rng = Random.Xoshiro(42))
-
-    @test size(result.irf) == (K, K, 11)
-    @test length(result.lower) == 3
-end
-
-@testset "irf with BlockBootstrap + IVIdentification" begin
-    model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
-    id = IVIdentification(ε[:, 1], 1)
-
-    result = irf(model, id; horizon = 10,
+    @test_throws "BlockBootstrap does not resample the instrument" irf(
+        model, id; horizon = 10,
         inference = BlockBootstrap(50; block_length = 5),
-        rng = Random.Xoshiro(42))
-
-    @test size(result.irf) == (K, K, 11)
-    @test length(result.lower) == 3
+        rng = Random.Xoshiro(42)
+    )
 end
 
 @testset "irf with ProxySVARMBB + IVIdentification" begin
     model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
     id = IVIdentification(ε[:, 1], 1)
 
-    result = irf(model, id; horizon = 10,
+    result = irf(
+        model, id; horizon = 10,
         inference = ProxySVARMBB(50; block_length = 4),
-        rng = Random.Xoshiro(42))
+        rng = Random.Xoshiro(42)
+    )
 
     @test size(result.irf) == (K, K, 11)
     @test length(result.lower) == 3
@@ -163,8 +163,10 @@ end
 @testset "ProxySVARMBB errors with CholeskyID" begin
     model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
 
-    @test_throws ArgumentError irf(model, CholeskyID(); horizon = 10,
-        inference = ProxySVARMBB(50))
+    @test_throws ArgumentError irf(
+        model, CholeskyID(); horizon = 10,
+        inference = ProxySVARMBB(50)
+    )
 end
 
 # ============================================================================
@@ -174,13 +176,17 @@ end
     model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
     id = IVIdentification(ε[:, 1], 1)
 
-    mbb = proxy_svar_mbb(model, id, 10,
+    mbb = proxy_svar_mbb(
+        model, id, 10,
         ProxySVARMBB(50; block_length = 4, norm_scale = -1.0);
-        rng = Random.Xoshiro(42))
+        rng = Random.Xoshiro(42)
+    )
 
-    @test all(isfinite, mbb.ci68_irf_norm)
-    @test all(isfinite, mbb.ci95_irf_norm)
-    @test mbb.point_irf_norm[1, 1] ≈ -1.0 atol=1e-10
+    @test all(isfinite, mbb.irf_norm_bands.lower[1]) &&
+          all(isfinite, mbb.irf_norm_bands.upper[1])
+    @test all(isfinite, mbb.irf_norm_bands.lower[3]) &&
+          all(isfinite, mbb.irf_norm_bands.upper[3])
+    @test mbb.point_irf_norm[1, 1] ≈ -1.0 atol = 1.0e-10
 end
 
 # ============================================================================
@@ -191,9 +197,11 @@ end
     id = IVIdentification(ε[:, 1], 1)
 
     # ar_grid=nothing should use default [-10, 10] x 201
-    mbb = proxy_svar_mbb(model, id, 5,
+    mbb = proxy_svar_mbb(
+        model, id, 5,
         ProxySVARMBB(50; block_length = 4, compute_ar = true);
-        rng = Random.Xoshiro(42))
+        rng = Random.Xoshiro(42)
+    )
 
     @test mbb.ar !== nothing
     @test length(mbb.ar.grid) == 201
@@ -205,14 +213,16 @@ end
     model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
     id = IVIdentification(ε[:, 1], 1)
 
-    mbb = proxy_svar_mbb(model, id, 5,
+    mbb = proxy_svar_mbb(
+        model, id, 5,
         ProxySVARMBB(100; block_length = 4, compute_ar = true);
-        rng = Random.Xoshiro(42))
+        rng = Random.Xoshiro(42)
+    )
 
     for k in 1:K, h in 1:6
 
-        @test sum(mbb.ar.index68[:, h, k]) ≤ sum(mbb.ar.index90[:, h, k])
-        @test sum(mbb.ar.index90[:, h, k]) ≤ sum(mbb.ar.index95[:, h, k])
+        @test sum(mbb.ar.included[1][:, k, h]) ≤ sum(mbb.ar.included[2][:, k, h])
+        @test sum(mbb.ar.included[2][:, k, h]) ≤ sum(mbb.ar.included[3][:, k, h])
     end
 end
 
@@ -223,10 +233,12 @@ end
     model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
     id = IVIdentification(ε[:, 1], 1)
 
-    result = irf(model, id; horizon = 5,
+    result = irf(
+        model, id; horizon = 5,
         inference = ProxySVARMBB(100; block_length = 4, compute_ar = true),
         coverage = [0.68, 0.95],
-        rng = Random.Xoshiro(42))
+        rng = Random.Xoshiro(42)
+    )
 
     # Bands should exist and 68% ⊂ 95%
     lb1 = Array(result.lower[1])  # (variable, shock, horizon)
@@ -237,7 +249,7 @@ end
         w68 = ub1[1, 1, h] - lb1[1, 1, h]
         w95 = ub2[1, 1, h] - lb2[1, 1, h]
         if isfinite(w68) && isfinite(w95)
-            @test w68 ≤ w95 + 1e-10
+            @test w68 ≤ w95 + 1.0e-10
         end
     end
 end
@@ -249,10 +261,12 @@ end
     model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
     id = IVIdentification(ε[:, 1], 1)
 
-    result = irf(model, id; horizon = 6,
+    result = irf(
+        model, id; horizon = 6,
         inference = ProxySVARMBB(100; block_length = 4, save_draws = true),
         coverage = [0.68],
-        rng = Random.Xoshiro(42))
+        rng = Random.Xoshiro(42)
+    )
 
     pt = Array(result.irf)                 # (variable, shock, horizon)
     d = Array(result.bootstrap_draws)      # (draw, variable, shock, horizon)
@@ -263,11 +277,11 @@ end
     # point estimate. Dividing by the point-estimate impact (the old behaviour)
     # would leave this varying draw to draw.
     impacts = d[:, target, target, 1]
-    @test all(≈(pt[target, target, 1]; atol = 1e-10), impacts)
+    @test all(≈(pt[target, target, 1]; atol = 1.0e-10), impacts)
 
     # ⇒ the band at the normalized impact collapses onto the point estimate
-    @test Array(result.lower[1])[target, target, 1]≈pt[target, target, 1] atol=1e-10
-    @test Array(result.upper[1])[target, target, 1]≈pt[target, target, 1] atol=1e-10
+    @test Array(result.lower[1])[target, target, 1] ≈ pt[target, target, 1] atol = 1.0e-10
+    @test Array(result.upper[1])[target, target, 1] ≈ pt[target, target, 1] atol = 1.0e-10
 
     # Elsewhere the draws still vary and the bands have positive width
     @test std(d[:, 2, target, 3]) > 0
@@ -278,11 +292,15 @@ end
     model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
     id = IVIdentification(ε[:, 1], 1)
 
-    result = irf(model, id; horizon = 4,
-        inference = ProxySVARMBB(300; block_length = 4, compute_ar = true,
-            ar_grid = collect(range(-5.0, 5.0; length = 1001))),
+    result = irf(
+        model, id; horizon = 4,
+        inference = ProxySVARMBB(
+            300; block_length = 4, compute_ar = true,
+            ar_grid = collect(range(-5.0, 5.0; length = 1001))
+        ),
         coverage = [0.95],
-        rng = Random.Xoshiro(42))
+        rng = Random.Xoshiro(42)
+    )
 
     pt = Array(result.irf)
     lb = Array(result.lower[1])
@@ -291,8 +309,8 @@ end
 
     # The AR grid is stated in normalized units; rescaling it must land on the
     # same scale (and sign) as `irf_point`, not on the raw impact magnitude.
-    @test lb[target, target, 1]≈pt[target, target, 1] atol=1e-10
-    @test ub[target, target, 1]≈pt[target, target, 1] atol=1e-10
+    @test lb[target, target, 1] ≈ pt[target, target, 1] atol = 1.0e-10
+    @test ub[target, target, 1] ≈ pt[target, target, 1] atol = 1.0e-10
     for k in 1:K, h in 1:5
 
         @test lb[k, target, h] ≤ ub[k, target, h]
@@ -309,15 +327,17 @@ end
     msw = msw_confidence_set(model, id; horizon = 10)
 
     @test msw.wald_stat > 0
-    @test msw.bounded68  # strong instrument → bounded
+    @test msw.bounded[1]  # strong instrument → bounded
 
-    # Compare with old API
-    model_old = fit(IVSVAR, Y, p_lag;
-        instrument = ExternalInstrument(ε[:, 1], 1), names = [:Y1, :Y2, :Y3])
+    # Compare with the deprecated API
+    model_old = @test_deprecated fit(
+        MacroEconometricTools.IVSVAR, Y, p_lag;
+        instrument = ExternalInstrument(ε[:, 1], 1), names = [:Y1, :Y2, :Y3]
+    )
     msw_old = msw_confidence_set(model_old; horizon = 10)
 
-    @test msw.wald_stat ≈ msw_old.wald_stat atol=1e-10
-    @test msw.cs68_irf_norm ≈ msw_old.cs68_irf_norm atol=1e-10
+    @test msw.wald_stat ≈ msw_old.wald_stat atol = 1.0e-10
+    @test msw.cs_irf_norm ≈ msw_old.cs_irf_norm atol = 1.0e-10
 end
 
 # ============================================================================
@@ -329,18 +349,27 @@ end
     @test id1.instrument isa ExternalInstrument
     @test id1.instrument.target_shock == 1
 
-    # Matrix
-    id2 = IVIdentification(randn(100, 2), 1; method = :liml)
-    @test id2.instrument.method == :liml
+    # Matrix, Symbol target, keyword form
+    id2 = IVIdentification(randn(100, 2), :Y2)
+    @test id2.instrument.target_shock === :Y2
+    @test size(id2.instrument.Z) == (100, 2)
+    @test IVIdentification(randn(100); target_shock = 3).instrument.target_shock == 3
+
+    # Integer data is stored as floating point
+    @test IVIdentification(collect(1:100), 1).instrument.Z isa
+          Matrix{Union{Missing, Float64}}
+
+    @test_throws "target_shock must be positive" IVIdentification(randn(100), 0)
 
     # ExternalInstrument
     inst = ExternalInstrument(randn(100), 2)
     id3 = IVIdentification(inst)
     @test id3.instrument.target_shock == 2
 
-    # Empty (backward compat)
-    id4 = IVIdentification()
-    @test id4.instrument === nothing
+    # Empty (deprecated): needs a model from the deprecated fit(IVSVAR, ...)
+    id4 = @test_deprecated IVIdentification()
+    model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
+    @test_throws "IVIdentification requires an instrument" irf(model, id4)
 end
 
 # ============================================================================
@@ -388,12 +417,12 @@ end
 
         base_id_col = Array(r_base.irf)[:, 1, :]                   # (K, n_imp)
         perm_id_col = Array(r_perm.irf)[invperm(perm), target, :]  # (K, n_imp)
-        @test perm_id_col ≈ base_id_col atol=1e-10
+        @test perm_id_col ≈ base_id_col atol = 1.0e-10
 
         # Normalization check (UnitStd default): identified shock's impact
         # on its target variable in perm equals identified shock's impact on
         # variable 1 in base.
-        @test r_perm.irf[target, target, 1] ≈ r_base.irf[1, 1, 1] atol=1e-10
+        @test r_perm.irf[target, target, 1] ≈ r_base.irf[1, 1, 1] atol = 1.0e-10
     end
 end
 
@@ -412,18 +441,18 @@ end
         msw_perm = msw_confidence_set(model_perm, id_perm; horizon = 10)
 
         # Wald statistic is a scalar: strictly invariant
-        @test msw_perm.wald_stat ≈ msw_base.wald_stat atol=1e-8
-        @test msw_perm.bounded68 == msw_base.bounded68
-        @test msw_perm.bounded95 == msw_base.bounded95
+        @test msw_perm.wald_stat ≈ msw_base.wald_stat atol = 1.0e-8
+        @test msw_perm.bounded[1] == msw_base.bounded[1]
+        @test msw_perm.bounded[3] == msw_base.bounded[3]
 
         # Normalization at impact: target variable's CS = {-1.0}
-        @test all(msw_perm.cs68_irf_norm[1:2, 1, target] .≈ -1.0)
-        @test all(msw_perm.cs95_irf_norm[1:2, 1, target] .≈ -1.0)
+        @test all(msw_perm.cs_irf_norm[1][1:2, target, 1] .≈ -1.0)
+        @test all(msw_perm.cs_irf_norm[3][1:2, target, 1] .≈ -1.0)
 
-        # Full confidence sets (n_roots, n_imp, K). Reorder permuted-variable
+        # Full confidence sets (n_roots, variable, horizon). Reorder permuted-variable
         # dim back to original indexing via invperm.
-        cs_perm = msw_perm.cs68_irf_norm[:, :, invperm(perm)]
-        @test cs_perm ≈ msw_base.cs68_irf_norm atol=1e-6
+        cs_perm = msw_perm.cs_irf_norm[1][:, invperm(perm), :]
+        @test cs_perm ≈ msw_base.cs_irf_norm[1] atol = 1.0e-6
     end
 end
 
@@ -433,9 +462,11 @@ end
 
     model_base = fit(OLSVAR, Y, p_lag; names = names_base)
     id_base = IVIdentification(ε[:, 1], 1)
-    mbb_base = proxy_svar_mbb(model_base, id_base, 8,
+    mbb_base = proxy_svar_mbb(
+        model_base, id_base, 8,
         ProxySVARMBB(80; block_length = 4, norm_scale = -1.0);
-        rng = StableRNG(seed))
+        rng = StableRNG(seed)
+    )
 
     for target in 2:K
         perm = _permute_cols(K, target)
@@ -443,16 +474,18 @@ end
         names_perm = names_base[perm]
         model_perm = fit(OLSVAR, Y_perm, p_lag; names = names_perm)
         id_perm = IVIdentification(ε[:, 1], target)
-        mbb_perm = proxy_svar_mbb(model_perm, id_perm, 8,
+        mbb_perm = proxy_svar_mbb(
+            model_perm, id_perm, 8,
             ProxySVARMBB(80; block_length = 4, norm_scale = -1.0);
-            rng = StableRNG(seed))
+            rng = StableRNG(seed)
+        )
 
         # point_irf shape: (K, n_imp) — single identified column flattened.
         # Reorder permuted-variable rows back to original via invperm.
-        @test mbb_perm.point_irf[invperm(perm), :] ≈ mbb_base.point_irf atol=1e-10
-        @test mbb_perm.point_irf_norm[invperm(perm), :] ≈ mbb_base.point_irf_norm atol=1e-10
+        @test mbb_perm.point_irf[invperm(perm), :] ≈ mbb_base.point_irf atol = 1.0e-10
+        @test mbb_perm.point_irf_norm[invperm(perm), :] ≈ mbb_base.point_irf_norm atol = 1.0e-10
         # Normalization: target shock's impact on target variable equals norm_scale
-        @test mbb_perm.point_irf_norm[target, 1] ≈ -1.0 atol=1e-10
+        @test mbb_perm.point_irf_norm[target, 1] ≈ -1.0 atol = 1.0e-10
     end
 end
 
@@ -463,9 +496,11 @@ end
 
     model_base = fit(OLSVAR, Y, p_lag; names = names_base)
     id_base = IVIdentification(ε[:, 1], 1)
-    r_base = irf(model_base, id_base; horizon = 6,
+    r_base = irf(
+        model_base, id_base; horizon = 6,
         inference = ProxySVARMBB(80; block_length = 4, norm_scale = -1.0),
-        rng = StableRNG(seed))
+        rng = StableRNG(seed)
+    )
 
     for target in 2:K
         perm = _permute_cols(K, target)
@@ -473,21 +508,23 @@ end
         names_perm = names_base[perm]
         model_perm = fit(OLSVAR, Y_perm, p_lag; names = names_perm)
         id_perm = IVIdentification(ε[:, 1], target)
-        r_perm = irf(model_perm, id_perm; horizon = 6,
+        r_perm = irf(
+            model_perm, id_perm; horizon = 6,
             inference = ProxySVARMBB(80; block_length = 4, norm_scale = -1.0),
-            rng = StableRNG(seed))
+            rng = StableRNG(seed)
+        )
 
         # Identified shock IRF column under reordering
         inv_perm = invperm(perm)
-        @test Array(r_perm.irf)[inv_perm, target, :] ≈ Array(r_base.irf)[:, 1, :] atol=1e-10
+        @test Array(r_perm.irf)[inv_perm, target, :] ≈ Array(r_base.irf)[:, 1, :] atol = 1.0e-10
         # Bands on the identified column should also match after reordering vars
         for i in eachindex(r_base.lower)
             lb_base = Array(r_base.lower[i])[:, 1, :]
             ub_base = Array(r_base.upper[i])[:, 1, :]
             lb_perm = Array(r_perm.lower[i])[inv_perm, target, :]
             ub_perm = Array(r_perm.upper[i])[inv_perm, target, :]
-            @test lb_perm ≈ lb_base atol=1e-8
-            @test ub_perm ≈ ub_base atol=1e-8
+            @test lb_perm ≈ lb_base atol = 1.0e-8
+            @test ub_perm ≈ ub_base atol = 1.0e-8
         end
     end
 end
@@ -505,14 +542,12 @@ end
 
     r_sym = irf(model, id_sym; horizon = 8)
     r_idx = irf(model, id_idx; horizon = 8)
-    @test Array(r_sym.irf) ≈ Array(r_idx.irf) atol=1e-12
+    @test Array(r_sym.irf) ≈ Array(r_idx.irf) atol = 1.0e-12
 
-    # ProxyIV by symbol ≡ by index
-    id_proxy_sym = IVIdentification(ProxyIV(ε[:, 1]; target_shock = :Y3))
-    id_proxy_idx = IVIdentification(ProxyIV(ε[:, 1]; target_shock = 3))
-    r_psym = irf(model, id_proxy_sym; horizon = 8)
-    r_pidx = irf(model, id_proxy_idx; horizon = 8)
-    @test Array(r_psym.irf) ≈ Array(r_pidx.irf) atol=1e-12
+    # Positional Symbol target ≡ index
+    r_psym = irf(model, IVIdentification(ε[:, 1], :Y3); horizon = 8)
+    r_pidx = irf(model, IVIdentification(ε[:, 1], 3); horizon = 8)
+    @test Array(r_psym.irf) ≈ Array(r_pidx.irf) atol = 1.0e-12
 
     # Non-existent name should throw at estimation time
     id_bad = IVIdentification(ExternalInstrument(ε[:, 1]; target_shock = :nope))
@@ -520,20 +555,111 @@ end
 end
 
 # ============================================================================
-# ProxyIV keyword / positional constructors
+# ProxyIV is a deprecated name for ExternalInstrument
 # ============================================================================
-@testset "ProxyIV constructors" begin
-    z = randn(100)
-    # Keyword
-    p1 = ProxyIV(z; target_shock = 2)
-    @test p1.target_shock == 2
-    # Positional (backward compat)
-    p2 = ProxyIV(z, 2)
-    @test p2.target_shock == 2
-    # Symbol
-    p3 = ProxyIV(z; target_shock = :GDP)
-    @test p3.target_shock == :GDP
-    # Default
-    p4 = ProxyIV(z)
-    @test p4.target_shock == 1
+@testset "ProxyIV deprecated binding" begin
+    @test Base.isdeprecated(MacroEconometricTools, :ProxyIV)
+end
+
+# ============================================================================
+# Instrument observed on part of the VAR sample (`missing` elsewhere)
+# ============================================================================
+@testset "Instrument observed on part of the sample" begin
+    model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
+    ν = residuals(model)
+    n_resid = size(ν, 1)
+
+    # Perfect instrument observed only in the second half of the data
+    z = Vector{Union{Missing, Float64}}(ε[:, 1])
+    z[1:250] .= missing
+    id = IVIdentification(z, 1)
+    obs = (251:T_sim) .- p_lag       # residual rows with an observed instrument
+
+    P = rotation_matrix(model, id)
+
+    @testset "2SLS on observed periods, reduced form on the full sample" begin
+        P_sub, F_sub = MacroEconometricTools.iv_impact(
+            ν[obs, :], Matrix(model.Σ),
+            reshape(ε[obs .+ p_lag, 1], :, 1), 1
+        )
+        @test P ≈ P_sub atol = 1.0e-12
+        @test first_stage_F(model, id) ≈ F_sub atol = 1.0e-8
+    end
+
+    @testset "Matches the infeasible estimate from the true shocks" begin
+        # Ratio cov(νᵢ, ε₁) / cov(ν₁, ε₁) with the true reduced-form errors over
+        # the observed periods; the feasible estimate differs only by the VAR
+        # coefficient estimation error.
+        e = ε[obs .+ p_lag, :]
+        ν_true = e * H_true'
+        oracle = [cov(ν_true[:, i], e[:, 1]) / cov(ν_true[:, 1], e[:, 1]) for i in 1:K]
+        @test P[:, 1] ≈ oracle atol = 0.03
+    end
+
+    @testset "Residual-length instrument with interior gaps" begin
+        rng = StableRNG(11)
+        zr = Vector{Union{Missing, Float64}}(
+            ε[(p_lag + 1):end, 1] .+
+            0.5 .* randn(rng, n_resid)
+        )
+        gaps = sort(unique(rand(rng, 1:n_resid, 100)))
+        zr[gaps] .= missing
+        keep = setdiff(1:n_resid, gaps)
+        P_gap = rotation_matrix(model, IVIdentification(zr, :Y1))
+        P_ref, _ = MacroEconometricTools.iv_impact(
+            ν[keep, :], Matrix(model.Σ),
+            reshape(collect(skipmissing(zr)), :, 1), 1
+        )
+        @test P_gap ≈ P_ref atol = 1.0e-12
+    end
+
+    @testset "Matrix instrument uses rows where every column is observed" begin
+        Z2 = Matrix{Union{Missing, Float64}}(
+            hcat(
+            ε[:, 1], ε[:, 1] .+
+                     randn(StableRNG(3), T_sim)
+        )
+        )
+        Z2[1:100, 1] .= missing
+        Z2[400:T_sim, 2] .= missing
+        rows = 101:399
+        P2 = rotation_matrix(model, IVIdentification(Z2, 1))
+        P2_ref, _ = MacroEconometricTools.iv_impact(
+            ν[rows .- p_lag, :], Matrix(model.Σ),
+            Matrix{Float64}(Z2[rows, :]), 1
+        )
+        @test P2 ≈ P2_ref atol = 1.0e-12
+    end
+
+    @testset "Matrix-level kernel accepts missing values" begin
+        Zres, target = MacroEconometricTools.iv_instrument(id, n_resid, p_lag, model.names)
+        @test count(ismissing, Zres) == length(1:n_resid) - length(obs)
+        @test MacroEconometricTools.iv_impact(ν, Matrix(model.Σ), Zres, target)[1] ≈ P atol = 1.0e-12
+    end
+
+    @testset "irf and iv_summary" begin
+        @test size(irf(model, id; horizon = 4).irf) == (K, K, 5)
+        old_stdout = stdout
+        rd, wr = redirect_stdout()
+        iv_summary(model, id)
+        redirect_stdout(old_stdout)
+        close(wr)
+        @test contains(read(rd, String), "observed in $(length(obs)) of $n_resid")
+    end
+
+    @testset "Errors" begin
+        @test_throws "NaN or Inf" IVIdentification([1.0, NaN, 2.0], 1)
+        @test_throws "no observed values" IVIdentification([missing, missing], 1)
+
+        z_few = Vector{Union{Missing, Float64}}(missing, T_sim)
+        z_few[[10, 20]] .= 1.0
+        @test_throws "needs at least 3" rotation_matrix(model, IVIdentification(z_few, 1))
+
+        msg = "requires an instrument observed in every residual period"
+        @test_throws "ProxySVARMBB $msg" irf(
+            model, id; horizon = 4,
+            inference = ProxySVARMBB(10), rng = Random.Xoshiro(1)
+        )
+        @test_throws "msw_confidence_set $msg" msw_confidence_set(model, id; horizon = 4)
+    end
 end

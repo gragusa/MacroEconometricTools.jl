@@ -28,7 +28,8 @@ The package uses Julia's multiple dispatch system extensively. Instead of a unif
 ```julia
 # Good: Type-based dispatch
 var_ols = fit(OLSVAR, Y, lags)
-var_bay = fit(BayesianVAR(MinnesotaPrior()), Y, lags)
+irfs = irf(var_ols, CholeskyID())
+irfs_sign = irf(var_ols, SignRestriction(restrictions))
 
 # Avoided: Method flags
 var = fit(Y, lags; method=:ols)  # NOT used
@@ -44,7 +45,7 @@ var = fit(Y, lags; method=:ols)  # NOT used
 All core types are fully parametric:
 
 ```julia
-struct VARModel{T<:AbstractFloat, S<:AbstractVARSpec}
+struct VARModel{T<:AbstractFloat, S<:AbstractVARSpec, D<:Union{Nothing,AbstractVector}}
     spec::S
     Y::Matrix{T}
     coefficients::VARCoefficients{T}
@@ -81,17 +82,10 @@ lag(x::Vector{Float64}, 1)  # Returns Vector{Float64}, not Vector{Union{Missing,
 ```
 AbstractVARSpec
 ├── OLSVAR (empty struct, pure dispatch)
-├── BayesianVAR{P<:AbstractPrior}
-├── IVSVAR{I<:AbstractInstrument}
-└── LocalProjection
-
-AbstractPrior
-├── MinnesotaPrior
-└── NormalWishartPrior
+└── IVSVAR{I<:AbstractInstrument} (deprecated; use OLSVAR + IVIdentification)
 
 AbstractInstrument
-├── ExternalInstrument{T}
-└── ProxyIV{T}
+└── ExternalInstrument{T,S}
 
 AbstractConstraint
 ├── ZeroConstraint
@@ -114,22 +108,20 @@ Stores estimated coefficients with constraint metadata:
 struct VARCoefficients{T<:AbstractFloat}
     intercept::Vector{T}              # Length n_vars
     lags::Array{T,3}                  # (n_vars, n_vars, n_lags)
-    constraints::Any                  # Vector{<:AbstractConstraint} or nothing
+    constraints::Union{Nothing, Vector{AbstractConstraint}}  # nothing when unconstrained
 end
 ```
-
-**Design note**: `constraints` field uses `Any` to avoid circular dependency with `constraints.jl`. In practice, it's always `Vector{<:AbstractConstraint}` or `nothing`.
 
 **Layout**: Lag coefficients are stored as `(response_var, regressor_var, lag_number)`. For example:
 - `lags[i,j,k]` = coefficient of variable j at lag k in equation for variable i
 - This matches the standard VAR notation: `Y_t = c + A_1 Y_{t-1} + ... + A_p Y_{t-p} + ε_t`
 
-#### VARModel{T,S}
+#### VARModel{T,S,D}
 
 Main model container:
 
 ```julia
-struct VARModel{T<:AbstractFloat, S<:AbstractVARSpec}
+struct VARModel{T<:AbstractFloat, S<:AbstractVARSpec, D<:Union{Nothing,AbstractVector}}
     spec::S                                    # Estimation specification
     Y::Matrix{T}                              # Original data (T × n_vars)
     X::Matrix{T}                              # Design matrix with lags
@@ -138,7 +130,8 @@ struct VARModel{T<:AbstractFloat, S<:AbstractVARSpec}
     Σ::Symmetric{T,Matrix{T}}                 # Residual covariance
     companion::Matrix{T}                      # Companion form matrix
     names::Vector{Symbol}                     # Variable names
-    metadata::NamedTuple                      # Additional info
+    dates::D                                  # Residual-row dates, or nothing
+    metadata::NamedTuple                      # Fit information not read by the package
 end
 ```
 
@@ -243,64 +236,33 @@ end
 
 ### Estimation with Constraints
 
-The estimation algorithm adapts based on constraint types:
+Every constraint is first resolved against the variable names and lag order by
+`_resolve_constraints`, which returns a `(1 + n_vars * n_lags) × n_vars` mask of
+restricted coefficients (layout of the coefficient matrix `B`: intercept first,
+column = equation) and their values. It throws `ArgumentError` for unknown
+variable names, lags outside `1:n_lags`, and conflicting values for the same
+coefficient. `check_constraints`, `apply_constraints!`, `build_selection_matrix`,
+and `constrained_ols` all go through it.
+
+`constrained_ols` estimates equation by equation: the restricted coefficients take
+their values (zero or fixed), their contribution is subtracted from the dependent
+variable, and the free coefficients are estimated by OLS on the remaining
+regressors:
 
 ```julia
-function constrained_ols(X, Y, constraints, names, n_lags, n_vars)
-    only_zero = all(c -> c isa Union{ZeroConstraint,BlockExogeneity}, constraints)
-
-    if only_zero
-        return constrained_ols_selection(X, Y, constraints, names, n_lags, n_vars)
-    else
-        return constrained_ols_general(X, Y, constraints, names, n_lags, n_vars)
-    end
+for eq in 1:n_vars
+    fixed = findall(restricted[:, eq])
+    free = findall(.!restricted[:, eq])
+    y = Y[:, eq] - X[:, fixed] * values[fixed, eq]
+    A[fixed, eq] = values[fixed, eq]
+    A[free, eq] = X[:, free] \ y
 end
 ```
 
-#### Algorithm: Zero Constraints (Selection Method)
-
-For zero constraints only, we estimate equation-by-equation using restricted least squares:
-
-```julia
-function constrained_ols_selection(X, Y, constraints, names, n_lags, n_vars)
-    A = zeros(1 + n_vars * n_lags, n_vars)
-
-    # For each equation
-    for eq_idx in 1:n_vars
-        # Determine free coefficients in this equation
-        is_free = determine_free_coefficients(eq_idx, constraints, names, n_lags)
-
-        # Estimate using only free regressors
-        X_free = X[:, is_free]
-        A[is_free, eq_idx] = X_free \ Y[:, eq_idx]
-    end
-
-    return A
-end
-```
-
-**Complexity**: O(n_vars × n_obs × n_free²) where n_free ≤ n_vars × n_lags
-
-**Key insight**: VAR equations can be estimated separately under zero constraints. Each equation's constrained coefficients are simply omitted from that equation's regression.
-
-#### Algorithm: Mixed Constraints
-
-When fixed-value constraints are present:
-
-1. Start with unconstrained OLS
-2. Apply fixed constraints directly
-3. Re-estimate free parameters holding fixed values constant
-
-**Mathematical formulation**:
-Given `Y = Xβ + ε` with constraints `Rβ = r`, we solve:
-
-```
-Minimize: ||Y - Xβ||²
-Subject to: β_fixed = r_fixed (fixed constraints)
-           β_zero = 0 (zero constraints)
-```
-
-This is solved by partitioning parameters into fixed and free, then estimating the free parameters conditional on the fixed ones.
+**Mathematical formulation**: given `y_k = X β_k + ε_k` for equation `k`, minimize
+`||y_k - X β_k||²` subject to `β_k[fixed] = r_k`. Because every constraint
+restricts coefficients of a single equation, the equations are estimated
+separately.
 
 ---
 
@@ -419,7 +381,7 @@ end
 
 ```julia
 function identify_cholesky(model::VARModel, id::CholeskyID)
-    Σ = vcov(model)
+    Σ = residual_covariance(model)
 
     # Handle ordering if specified
     if !isnothing(id.ordering)
@@ -453,7 +415,7 @@ end
 
 ```julia
 function identify_sign(model, id::SignRestriction; max_draws=10000)
-    Σ = vcov(model)
+    Σ = residual_covariance(model)
     P_chol = cholesky(Symmetric(Σ)).L
 
     for draw in 1:max_draws
@@ -541,13 +503,13 @@ end
 ### IRF Bootstrap Procedure
 
 ```julia
-function bootstrap_irf(model, identification, horizon, reps; method=:wild)
+function bootstrap_irf(model, identification, inference::WildBootstrap; horizon)
     # Storage
-    irf_draws = zeros(horizon+1, n_vars, n_vars, reps)
+    irf_draws = zeros(inference.reps, n_vars, n_vars, horizon+1)
 
-    for b in 1:reps
+    for b in 1:inference.reps
         # 1. Resample residuals
-        ε_boot = resample_residuals(model.residuals, method)
+        ε_boot = resample_residuals(model.residuals, inference)
 
         # 2. Simulate VAR with bootstrap residuals
         Y_boot = simulate_var(model, ε_boot, Y_init)
@@ -559,7 +521,7 @@ function bootstrap_irf(model, identification, horizon, reps; method=:wild)
         P_boot = rotation_matrix(model_boot, identification)
 
         # 5. Compute IRF
-        irf_draws[:,:,:,b] = compute_irf_point(model_boot, P_boot, horizon)
+        irf_draws[b,:,:,:] = compute_irf_point(model_boot, P_boot, horizon)
     end
 
     return irf_draws
@@ -682,16 +644,15 @@ struct MyConstraint <: AbstractConstraint
 end
 ```
 
-2. **Implement constraint application**:
+2. **List the restricted coefficients**: add a method returning
+   `(equation, coefficient row, value)` triples; resolution, validation, and
+   estimation then handle the new type:
 
 ```julia
-function apply_constraint!(A::Matrix, c::MyConstraint, varnames, n_lags, n_vars)
-    # Modify A in-place
+function _restricted_cells(c::MyConstraint, varnames::Vector{Symbol}, n_lags::Int)
+    # return [(eq, _coef_row(reg_idx, lag, length(varnames)), value), ...]
 end
 ```
-
-3. **Update constraint handling in estimation**:
-   - Add case to `constrained_ols_selection` or `constrained_ols_general`
 
 ---
 

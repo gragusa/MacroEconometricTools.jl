@@ -21,8 +21,10 @@ function load_kilian_data()
     rename!(data, [:CFNAI, :CPI, :PCOM, :FF])
     DY = data[!, :CFNAI][2:end] # CFNAI
     DP = (log.(data[!, :CPI][2:end]) - log.(data[!, :CPI][1:(end - 1)])) * 100  # D(log(CPI))
-    DPCOM = ((log.(data[!, :PCOM][2:end]) - log.(data[!, :CPI][2:end])) -
-             (log.(data[!, :PCOM][1:(end - 1)]) - log.(data[!, :CPI][1:(end - 1)]))) * 100 # D(log(real PCOM)): CRB
+    DPCOM = (
+        (log.(data[!, :PCOM][2:end]) - log.(data[!, :CPI][2:end])) -
+        (log.(data[!, :PCOM][1:(end - 1)]) - log.(data[!, :CPI][1:(end - 1)]))
+    ) * 100 # D(log(real PCOM)): CRB
     FF = data[!, :FF][2:end]  # FedFound
     return [DY DP DPCOM FF]
 end
@@ -37,13 +39,12 @@ end
         @test var5 isa VARModel{Float64, OLSVAR}
         @test n_vars(var5) == 4
         @test n_lags(var5) == 5
-        @test effective_obs(var5) == size(Y, 1) - 5
+        @test nobs(var5) == size(Y, 1) - 5
 
         # Check variable names (default)
         @test var5.names == [:Y_1, :Y_2, :Y_3, :Y_4]
 
-        # Check size tuple
-        @test size(var5) == (effective_obs(var5), 5, 4)
+        @test (@test_deprecated MacroEconometricTools.effective_obs(var5)) == nobs(var5)
 
         # Check stability
         @test is_stable(var5) == true
@@ -53,7 +54,7 @@ end
         # Estimate VAR(2) - reference values
         var2 = fit(OLSVAR, Y, 2)
 
-        coefs = coef(var2)
+        coefs = var2.coefficients
         A = coefs.lags
         c = coefs.intercept
 
@@ -61,16 +62,16 @@ end
         c_ref = [0.25143234, 0.03365155, 0.56637212, 0.06025563]
 
         # Reference A1
-        A1_ref = [4.19196340e-01 4.11748590e-02 2.19982771e-02 -6.63848126e-02;
-                  -3.81337312e-03 4.23137087e-01 6.41531367e-03 6.84194401e-02;
-                  3.73599162e-01 7.02655261e-02 1.86519008e-01 8.99029451e-02;
-                  1.04488881e-01 1.83337593e-01 2.94127501e-02 1.27991739e+00]
+        A1_ref = [4.1919634e-1 4.1174859e-2 2.19982771e-2 -6.63848126e-2;
+                  -3.81337312e-3 4.23137087e-1 6.41531367e-3 6.84194401e-2;
+                  3.73599162e-1 7.02655261e-2 1.86519008e-1 8.99029451e-2;
+                  1.04488881e-1 1.83337593e-1 2.94127501e-2 1.27991739e+0]
 
         # Reference A2
-        A2_ref = [2.76992195e-01 -1.86076280e-01 1.93070552e-02 3.72551352e-02;
-                  9.14724669e-03 1.13575131e-01 4.93895714e-03 -4.67470994e-02;
-                  2.25262945e-01 8.85344506e-03 -5.37821875e-03 -1.90116858e-01;
-                  2.70804269e-02 -7.48774703e-02 3.55057728e-04 -2.96428226e-01]
+        A2_ref = [2.76992195e-1 -1.8607628e-1 1.93070552e-2 3.72551352e-2;
+                  9.14724669e-3 1.13575131e-1 4.93895714e-3 -4.67470994e-2;
+                  2.25262945e-1 8.85344506e-3 -5.37821875e-3 -1.90116858e-1;
+                  2.70804269e-2 -7.48774703e-2 3.55057728e-4 -2.96428226e-1]
 
         @test A[:, :, 1] ≈ A1_ref
         @test A[:, :, 2] ≈ A2_ref
@@ -81,26 +82,26 @@ end
         var2 = fit(OLSVAR, Y, 2)
 
         # Reference Σ (OLS - this is what vcov returns, using n_obs as denominator)
-        Σ_ref = [5.23503796e-01 -2.42735062e-03 1.54076314e-01 6.28057798e-02;
-                 -2.42735062e-03 5.45227229e-02 2.38694073e-02 3.84467325e-03;
-                 1.54076314e-01 2.38694073e-02 5.49064075e+00 1.43210188e-01;
-                 6.28057798e-02 3.84467325e-03 1.43210188e-01 3.02139677e-01]
+        Σ_ref = [5.23503796e-1 -2.42735062e-3 1.54076314e-1 6.28057798e-2;
+                 -2.42735062e-3 5.45227229e-2 2.38694073e-2 3.84467325e-3;
+                 1.54076314e-1 2.38694073e-2 5.49064075e+0 1.43210188e-1;
+                 6.28057798e-2 3.84467325e-3 1.43210188e-1 3.02139677e-1]
 
         # Reference Σ (MLE - uses T as denominator instead of T-p)
-        Σ_mle_ref = [5.13125967e-01 -2.37923133e-03 1.51021938e-01 6.15607313e-02;
-                     -2.37923133e-03 5.34418760e-02 2.33962252e-02 3.76845726e-03;
-                     1.51021938e-01 2.33962252e-02 5.38179545e+00 1.40371219e-01;
-                     6.15607313e-02 3.76845726e-03 1.40371219e-01 2.96150123e-01]
+        Σ_mle_ref = [5.13125967e-1 -2.37923133e-3 1.51021938e-1 6.15607313e-2;
+                     -2.37923133e-3 5.3441876e-2 2.33962252e-2 3.76845726e-3;
+                     1.51021938e-1 2.33962252e-2 5.38179545e+0 1.40371219e-1;
+                     6.15607313e-2 3.76845726e-3 1.40371219e-1 2.96150123e-1]
 
-        @test Matrix(vcov(var2)) ≈ Σ_ref
+        @test Matrix(residual_covariance(var2)) ≈ Σ_ref
 
         # MLE estimate: Σ_MLE = n_obs/T * Σ_OLS where Σ_OLS uses n_obs denominator
         # Note: Small numerical differences may exist between old and new implementations
         # due to different calculation paths, but the estimates should be very close
         T = size(Y, 1)
-        n_obs_val = effective_obs(var2)
-        Σ_mle_computed = (n_obs_val / T) * Matrix(vcov(var2))
-        @test Σ_mle_computed ≈ Σ_mle_ref rtol=0.02  # Relaxed tolerance for numerical differences
+        n_obs_val = nobs(var2)
+        Σ_mle_computed = (n_obs_val / T) * Matrix(residual_covariance(var2))
+        @test Σ_mle_computed ≈ Σ_mle_ref rtol = 0.02  # Relaxed tolerance for numerical differences
     end
 
     @testset "Long-Run Effects" begin
@@ -116,14 +117,14 @@ end
         @test lr_computed ≈ lr_ref
 
         # Verify computation: (I - A₁ - A₂)⁻¹
-        A = coef(var2).lags
+        A = var2.coefficients.lags
         A_sum = dropdims(sum(A, dims = 3), dims = 3)
         lr_manual = inv(I - A_sum)
         @test lr_manual ≈ lr_ref
 
         # Long-run mean
         lr_mean = long_run_mean(var2)
-        lr_mean_manual = lr_computed * coef(var2).intercept
+        lr_mean_manual = lr_computed * var2.coefficients.intercept
         @test lr_mean ≈ lr_mean_manual
     end
 
@@ -165,11 +166,11 @@ end
         var2 = fit(OLSVAR, Y, 2)
 
         ll_ref = -1855.70345572
-        ll_computed = log_likelihood(var2)
+        ll_computed = loglikelihood(var2)
 
         # Note: Small numerical differences may exist due to different calculation paths
         # The difference should be small relative to the magnitude of the log-likelihood
-        @test ll_computed ≈ ll_ref rtol=0.01
+        @test ll_computed ≈ ll_ref rtol = 0.01
     end
 
     @testset "Identification and IRFs" begin
@@ -187,7 +188,7 @@ end
 
         @test P ≈ i0_ref
         @test istril(P)
-        @test P * P' ≈ Matrix(vcov(var2)) rtol=1e-10
+        @test P * P' ≈ Matrix(residual_covariance(var2)) rtol = 1.0e-10
 
         # Compute IRFs (use keyword argument)
         irf_result = irf(var2, id; horizon = 2)

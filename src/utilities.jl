@@ -89,8 +89,10 @@ In-place creation of lagged matrix for VAR estimation.
 - `p::Int`: Number of lags
 - `include_intercept::Bool`: Whether to include intercept column
 """
-function create_lags!(dest::AbstractMatrix{T}, X::AbstractMatrix{T}, p::Int,
-        include_intercept::Bool = true) where {T}
+function create_lags!(
+        dest::AbstractMatrix{T}, X::AbstractMatrix{T}, p::Int,
+        include_intercept::Bool = true
+) where {T}
     n_obs, n_vars = size(X)
     offset = include_intercept ? 1 : 0
 
@@ -237,43 +239,100 @@ end
 # Information criteria
 # ============================================================================
 
-"""
-    aic(model)
+# All three criteria use the log-likelihood at the degrees-of-freedom-corrected
+# Σ and count k = dof(model) parameters (intercepts and lag coefficients).
 
-Akaike Information Criterion.
 """
-function aic(model::VARModel{T, OLSVAR}) where {T}
-    n, _, n_vars = size(model)
-    n_lags = size(model.coefficients.lags, 3)
-    k = n_vars^2 * n_lags + n_vars  # Total parameters
-    ll = log_likelihood(model)
-    return -2ll + 2k
+    aic(model::VARModel{T,OLSVAR})
+
+Akaike information criterion `-2 loglikelihood(model) + 2k`, with
+`k = dof(model)`.
+"""
+function StatsBase.aic(model::VARModel{T, OLSVAR}) where {T}
+    return -2loglikelihood(model) + 2dof(model)
 end
 
 """
-    bic(model)
+    bic(model::VARModel{T,OLSVAR})
 
-Bayesian Information Criterion.
+Bayesian information criterion `-2 loglikelihood(model) + k log(n)`, with
+`k = dof(model)` and `n = nobs(model)`.
 """
-function bic(model::VARModel{T, OLSVAR}) where {T}
-    n, _, n_vars = size(model)
-    n_lags = size(model.coefficients.lags, 3)
-    k = n_vars^2 * n_lags + n_vars
-    ll = log_likelihood(model)
-    return -2ll + k * log(n)
+function StatsBase.bic(model::VARModel{T, OLSVAR}) where {T}
+    return -2loglikelihood(model) + dof(model) * log(nobs(model))
 end
 
 """
-    hqic(model)
+    hqic(model::VARModel{T,OLSVAR})
 
-Hannan-Quinn Information Criterion.
+Hannan-Quinn information criterion `-2 loglikelihood(model) + 2k log(log(n))`,
+with `k = dof(model)` and `n = nobs(model)`.
 """
 function hqic(model::VARModel{T, OLSVAR}) where {T}
-    n, _, n_vars = size(model)
-    n_lags = size(model.coefficients.lags, 3)
-    k = n_vars^2 * n_lags + n_vars
-    ll = log_likelihood(model)
-    return -2ll + 2k * log(log(n))
+    return -2loglikelihood(model) + 2dof(model) * log(log(nobs(model)))
+end
+
+"""
+    select_lags(Y, max_lags; criterion = :aic, constraints, names, demean)
+
+Choose the lag order of an OLS VAR by an information criterion.
+
+Every lag order `p = 1, …, max_lags` is fitted with `fit(OLSVAR, …)` on the same
+estimation sample, the rows of `Y` after the first `max_lags`: the model with `p`
+lags uses `Y[max_lags - p + 1:end, :]`. All candidates therefore have
+`nobs = size(Y, 1) - max_lags`, which makes their criteria comparable.
+
+`criterion` is `:aic`, `:bic`, or `:hqic` (see [`aic`](@ref), [`bic`](@ref),
+[`hqic`](@ref)). Ties go to the smaller lag order. The keywords `constraints`,
+`names`, and `demean` are passed to every fit; constraints must be valid for
+every candidate order.
+
+Returns a `NamedTuple` `(; lags, criterion, table)`: the selected lag order, the
+criterion used, and a column table `(; lags, aic, bic, hqic)` with one row per
+candidate order. The model with the selected order fitted on all of `Y` is
+`fit(OLSVAR, Y, result.lags)`.
+
+# Examples
+```julia
+sel = select_lags(Y, 8; criterion = :bic)
+model = fit(OLSVAR, Y, sel.lags)
+```
+"""
+function select_lags(
+        Y::AbstractMatrix, max_lags::Integer;
+        criterion::Symbol = :aic,
+        constraints::Vector{<:AbstractConstraint} = AbstractConstraint[],
+        names::Union{Nothing, Vector{Symbol}} = nothing,
+        demean::Bool = false
+)
+    Base.require_one_based_indexing(Y)
+    criterion in (:aic, :bic, :hqic) ||
+        throw(ArgumentError("criterion must be :aic, :bic, or :hqic (got :$criterion)"))
+    max_lags ≥ 1 || throw(ArgumentError("max_lags must be positive (got $max_lags)"))
+    n_obs_total, n_vars = size(Y)
+    n_eff = n_obs_total - max_lags
+    df = n_eff - n_vars * max_lags - 1
+    df > 0 || throw(
+        ArgumentError(
+        "Not enough observations for max_lags = $max_lags: the common sample has $n_eff rows, leaving $df residual degrees of freedom for the largest model"
+    )
+    )
+    # Names are read from the full input: row subsets of named arrays may drop them.
+    names = names === nothing ? try_extract_names(Y, n_vars) : names
+
+    candidates = 1:max_lags
+    models = map(candidates) do p
+        fit(OLSVAR, view(Y, (max_lags - p + 1):n_obs_total, :),
+            p; constraints, names, demean)
+    end
+    table = (
+        lags = collect(candidates),
+        aic = aic.(models),
+        bic = bic.(models),
+        hqic = hqic.(models)
+    )
+    values = getproperty(table, criterion)
+    return (; lags = candidates[argmin(values)], criterion, table)
 end
 
 # ============================================================================
@@ -287,25 +346,15 @@ Number of variables in the model.
 """
 n_vars(model::VARModel) = size(model.Y, 2)
 
-"""
-    effective_obs(model)
-
-Number of observations used in estimation (after accounting for lags).
-
-This is a custom accessor specific to MacroEconometricTools.jl.
-For StatsBase compatibility, use `nobs(model)` which returns the total observations.
-"""
-effective_obs(model::VARModel) = size(model.residuals, 1)
+@deprecate effective_obs(model::VARModel) nobs(model) false
 
 """
-    StatsBase.nobs(model::VARModel)
+    nobs(model::VARModel)
 
-Total number of observations in the original data (before lag adjustment).
-
-This follows the StatsBase.jl convention where `nobs` returns the total sample size.
-For the effective observations used in estimation, use `effective_obs(model)`.
+Number of observations used in estimation (the effective sample after the first
+`n_lags` presample rows): the number of rows of `residuals(model)`.
 """
-StatsBase.nobs(model::VARModel) = size(model.Y, 1)
+StatsBase.nobs(model::VARModel) = size(model.residuals, 1)
 
 """
     n_lags(model)
@@ -342,23 +391,21 @@ For a VAR(p) model with n variables:
 StatsBase.dof(model::VARModel) = n_vars(model) * (1 + n_vars(model) * n_lags(model))
 
 """
-    StatsBase.dof_residual(model::VARModel)
+    dof_residual(model::VARModel)
 
-Residual degrees of freedom.
-
-Calculated as: effective_obs - dof
+Residual degrees of freedom per equation, `nobs(model) - (1 + n_vars * n_lags)`.
+This is the divisor of [`residual_covariance`](@ref).
 """
-StatsBase.dof_residual(model::VARModel) = effective_obs(model) - dof(model)
+StatsBase.dof_residual(model::VARModel) = nobs(model) - (1 + n_vars(model) * n_lags(model))
 
 """
-    StatsBase.modelmatrix(model::VARModel)
+    modelmatrix(model::VARModel)
 
-Design matrix used in VAR estimation.
-
-Returns the matrix X (with intercept and lags) used in the regression Y = XB + ε.
-Size: (T × (1 + n_vars × n_lags))
+Design matrix `X` of the regression `Y = X B + U` on the estimation sample:
+`nobs(model) × (1 + n_vars * n_lags)`, with a leading column of ones followed by
+lag 1 of every variable, lag 2, and so on.
 """
-StatsBase.modelmatrix(model::VARModel) = model.X
+StatsBase.modelmatrix(model::VARModel) = _estimation_design(model)
 
 """
     StatsBase.rss(model::VARModel)
@@ -369,13 +416,6 @@ Sum of squared residuals across all equations.
 """
 StatsBase.rss(model::VARModel) = sum(abs2, model.residuals)
 
-"""
-    Base.size(model::VARModel)
-
-Return (effective_obs, n_lags, n_vars).
-"""
-Base.size(model::VARModel) = (effective_obs(model), n_lags(model), n_vars(model))
-
 # ============================================================================
 # Pretty printing
 # ============================================================================
@@ -383,13 +423,13 @@ Base.size(model::VARModel) = (effective_obs(model), n_lags(model), n_vars(model)
 function Base.show(io::IO, model::VARModel{T, S}) where {T, S}
     println(io, "VARModel{$T,$S}")
     println(io, "  Variables: ", join(model.names, ", "))
-    println(io, "  Observations: ", effective_obs(model), " (", nobs(model), " total)")
+    println(io, "  Observations: ", nobs(model), " (", size(model.Y, 1), " total)")
     println(io, "  Lags: ", n_lags(model))
-    if !isnothing(model.coefficients.constraints)
+    return if !isnothing(model.coefficients.constraints)
         println(io, "  Constraints: ", length(model.coefficients.constraints), " applied")
     end
 end
 
 function Base.show(io::IO, ::MIME"text/plain", model::VARModel{T, S}) where {T, S}
-    show(io, model)
+    return show(io, model)
 end

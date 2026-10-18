@@ -2,52 +2,27 @@
 # IV-SVAR Diagnostics
 # ============================================================================
 
-"""
-    first_stage_F(model::VARModel{T, <:IVSVAR}) where T
-
-Return the first-stage F-statistic from a proxy-SVAR model.
-
-A value above 10 is the conventional threshold for instrument relevance
-(Stock, Wright & Yogo, 2002).
-"""
+# Models from the deprecated `fit(IVSVAR, ...)` carry their instrument in the spec.
 function first_stage_F(model::VARModel{T, <:IVSVAR}) where {T}
-    haskey(model.metadata, :first_stage_F) ||
-        error("Model metadata does not contain first_stage_F")
-    return model.metadata.first_stage_F
+    return first_stage_F(model, IVIdentification(model.spec.instrument))
 end
 
-"""
-    iv_summary(model::VARModel{T, <:IVSVAR}) where T
-
-Print a summary of the proxy-SVAR first stage and impact coefficients.
-"""
 function iv_summary(model::VARModel{T, <:IVSVAR}) where {T}
-    F = first_stage_F(model)
-    target = model.metadata.target_shock
-    β = model.metadata.iv_coefficients
-
-    println("Proxy-SVAR Identification Summary")
-    println("=" ^ 50)
-    println("Target shock: variable $(model.names[target]) (index $target)")
-    println("First-stage F-statistic: $(round(F; digits=2))",
-        F < 10 ? "  ⚠ WEAK INSTRUMENT" : "  ✓")
-    println("\nImpact coefficients (unit effect normalization):")
-    for (i, name) in enumerate(model.names)
-        println("  $name: $(round(β[i]; digits=4))")
-    end
+    return iv_summary(model, IVIdentification(model.spec.instrument))
 end
 
 """
     first_stage_F(model::VARModel, id::IVIdentification)
 
-Compute the first-stage F-statistic from a reduced-form VAR and an instrument.
+Compute the first-stage F-statistic from a reduced-form VAR and an instrument,
+over the residual periods in which the instrument is observed.
 
 A value above 10 is the conventional threshold for instrument relevance
 (Stock, Wright & Yogo, 2002).
 """
 function first_stage_F(model::VARModel{T}, id::IVIdentification) where {T}
     ν = residuals(model)
-    Z, target = _extract_instrument(id.instrument, size(ν, 1), n_lags(model), model.names)
+    Z, target = _extract_instrument(_resolve_iv(model, id).instrument, size(ν, 1), n_lags(model), model.names)
     _, F_stat, _ = _iv_identify(ν, Z, target)
     return F_stat
 end
@@ -59,18 +34,20 @@ Print a summary of the SVAR-IV first stage and impact coefficients.
 """
 function iv_summary(model::VARModel{T}, id::IVIdentification) where {T}
     ν = residuals(model)
-    Z, target = _extract_instrument(id.instrument, size(ν, 1), n_lags(model), model.names)
+    Z, target = _extract_instrument(_resolve_iv(model, id).instrument, size(ν, 1), n_lags(model), model.names)
     β_iv, F_stat, _ = _iv_identify(ν, Z, target)
 
     println("SVAR-IV Identification Summary")
-    println("=" ^ 50)
+    println("="^50)
     println("Target shock: variable $(model.names[target]) (index $target)")
-    println("First-stage F-statistic: $(round(F_stat; digits=2))",
-        F_stat < 10 ? "  ⚠ WEAK INSTRUMENT" : "  ✓")
+    println("Instrument observed in $(length(_observed_rows(Z))) of $(size(ν, 1)) residual periods")
+    println(
+        "First-stage F-statistic: $(round(F_stat; digits = 2))",
+        F_stat < 10 ? "  ⚠ WEAK INSTRUMENT" : "  ✓"
+    )
     println("\nImpact coefficients (unit effect normalization):")
     for (i, name) in enumerate(model.names)
-        println("  $name: $(round(β_iv[i]; digits=4))")
+        println("  $name: $(round(β_iv[i]; digits = 4))")
     end
+    return
 end
-
-export first_stage_F, iv_summary

@@ -10,7 +10,7 @@ A modern Julia package for macroeconometric analysis featuring Vector Autoregres
 - **Comprehensive inference**: wild/block/standard bootstrap, Jentsch-Lunsford MBB for proxy-SVARs, MSW analytic confidence sets, Anderson-Rubin weak-instrument-robust sets
 - **Forecast error variance decomposition** and **historical decomposition**
 - **Forecasting** with uncertainty quantification
-- **Distributed parallel computing** for bootstrap and sign restrictions
+- **Distributed parallel computing** for the sign-restriction search
 
 ## Installation
 
@@ -34,9 +34,7 @@ result = irf(model, CholeskyID();
     coverage = [0.68, 0.90, 0.95])
 
 # IV-SVAR with external instrument
-instrument = ExternalInstrument(proxy, 1)
-iv_model = fit(IVSVAR, Y, 4; instrument=instrument)
-iv_result = irf(iv_model, IVIdentification();
+iv_result = irf(model, IVIdentification(proxy, 1);
     horizon = 20,
     inference = ProxySVARMBB(2000; block_length=4))
 ```
@@ -46,7 +44,7 @@ iv_result = irf(iv_model, IVIdentification();
 - **[Getting Started](tutorials/getting_started.md)**: VAR estimation, Cholesky identification, IRFs, FEVD
 - **[Proxy SVAR (IV)](tutorials/svar_iv.md)**: External instrument identification, MBB, Anderson-Rubin, MSW inference
 - **[Sign Restrictions](tutorials/sign_restrictions.md)**: Set identification with sign and narrative restrictions
-- **[Parallel Computing](tutorials/parallel_computing.md)**: Distributed bootstrap and sign restriction search
+- **[Parallel Computing](tutorials/parallel_computing.md)**: Distributed sign-restriction search
 
 ## Mathematical Background
 

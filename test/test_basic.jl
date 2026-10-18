@@ -1,5 +1,6 @@
 # Basic smoke tests for MacroEconometricTools
 using MacroEconometricTools
+using MacroEconometricTools: bootstrap_irf, companion_form, lag, structural_impact
 using Test
 using LinearAlgebra
 using Random
@@ -26,10 +27,10 @@ using StableRNGs: StableRNG
         @test var isa VARModel{Float64, OLSVAR}
         @test n_vars(var) == n_v
         @test n_lags(var) == n_l
-        @test effective_obs(var) == T - n_l
+        @test nobs(var) == T - n_l
 
         # Check coefficients
-        coefs = coef(var)
+        coefs = var.coefficients
         @test length(coefs.intercept) == n_v
         @test size(coefs.lags) == (n_v, n_v, n_l)
 
@@ -38,7 +39,7 @@ using StableRNGs: StableRNG
         @test size(resid) == (T - n_l, n_v)
 
         # Check covariance
-        Σ = vcov(var)
+        Σ = residual_covariance(var)
         @test size(Σ) == (n_v, n_v)
         @test Σ isa Symmetric
     end
@@ -63,33 +64,39 @@ using StableRNGs: StableRNG
         @test istril(P)  # Should be lower triangular
 
         # Check that P*P' ≈ Σ
-        Σ = vcov(var)
-        @test P * P' ≈ Matrix(Σ) rtol=1e-10
+        Σ = residual_covariance(var)
+        @test P * P' ≈ Matrix(Σ) rtol = 1.0e-10
     end
 
     @testset "Matrix-level Cholesky impact with an ordering" begin
         var = fit(OLSVAR, Y, n_l)
-        Σ = Matrix(vcov(var))
+        Σ = Matrix(residual_covariance(var))
         Σ_L = Matrix(cholesky(Symmetric(Σ)).L)
 
         @test structural_impact(Σ_L, CholeskyID()) == Σ_L
         for ordering in ([3, 1, 2], [2, 3, 1], [1, 2, 3])
             P = structural_impact(Σ_L, CholeskyID(ordering); ordering_idx = ordering)
-            @test P * P' ≈ Σ rtol=1e-10
-            @test P ≈ rotation_matrix(var, CholeskyID(ordering)) rtol=1e-10
+            @test P * P' ≈ Σ rtol = 1.0e-10
+            @test P ≈ rotation_matrix(var, CholeskyID(ordering)) rtol = 1.0e-10
         end
-        @test_throws "permutation of 1:3" structural_impact(Σ_L, CholeskyID([1, 2]);
-            ordering_idx = [1, 2])
-        @test_throws ArgumentError structural_impact(Σ_L, CholeskyID([1, 1, 2]);
-            ordering_idx = [1, 1, 2])
+        @test_throws "permutation of 1:3" structural_impact(
+            Σ_L, CholeskyID([1, 2]);
+            ordering_idx = [1, 2]
+        )
+        @test_throws ArgumentError structural_impact(
+            Σ_L, CholeskyID([1, 1, 2]);
+            ordering_idx = [1, 1, 2]
+        )
     end
 
     @testset "Resampling reproducibility" begin
         var = fit(OLSVAR, Y, n_l)
         id = CholeskyID()
 
-        boot1 = bootstrap_irf(var, id, 5, 20; rng = StableRNG(20240612))
-        boot2 = bootstrap_irf(var, id, 5, 20; rng = StableRNG(20240612))
+        boot1 = bootstrap_irf(
+            var, id, WildBootstrap(20); horizon = 5, rng = StableRNG(20240612))
+        boot2 = bootstrap_irf(
+            var, id, WildBootstrap(20); horizon = 5, rng = StableRNG(20240612))
         @test boot1 == boot2
     end
 
