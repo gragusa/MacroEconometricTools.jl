@@ -86,6 +86,24 @@ backward-compatible).
   - The Plots recipe draws bands widest-first with the same colors and
     transparency for every result type; the point-estimate line color is
     `median_color` (default `:black`) unless `linecolor` is given.
+- Type layout. Every field of `VARModel`, `IRFResult`, `SignRestrictedIRFResult`,
+  `BayesianIRFResult`, and `LocalProjectionIRFResult` except `metadata` has a
+  concrete type:
+  - `VARModel{T, S, D}` has a `dates` field (`nothing` or a vector aligned with
+    the residual rows, checked on construction); `dates(model)` reads it. The
+    `metadata` key `dates` is removed.
+  - `VARCoefficients{T}` drops its constraint type parameter; `constraints` is
+    `nothing` or a `Vector{AbstractConstraint}`.
+  - `IRFResult{T, A, D, I, N}` and `SignRestrictedIRFResult{T, A, D, I}` gain
+    trailing parameters for the draws, identification, and inference types.
+  - `BayesianIRFResult{T, A, I, B}` and `LocalProjectionIRFResult{T, A, S, B}`
+    gain trailing parameters for the band (and standard-error) array types.
+    `BayesianIRFResult{T, A, I}(...)` and `LocalProjectionIRFResult{T, A}(...)`
+    still construct them, and new outer constructors without type parameters
+    infer every parameter.
+
+  The `metadata` keys of `IRFResult` and `SignRestrictedIRFResult` that the
+  package reads are documented in their docstrings.
 
 ## [0.1.2] - 2026-10-15
 

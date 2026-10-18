@@ -76,7 +76,8 @@ function _fit_ivsvar(Y::AbstractMatrix{T}, n_lags::Int;
     )
 
     return VARModel(spec, var_ols.Y, var_ols.X, var_ols.coefficients,
-        var_ols.residuals, var_ols.Σ, var_ols.companion, var_names, metadata)
+        var_ols.residuals, var_ols.Σ, var_ols.companion, var_names, var_ols.dates,
+        metadata)
 end
 
 # ============================================================================

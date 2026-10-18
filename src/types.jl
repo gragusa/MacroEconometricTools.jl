@@ -116,28 +116,26 @@ abstract type AbstractConstraint end
 # ============================================================================
 
 """
-    VARCoefficients{T, C}
+    VARCoefficients{T}
 
 Storage structure for VAR coefficients with constraint information.
-
-# Type Parameters
-- `T<:AbstractFloat`: Numeric type
-- `C<:Union{Nothing, Vector{<:AbstractConstraint}}`: Constraint type
 
 # Fields
 - `intercept::Vector{T}`: Intercept coefficients (n_vars)
 - `lags::Array{T,3}`: Lag coefficients (n_vars, n_vars, n_lags)
-- `constraints::C`: Applied constraints (Vector{<:AbstractConstraint} or nothing)
+- `constraints::Union{Nothing, Vector{AbstractConstraint}}`: Applied constraints
+  (`nothing` for an unconstrained fit)
 """
-struct VARCoefficients{
-    T <: AbstractFloat, C <: Union{Nothing, Vector{<:AbstractConstraint}}}
+struct VARCoefficients{T <: AbstractFloat}
     intercept::Vector{T}
     lags::Array{T, 3}
-    constraints::C
+    constraints::Union{Nothing, Vector{AbstractConstraint}}
 end
 
-function VARCoefficients(intercept::Vector{T}, lags::Array{T, 3}) where {T}
-    return VARCoefficients{T, Nothing}(intercept, lags, nothing)
+function VARCoefficients(intercept::AbstractVector, lags::AbstractArray{<:Any, 3},
+        constraints = nothing)
+    T = promote_type(eltype(intercept), eltype(lags))
+    return VARCoefficients{T}(intercept, lags, constraints)
 end
 
 # ============================================================================
@@ -145,13 +143,14 @@ end
 # ============================================================================
 
 """
-    VARModel{T,S}
+    VARModel{T, S, D}
 
 Vector Autoregression model.
 
 # Type Parameters
 - `T<:AbstractFloat`: Numeric type for computations
 - `S<:AbstractVARSpec`: Model specification type
+- `D`: Type of the `dates` field (`Nothing` or an `AbstractVector`)
 
 # Fields
 - `spec::S`: Model specification
@@ -162,9 +161,12 @@ Vector Autoregression model.
 - `Σ::Symmetric{T,Matrix{T}}`: Residual covariance matrix
 - `companion::Matrix{T}`: Companion form matrix
 - `names::Vector{Symbol}`: Variable names
-- `metadata::NamedTuple`: Additional model information
+- `dates::D`: Dates of the residual rows, or `nothing`; see [`dates`](@ref)
+- `metadata::NamedTuple`: Fit information not read by the package:
+  `n_obs_total`, `n_obs_used`, `demean`, `timestamp`
 """
-struct VARModel{T <: AbstractFloat, S <: AbstractVARSpec}
+struct VARModel{
+    T <: AbstractFloat, S <: AbstractVARSpec, D <: Union{Nothing, AbstractVector}}
     spec::S
     Y::Matrix{T}
     X::Matrix{T}
@@ -173,7 +175,24 @@ struct VARModel{T <: AbstractFloat, S <: AbstractVARSpec}
     Σ::Symmetric{T, Matrix{T}}
     companion::Matrix{T}
     names::Vector{Symbol}
+    dates::D
     metadata::NamedTuple
+
+    function VARModel{T, S, D}(spec, Y, X, coefficients, residuals, Σ, companion,
+            names, dates, metadata) where {T, S, D}
+        if dates !== nothing && length(dates) != size(residuals, 1)
+            throw(DimensionMismatch("dates must have one entry per residual row " *
+                                    "(got $(length(dates)) for $(size(residuals, 1)) rows)"))
+        end
+        return new{T, S, D}(spec, Y, X, coefficients, residuals, Σ, companion,
+            names, dates, metadata)
+    end
+end
+
+function VARModel(spec::AbstractVARSpec, Y::AbstractMatrix, X, coefficients, residuals,
+        Σ, companion, names, dates, metadata)
+    return VARModel{eltype(Y), typeof(spec), typeof(dates)}(spec, Y, X, coefficients,
+        residuals, Σ, companion, names, dates, metadata)
 end
 
 # ============================================================================
@@ -527,35 +546,51 @@ Data is stored as AxisArray with dimensions:
 irf.irf[:GDP, :MonetaryShock, 0:12]  # GDP response to monetary shock, horizons 0-12
 ```
 
+The trailing type parameters `D`, `I`, `N` are the types of `bootstrap_draws`,
+`identification`, and `inference`; the constructors infer them.
+
 # Fields
 - `irf::A`: 3D AxisArray (variable × shock × horizon) — point estimates
 - `stderr::A`: Standard errors (same shape)
-- `bootstrap_draws::Union{Nothing, AxisArray}`: Bootstrap IRF draws (draw × variable × shock × horizon)
+- `bootstrap_draws::D`: Bootstrap IRF draws (draw × variable × shock × horizon), or `nothing`
 - `lower::Vector{A}`: Lower confidence bands (one per coverage level)
 - `upper::Vector{A}`: Upper confidence bands
 - `coverage::Vector{Float64}`: Coverage levels
-- `identification::AbstractIdentification`: Identification scheme used
-- `inference::Union{Nothing, InferenceType}`: Inference method used
-- `metadata::NamedTuple`: Additional information
+- `identification::I`: Identification scheme used
+- `inference::N`: Inference method used, or `nothing`
+- `metadata::NamedTuple`: Additional information; see below
+
+# Metadata
+- `horizon`, `names`, `timestamp`, `inference_type`: descriptive
+- `normalization` (type), `scale` (per-shock vector), `impact_diagonal`: read by
+  [`get_scale`](@ref) and updated by `rescale`
+- `cumulated_vars` (`nothing` or a vector of names), `cumulative`: set when the IRF is
+  cumulated; shown by `show`
 """
-struct IRFResult{T <: AbstractFloat, A <: AxisArray} <: AbstractIRFResult{T}
+struct IRFResult{T <: AbstractFloat, A <: AxisArray, D <: Union{Nothing, AxisArray},
+    I <: AbstractIdentification, N <: Union{Nothing, InferenceType}} <: AbstractIRFResult{T}
     irf::A
     stderr::A
-    bootstrap_draws::Union{Nothing, AxisArray}
+    bootstrap_draws::D
     lower::Vector{A}
     upper::Vector{A}
     coverage::Vector{Float64}
-    identification::AbstractIdentification
-    inference::Union{Nothing, InferenceType}
+    identification::I
+    inference::N
     metadata::NamedTuple
 end
 
-# Convenience constructor: infer T from AxisArray element type
-function IRFResult(irf::A, stderr, bootstrap_draws, lower, upper, coverage,
-        identification, inference, metadata) where {A <: AxisArray}
-    T = eltype(irf)
-    IRFResult{T, A}(irf, stderr, bootstrap_draws, lower, upper, coverage,
+function IRFResult(irf::AxisArray, stderr, bootstrap_draws, lower, upper, coverage,
         identification, inference, metadata)
+    IRFResult{eltype(irf), typeof(irf)}(irf, stderr, bootstrap_draws, lower, upper,
+        coverage, identification, inference, metadata)
+end
+
+function IRFResult{T, A}(irf, stderr, bootstrap_draws, lower, upper, coverage,
+        identification, inference, metadata) where {T, A}
+    IRFResult{T, A, typeof(bootstrap_draws), typeof(identification), typeof(inference)}(
+        irf, stderr, bootstrap_draws, lower, upper, coverage, identification, inference,
+        metadata)
 end
 
 """
@@ -573,33 +608,42 @@ Data is stored as AxisArray with dimensions:
 irf.irf_median[:GDP, :MonetaryShock, 0:12]  # Median GDP response, horizons 0-12
 ```
 
+The trailing type parameters `D` and `I` are the types of `irf_draws` and
+`identification`; the constructors infer them.
+
 # Fields
 - `irf_median::A`: Median IRF across draws — 3D AxisArray (variable × shock × horizon)
-- `irf_draws::AxisArray`: All drawn IRFs — 4D (draw × variable × shock × horizon)
+- `irf_draws::D`: All drawn IRFs — 4D AxisArray (draw × variable × shock × horizon)
 - `lower::Vector{A}`: Pointwise lower quantile bands
 - `upper::Vector{A}`: Pointwise upper quantile bands
 - `coverage::Vector{Float64}`: Coverage levels for quantile bands
 - `rotation_matrices::Vector{Matrix{T}}`: All rotation matrices satisfying restrictions
-- `identification::AbstractIdentification`: Identification scheme used (sign or narrative restrictions)
-- `metadata::NamedTuple`: Additional information (n_draws, etc.)
+- `identification::I`: Identification scheme used (sign or narrative restrictions)
+- `metadata::NamedTuple`: Additional information; the keys are those of
+  [`IRFResult`](@ref) with `n_draws` in place of `inference_type`
 """
-struct SignRestrictedIRFResult{T <: AbstractFloat, A <: AxisArray} <: AbstractIRFResult{T}
+struct SignRestrictedIRFResult{T <: AbstractFloat, A <: AxisArray, D <: AxisArray,
+    I <: AbstractIdentification} <: AbstractIRFResult{T}
     irf_median::A
-    irf_draws::AxisArray
+    irf_draws::D
     lower::Vector{A}
     upper::Vector{A}
     coverage::Vector{Float64}
     rotation_matrices::Vector{Matrix{T}}
-    identification::AbstractIdentification
+    identification::I
     metadata::NamedTuple
 end
 
-# Convenience constructor: infer T from AxisArray element type
-function SignRestrictedIRFResult(irf_median::A, irf_draws, lower, upper, coverage,
-        rotation_matrices::Vector{Matrix{T}}, identification, metadata) where {
-        T, A <: AxisArray}
-    SignRestrictedIRFResult{T, A}(irf_median, irf_draws, lower, upper, coverage,
+function SignRestrictedIRFResult(irf_median::AxisArray, irf_draws, lower, upper, coverage,
         rotation_matrices, identification, metadata)
+    SignRestrictedIRFResult{eltype(irf_median), typeof(irf_median)}(irf_median, irf_draws,
+        lower, upper, coverage, rotation_matrices, identification, metadata)
+end
+
+function SignRestrictedIRFResult{T, A}(irf_median, irf_draws, lower, upper, coverage,
+        rotation_matrices, identification, metadata) where {T, A}
+    SignRestrictedIRFResult{T, A, typeof(irf_draws), typeof(identification)}(irf_median,
+        irf_draws, lower, upper, coverage, rotation_matrices, identification, metadata)
 end
 
 # ============================================================================
@@ -627,21 +671,39 @@ Data is stored as AxisArray with dimensions:
 irf.data[:, :GDP, :MonetaryPolicy, 0:12]  # GDP response to monetary shock, horizons 0-12
 ```
 
+The trailing type parameter `B` is the element type of `lower` and `upper`;
+`BayesianIRFResult(data, lower, upper, coverage, identification, metadata)` and
+`BayesianIRFResult{T, A, I}(...)` infer it from the bands.
+
 # Fields
 - `data::A`: 4D AxisArray (draw × variable × shock × horizon)
-- `lower::Vector{AxisArray}`: Credible bands (one per coverage level)
-- `upper::Vector{AxisArray}`: Credible bands (one per coverage level)
+- `lower::Vector{B}`: Credible bands (one per coverage level)
+- `upper::Vector{B}`: Credible bands (one per coverage level)
 - `coverage::Vector{Float64}`: Coverage levels (e.g., [0.68, 0.90, 0.95])
 - `identification::I`: Identification scheme used (any identification type)
-- `metadata::NamedTuple`: Additional information (max_horizon, n_draws, etc.)
+- `metadata::NamedTuple`: Additional information, defined by the producing package
+  and not read by this one
 """
-struct BayesianIRFResult{T <: AbstractFloat, A <: AxisArray, I} <: AbstractIRFResult{T}
+struct BayesianIRFResult{T <: AbstractFloat, A <: AxisArray, I, B <: AxisArray} <:
+       AbstractIRFResult{T}
     data::A                         # 4D AxisArray (draw × variable × shock × horizon)
-    lower::Vector{AxisArray}        # Credible bands (one per coverage level)
-    upper::Vector{AxisArray}
+    lower::Vector{B}                # Credible bands (one per coverage level)
+    upper::Vector{B}
     coverage::Vector{Float64}
     identification::I               # Any identification type
     metadata::NamedTuple
+end
+
+function BayesianIRFResult(data::AxisArray, lower, upper, coverage, identification,
+        metadata)
+    BayesianIRFResult{eltype(data), typeof(data), typeof(identification)}(data, lower,
+        upper, coverage, identification, metadata)
+end
+
+function BayesianIRFResult{T, A, I}(data, lower, upper, coverage, identification,
+        metadata) where {T, A, I}
+    BayesianIRFResult{T, A, I, _band_eltype(lower, upper)}(data, lower, upper, coverage,
+        identification, metadata)
 end
 
 """
@@ -662,21 +724,46 @@ Data is stored as AxisArray with dimensions:
 irf.data[:y, :x, 0:6]  # Response of y to shock x, horizons 0-6
 ```
 
+The trailing type parameters `S` and `B` are the type of `stderr` and the element
+type of `lower` and `upper`; `LocalProjectionIRFResult(data, stderr, lower, upper,
+coverage, metadata)` and `LocalProjectionIRFResult{T, A}(...)` infer them.
+
 # Fields
 - `data::A`: 3D AxisArray (response × shock × horizon)
-- `stderr::AxisArray`: Standard errors (same shape as data)
-- `lower::Vector{AxisArray}`: Confidence bands (one per coverage level)
-- `upper::Vector{AxisArray}`: Confidence bands (one per coverage level)
+- `stderr::S`: Standard errors (same shape as data)
+- `lower::Vector{B}`: Confidence bands (one per coverage level)
+- `upper::Vector{B}`: Confidence bands (one per coverage level)
 - `coverage::Vector{Float64}`: Coverage levels (e.g., [0.68, 0.90, 0.95])
-- `metadata::NamedTuple`: Additional information (horizon, formula, term, etc.)
+- `metadata::NamedTuple`: Additional information, defined by the producing package
+  and not read by this one
 """
-struct LocalProjectionIRFResult{T <: AbstractFloat, A <: AxisArray} <: AbstractIRFResult{T}
+struct LocalProjectionIRFResult{T <: AbstractFloat, A <: AxisArray, S <: AxisArray,
+    B <: AxisArray} <: AbstractIRFResult{T}
     data::A                         # 3D AxisArray (response × shock × horizon)
-    stderr::AxisArray               # Standard errors (same shape)
-    lower::Vector{AxisArray}        # Confidence bands
-    upper::Vector{AxisArray}
+    stderr::S                       # Standard errors (same shape)
+    lower::Vector{B}                # Confidence bands
+    upper::Vector{B}
     coverage::Vector{Float64}
     metadata::NamedTuple
+end
+
+function LocalProjectionIRFResult(data::AxisArray, stderr, lower, upper, coverage,
+        metadata)
+    LocalProjectionIRFResult{eltype(data), typeof(data)}(data, stderr, lower, upper,
+        coverage, metadata)
+end
+
+function LocalProjectionIRFResult{T, A}(data, stderr, lower, upper, coverage,
+        metadata) where {T, A}
+    LocalProjectionIRFResult{T, A, typeof(stderr), _band_eltype(lower, upper)}(data,
+        stderr, lower, upper, coverage, metadata)
+end
+
+# Narrowest common type of the band arrays in `lower` and `upper`; the declared
+# element type when both are empty.
+function _band_eltype(lower, upper)
+    isempty(lower) && isempty(upper) && return typejoin(eltype(lower), eltype(upper))
+    return mapreduce(typeof, typejoin, Iterators.flatten((lower, upper)))
 end
 
 # ============================================================================

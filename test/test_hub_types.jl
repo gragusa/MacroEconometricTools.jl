@@ -353,3 +353,44 @@ end
         @test !isdefined(MacroEconometricTools, name)
     end
 end
+
+@testset "Result and model types have concrete fields" begin
+    concrete_fields(x) = all(isconcretetype, fieldtypes(typeof(x))[1:(end - 1)])  # metadata is free-form
+
+    Y = randn(80, 2)
+    model = fit(OLSVAR, Y, 1)
+    @test concrete_fields(model)
+    @test dates(model) === nothing
+    constrained = fit(OLSVAR, Y, 1; names = [:a, :b],
+        constraints = [ZeroConstraint(:a, [:b], [1])])
+    @test constrained.coefficients.constraints isa Vector{AbstractConstraint}
+    @test_throws "dates must have one entry per residual row" VARModel(
+        OLSVAR(), model.Y, model.X, model.coefficients, model.residuals, model.Σ,
+        model.companion, model.names, [1, 2], model.metadata)
+
+    @test concrete_fields(irf(model, CholeskyID(); horizon = 3))
+    @test concrete_fields(irf(model, SignRestriction([1 0; 0 0]); horizon = 2,
+        n_draws = 10))
+
+    # Spoke call forms: partial type parameters, bands in an abstractly typed vector
+    data = AxisArray(randn(5, 2, 2, 3), Axis{:draw}(1:5), Axis{:variable}([:a, :b]),
+        Axis{:shock}([:a, :b]), Axis{:horizon}(0:2))
+    band = AxisArray(randn(2, 2, 3), AxisArrays.axes(data)[2:end]...)
+    lower = AxisArray{Float64, 3}[band, band]
+    b = BayesianIRFResult{Float64, typeof(data), CholeskyID}(
+        data, lower, lower, [0.68, 0.9], CholeskyID(), (;))
+    @test concrete_fields(b)
+    @test lowerbounds(b) === b.lower
+    @test b.lower == lower
+    @test BayesianIRFResult(data, lower, lower, [0.68, 0.9], CholeskyID(), (;)) isa
+          typeof(b)
+
+    lp_data = AxisArray(randn(1, 1, 3), Axis{:response}([:y]), Axis{:shock}([:x]),
+        Axis{:horizon}(0:2))
+    lp = LocalProjectionIRFResult{Float64, typeof(lp_data)}(
+        lp_data, copy(lp_data), [lp_data], [lp_data], [0.9], (;))
+    @test concrete_fields(lp)
+    @test lp.lower[1] === lp_data
+    @test LocalProjectionIRFResult(lp_data, copy(lp_data), [lp_data], [lp_data], [0.9],
+        (;)) isa typeof(lp)
+end

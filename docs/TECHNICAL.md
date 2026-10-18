@@ -45,7 +45,7 @@ var = fit(Y, lags; method=:ols)  # NOT used
 All core types are fully parametric:
 
 ```julia
-struct VARModel{T<:AbstractFloat, S<:AbstractVARSpec}
+struct VARModel{T<:AbstractFloat, S<:AbstractVARSpec, D<:Union{Nothing,AbstractVector}}
     spec::S
     Y::Matrix{T}
     coefficients::VARCoefficients{T}
@@ -108,22 +108,20 @@ Stores estimated coefficients with constraint metadata:
 struct VARCoefficients{T<:AbstractFloat}
     intercept::Vector{T}              # Length n_vars
     lags::Array{T,3}                  # (n_vars, n_vars, n_lags)
-    constraints::Any                  # Vector{<:AbstractConstraint} or nothing
+    constraints::Union{Nothing, Vector{AbstractConstraint}}  # nothing when unconstrained
 end
 ```
-
-**Design note**: `constraints` field uses `Any` to avoid circular dependency with `constraints.jl`. In practice, it's always `Vector{<:AbstractConstraint}` or `nothing`.
 
 **Layout**: Lag coefficients are stored as `(response_var, regressor_var, lag_number)`. For example:
 - `lags[i,j,k]` = coefficient of variable j at lag k in equation for variable i
 - This matches the standard VAR notation: `Y_t = c + A_1 Y_{t-1} + ... + A_p Y_{t-p} + ε_t`
 
-#### VARModel{T,S}
+#### VARModel{T,S,D}
 
 Main model container:
 
 ```julia
-struct VARModel{T<:AbstractFloat, S<:AbstractVARSpec}
+struct VARModel{T<:AbstractFloat, S<:AbstractVARSpec, D<:Union{Nothing,AbstractVector}}
     spec::S                                    # Estimation specification
     Y::Matrix{T}                              # Original data (T × n_vars)
     X::Matrix{T}                              # Design matrix with lags
@@ -132,7 +130,8 @@ struct VARModel{T<:AbstractFloat, S<:AbstractVARSpec}
     Σ::Symmetric{T,Matrix{T}}                 # Residual covariance
     companion::Matrix{T}                      # Companion form matrix
     names::Vector{Symbol}                     # Variable names
-    metadata::NamedTuple                      # Additional info
+    dates::D                                  # Residual-row dates, or nothing
+    metadata::NamedTuple                      # Fit information not read by the package
 end
 ```
 

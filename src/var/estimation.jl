@@ -108,11 +108,11 @@ function StatsBase.fit(::Type{OLSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
         n_obs_total = n_obs_total,
         n_obs_used = n_eff,
         demean = demean,
-        dates = model_dates,
         timestamp = now()
     )
 
-    return VARModel(OLSVAR(), Y_work, X, coefs, residuals, Σ, F, names, metadata)
+    return VARModel(OLSVAR(), Y_work, X, coefs, residuals, Σ, F, names, model_dates,
+        metadata)
 end
 
 """
@@ -339,7 +339,7 @@ Return the observation dates aligned with the model's residual rows, or
 lag-trimmed: entry `i` corresponds to residual row `i`, which is what date-based
 narrative restrictions resolve against.
 """
-dates(model::VARModel) = get(model.metadata, :dates, nothing)
+dates(model::VARModel) = model.dates
 
 """
     fitted(model::VARModel)
