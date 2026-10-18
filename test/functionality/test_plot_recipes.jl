@@ -46,6 +46,15 @@ end
     @test_throws "needs stored draws" RecipesBase.apply_recipe(
         Dict{Symbol, Any}(:plot_type => :paths), frequentist
     )
+    zero_line(series) = only(s for s in series if get(s.plotattributes, :seriestype, nothing) === :hline)
+    colored = RecipesBase.apply_recipe(
+        Dict{Symbol, Any}(:vars => [:y], :shocks => [1], :zerolinecolor => :red), frequentist
+    )
+    @test zero_line(colored).plotattributes[:linecolor] === :red
+    deprecated = @test_deprecated "zerolinecol" RecipesBase.apply_recipe(
+        Dict{Symbol, Any}(:vars => [:y], :shocks => [1], :zerolinecol => :blue), frequentist
+    )
+    @test zero_line(deprecated).plotattributes[:linecolor] === :blue
 
     data, lower, upper = recipe_fixture_arrays()
     draws = AxisArray(

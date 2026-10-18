@@ -38,6 +38,8 @@ backward-compatible).
   `BlockExogeneity`, `CholeskyID`, `SignRestriction`,
   `NarrativeShockRestriction`, and `NarrativeRestriction` by their fields, so
   two specifications built from equal arrays are equal.
+- Calling `irfplot` or `irfplot!` before a Makie backend is loaded raises a
+  `MethodError` whose message says to load one (e.g. `using CairoMakie`).
 
 ### Removed (breaking)
 
@@ -54,6 +56,9 @@ backward-compatible).
 - `rescale!`. It changed its argument's arrays in place but returned a new
   result carrying the updated scale metadata, so the argument was left
   inconsistent. Use `rescale`.
+- The Makie recipes `MCMCTrace`, `MCMCDensity`, and `MCMCHistogram`. They
+  were unrelated to impulse responses and unused by the packages built on this
+  one.
 
 ### Deprecated
 
@@ -87,8 +92,12 @@ backward-compatible).
   deprecated method forwards to `irf` with the result's horizon and
   normalization, and throws for rescaled or cumulated results. It previously
   always failed with a `MethodError`.
+- The `zerolinecol` keyword of the Plots recipe; use `zerolinecolor`, the
+  spelling `irfplot` uses.
 
 ### Changed (breaking)
+
+- The Makie extension requires Makie 0.24 (previously 0.20).
 
 - Export surface. Exported names are the end-user API. Building blocks for
   packages built on this one are `public` but not exported; call them as

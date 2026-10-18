@@ -1,14 +1,14 @@
 module MacroEconometricToolsMakieExt
 
-using Makie
-using MacroEconometricTools
+using Makie: Makie
+using MacroEconometricTools: MacroEconometricTools, AbstractIRFResult,
+    point_estimate, lowerbounds, upperbounds, coverages, varnames, shocknames,
+    get_draws, horizon
 
 import MacroEconometricTools: irfplot, irfplot!
 
-using MacroEconometricTools: AbstractIRFResult, point_estimate, lowerbounds,
-    upperbounds, coverages, varnames, shocknames,
-    get_draws, horizon, _prepare_irf_plot,
-    _resolve_selection, _check_plot_type
+# Selection and label helpers shared with the Plots recipe (src/plots_recipes.jl)
+const MET = MacroEconometricTools
 
 # ============================================================================
 # Shared panel-drawing core
@@ -212,9 +212,9 @@ function irfplot!(
         drawzero = true, zerolinecolor = :gray60, zerolinestyle = :dash,
         xtickstep = 4, kwargs...
     )
-    _check_plot_type(irf, plot_type)
-    vi = only(_resolve_selection(varnames(irf), [var], :var))
-    si = only(_resolve_selection(shocknames(irf), [shock], :shock))
+    MET._check_plot_type(irf, plot_type)
+    vi = only(MET._resolve_selection(varnames(irf), [var], :var))
+    si = only(MET._resolve_selection(shocknames(irf), [shock], :shock))
     pd = _panel_data(irf, plot_type)
     _draw_irf_panel!(
         ax, pd, vi, si, plot_type;
@@ -252,8 +252,8 @@ function irfplot(
         colgap = 10, rowgap = 10,
         kwargs...
     )
-    _check_plot_type(irf, plot_type)
-    setup = _prepare_irf_plot(irf; vars, shocks, pretty_vars, pretty_shocks)
+    MET._check_plot_type(irf, plot_type)
+    setup = MET._prepare_irf_plot(irf; vars, shocks, pretty_vars, pretty_shocks)
     pd = _panel_data(irf, plot_type)
     nrows = length(setup.idxvars)
     ncols = length(setup.idxshocks)
@@ -282,88 +282,6 @@ function irfplot(
         linkxaxes, linkyaxes, colgap, rowgap
     )
     return fig
-end
-
-# ============================================================================
-# MCMC Diagnostic Recipes
-# ============================================================================
-
-Makie.@recipe(MCMCTrace, samples) do scene
-    Makie.Theme(;
-        linewidth = 1.5,
-        alpha = 0.7,
-        chain_colors = nothing
-    )
-end
-
-function Makie.plot!(plot::MCMCTrace)
-    samples = Makie.to_value(plot[1])
-    attrs = plot.attributes
-    lw = Makie.to_value(attrs[:linewidth])
-    alpha = Makie.to_value(attrs[:alpha])
-
-    if samples isa AbstractVector{<:AbstractVector}
-        chain_colors = Makie.to_value(attrs[:chain_colors])
-        if chain_colors === nothing
-            chain_colors = Makie.wong_colors()
-        end
-        for (i, chain) in enumerate(samples)
-            col = Makie.RGBAf(Makie.to_color(chain_colors[mod1(i, length(chain_colors))]), Float32(alpha))
-            Makie.lines!(plot, 1:length(chain), collect(chain); color = col, linewidth = lw)
-        end
-    else
-        col = Makie.RGBAf(Makie.to_color(:blue), Float32(alpha))
-        Makie.lines!(plot, 1:length(samples), collect(samples); color = col, linewidth = lw)
-    end
-    return plot
-end
-
-Makie.@recipe(MCMCDensity, samples) do scene
-    Makie.Theme(;
-        linewidth = 2.0,
-        combined_color = :black
-    )
-end
-
-function Makie.plot!(plot::MCMCDensity)
-    samples = Makie.to_value(plot[1])
-    attrs = plot.attributes
-    lw = Makie.to_value(attrs[:linewidth])
-    combined_color = Makie.to_color(Makie.to_value(attrs[:combined_color]))
-    all_samples = samples isa AbstractVector{<:AbstractVector} ? vcat(samples...) :
-        collect(samples)
-    Makie.density!(plot, all_samples; color = combined_color, linewidth = lw)
-    return plot
-end
-
-Makie.@recipe(MCMCHistogram, samples) do scene
-    Makie.Theme(;
-        bins = 50,
-        show_kde = true,
-        kde_linewidth = 2.0,
-        color = :blue,
-        kde_color = :black
-    )
-end
-
-function Makie.plot!(plot::MCMCHistogram)
-    samples = Makie.to_value(plot[1])
-    attrs = plot.attributes
-    bins = Makie.to_value(attrs[:bins])
-    show_kde = Makie.to_value(attrs[:show_kde])
-    kde_linewidth = Makie.to_value(attrs[:kde_linewidth])
-    color = Makie.to_color(Makie.to_value(attrs[:color]))
-    kde_color = Makie.to_color(Makie.to_value(attrs[:kde_color]))
-    all_samples = samples isa AbstractVector{<:AbstractVector} ? vcat(samples...) :
-        collect(samples)
-    Makie.hist!(
-        plot, all_samples; bins = bins,
-        color = Makie.RGBAf(color, 0.6f0), normalization = :pdf
-    )
-    if show_kde
-        Makie.density!(plot, all_samples; color = kde_color, linewidth = kde_linewidth)
-    end
-    return plot
 end
 
 end # module

@@ -3,6 +3,7 @@
 include("../test_basic.jl")
 include("test_constraints.jl")
 include("test_plot_recipes.jl")
+include("test_makie_plots.jl")
 include("test_bootstrap_entry_point.jl")
 include("test_scale_and_cumulation.jl")
 include("test_post_estimation.jl")

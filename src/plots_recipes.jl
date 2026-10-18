@@ -116,7 +116,8 @@ line.
 Keywords: `vars`, `shocks`, `pretty_vars`, `pretty_shocks` (selection and
 labels), `plot_type` (`:quantiles`, `:paths`, or `:both`; paths need stored
 draws), `path_alpha`, `path_color`, `median_color` (point-estimate line, unless
-`linecolor` is given), `drawzero`, `zerolinecol`.
+`linecolor` is given), `drawzero`, `zerolinecolor`. The keyword `zerolinecol`
+is a deprecated alias of `zerolinecolor`.
 
 Scale data before plotting with `rescale`.
 """
@@ -131,9 +132,16 @@ RecipesBase.@recipe function f(
         path_color = :gray,
         median_color = :black,
         drawzero = true,
-        zerolinecol = :lightgray
+        zerolinecolor = :lightgray,
+        zerolinecol = nothing
     )
     _check_plot_type(irf, plot_type)
+    if zerolinecol !== nothing
+        Base.depwarn(
+            "the `zerolinecol` keyword is deprecated, use `zerolinecolor`", :irfplot_recipe
+        )
+        zerolinecolor = zerolinecol
+    end
     info = _prepare_irf_plot(
         irf;
         vars = vars,
@@ -205,7 +213,7 @@ RecipesBase.@recipe function f(
                 @series begin
                     subplot := subplot
                     linestyle := :dot
-                    linecolor := zerolinecol
+                    linecolor := zerolinecolor
                     seriestype --> :hline
                     [0]
                 end

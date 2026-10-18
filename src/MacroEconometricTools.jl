@@ -154,6 +154,23 @@ For results with stored draws, also accepts:
 """
 function irfplot! end
 
+# Without a Makie backend, `irfplot`/`irfplot!` have no methods; the hint says
+# which package to load.
+function _irfplot_hint(io, exc, argtypes, kwargs)
+    exc.f === irfplot || exc.f === irfplot! || return
+    Base.get_extension(@__MODULE__, :MacroEconometricToolsMakieExt) === nothing || return
+    print(
+        io, "\n`$(exc.f)` is implemented by the Makie extension; load a Makie ",
+        "backend first, e.g. `using CairoMakie` or `using GLMakie`."
+    )
+    return
+end
+
+function __init__()
+    Base.Experimental.register_error_hint(_irfplot_hint, MethodError)
+    return
+end
+
 # Exported: the end-user API. Deprecated names are reachable as
 # `MacroEconometricTools.name` but not exported.
 export AbstractVARSpec, OLSVAR
