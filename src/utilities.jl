@@ -272,6 +272,68 @@ function hqic(model::VARModel{T, OLSVAR}) where {T}
     return -2loglikelihood(model) + 2dof(model) * log(log(nobs(model)))
 end
 
+"""
+    select_lags(Y, max_lags; criterion = :aic, constraints, names, demean)
+
+Choose the lag order of an OLS VAR by an information criterion.
+
+Every lag order `p = 1, …, max_lags` is fitted with `fit(OLSVAR, …)` on the same
+estimation sample, the rows of `Y` after the first `max_lags`: the model with `p`
+lags uses `Y[max_lags - p + 1:end, :]`. All candidates therefore have
+`nobs = size(Y, 1) - max_lags`, which makes their criteria comparable.
+
+`criterion` is `:aic`, `:bic`, or `:hqic` (see [`aic`](@ref), [`bic`](@ref),
+[`hqic`](@ref)). Ties go to the smaller lag order. The keywords `constraints`,
+`names`, and `demean` are passed to every fit; constraints must be valid for
+every candidate order.
+
+Returns a `NamedTuple` `(; lags, criterion, table)`: the selected lag order, the
+criterion used, and a column table `(; lags, aic, bic, hqic)` with one row per
+candidate order. The model with the selected order fitted on all of `Y` is
+`fit(OLSVAR, Y, result.lags)`.
+
+# Examples
+```julia
+sel = select_lags(Y, 8; criterion = :bic)
+model = fit(OLSVAR, Y, sel.lags)
+```
+"""
+function select_lags(
+        Y::AbstractMatrix, max_lags::Integer;
+        criterion::Symbol = :aic,
+        constraints::Vector{<:AbstractConstraint} = AbstractConstraint[],
+        names::Union{Nothing, Vector{Symbol}} = nothing,
+        demean::Bool = false
+    )
+    Base.require_one_based_indexing(Y)
+    criterion in (:aic, :bic, :hqic) ||
+        throw(ArgumentError("criterion must be :aic, :bic, or :hqic (got :$criterion)"))
+    max_lags ≥ 1 || throw(ArgumentError("max_lags must be positive (got $max_lags)"))
+    n_obs_total, n_vars = size(Y)
+    n_eff = n_obs_total - max_lags
+    df = n_eff - n_vars * max_lags - 1
+    df > 0 || throw(
+        ArgumentError(
+            "Not enough observations for max_lags = $max_lags: the common sample has $n_eff rows, leaving $df residual degrees of freedom for the largest model"
+        )
+    )
+    # Names are read from the full input: row subsets of named arrays may drop them.
+    names = names === nothing ? try_extract_names(Y, n_vars) : names
+
+    candidates = 1:max_lags
+    models = map(candidates) do p
+        fit(OLSVAR, view(Y, (max_lags - p + 1):n_obs_total, :), p; constraints, names, demean)
+    end
+    table = (
+        lags = collect(candidates),
+        aic = aic.(models),
+        bic = bic.(models),
+        hqic = hqic.(models),
+    )
+    values = getproperty(table, criterion)
+    return (; lags = candidates[argmin(values)], criterion, table)
+end
+
 # ============================================================================
 # Accessor methods
 # ============================================================================

@@ -38,6 +38,10 @@ backward-compatible).
   `BlockExogeneity`, `CholeskyID`, `SignRestriction`,
   `NarrativeShockRestriction`, and `NarrativeRestriction` by their fields, so
   two specifications built from equal arrays are equal.
+- `select_lags(Y, max_lags; criterion = :aic | :bic | :hqic)` chooses the lag
+  order of an OLS VAR. Every candidate order is fitted on the rows after the
+  first `max_lags`, so all candidates have the same number of observations.
+  It returns the selected order and a table of all three criteria.
 - Calling `irfplot` or `irfplot!` before a Makie backend is loaded raises a
   `MethodError` whose message says to load one (e.g. `using CairoMakie`).
 

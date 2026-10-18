@@ -191,7 +191,7 @@ export fit, irf
 export coef, vcov, stderror, confint, residuals, fitted, dates, residual_covariance
 export nobs, dof, dof_residual
 export n_vars, n_lags, varnames, shocknames, intercept
-export loglikelihood, aic, bic, hqic
+export loglikelihood, aic, bic, hqic, select_lags
 export forecast
 export rotation_matrix, normalize_impact, normalize_impact!
 export create_lags
