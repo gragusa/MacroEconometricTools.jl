@@ -178,12 +178,12 @@ const IRFResult = MacroEconometricTools.IRFResult
         V = MacroEconometricTools.irf_effect_covariance(var, P, irf_point)
 
         # Check structure
-        @test size(V) == (horizon + 1, n_v^2, n_v^2)
+        @test size(V) == (n_v^2, n_v^2, horizon + 1)
         @test all(isfinite.(V))
 
         # Each slice should be symmetric (with tolerance)
         for h in 1:(horizon + 1)
-            V_h = V[h, :, :]
+            V_h = V[:, :, h]
             @test maximum(abs.(V_h - V_h')) < 1e-8
         end
 
@@ -193,8 +193,8 @@ const IRFResult = MacroEconometricTools.IRFResult
         I_m = Matrix{eltype(P)}(I, n_v, n_v)
         H = L' * inv(L * (I(n_v^2) + K) * kron(P, I_m) * L')
         expected_impact = H * MacroEconometricTools.sigma_covariance(var) * H'
-        @test V[1, :, :] ≈ expected_impact
-        @test any(diag(V[1, :, :]) .> 0)
+        @test V[:, :, 1] ≈ expected_impact
+        @test any(diag(V[:, :, 1]) .> 0)
     end
 
     println("✓ All delta method tests passed!")

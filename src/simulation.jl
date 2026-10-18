@@ -290,41 +290,48 @@ end
 """
     variance_decomposition(irf::IRFResult; horizon=nothing)
 
-Compute forecast error variance decomposition from IRFs.
+Compute the forecast error variance decomposition from structural IRFs.
+
+The share of shock `j` in the `h`-step-ahead forecast error variance of
+variable `i` is `Σ_{s<h} Θ_s[i, j]² / Σ_k Σ_{s<h} Θ_s[i, k]²`, where `Θ_s` is
+the impulse response at horizon `s`. This requires shocks with unit variance,
+so `irf` must come from `normalization = UnitStd()` with no rescaling and no
+cumulation; otherwise an `ArgumentError` is thrown.
 
 # Arguments
-- `irf::IRFResult`: Computed impulse responses
-- `horizon::Int=nothing`: Specific horizon (default: all horizons)
+- `irf::IRFResult`: Computed impulse responses (horizons `0:H`)
+- `horizon::Union{Nothing,Int}=nothing`: forecast horizon in `1:H+1`
 
 # Returns
-- Array (horizon × n_vars × n_shocks) with variance shares (sum to 1 across shocks)
+- With `horizon = nothing`: an `AxisArray` with axes `(:variable, :shock, :horizon)`,
+  forecast horizons `1:H+1`; shares sum to 1 across shocks.
+- With `horizon = h`: the `(:variable, :shock)` slice at forecast horizon `h`.
 """
-function variance_decomposition(irf::IRFResult{T}; horizon_spec::Union{
-        Nothing, Int} = nothing) where {T}
-    irf_array = irf.irf  # (H+1, n_vars, n_shocks)
-    H, n_vars_val, n_shocks = size(irf_array)
+function variance_decomposition(irf::IRFResult; horizon::Union{Nothing, Int} = nothing)
+    md = irf.metadata
+    norm = get(md, :normalization, UnitStd)
+    norm === UnitStd ||
+        throw(ArgumentError("variance_decomposition requires unit-variance shocks " *
+                            "(normalization = UnitStd()), got $norm"))
+    scale = get(md, :scale, nothing)
+    scale === nothing || all(isone, scale) ||
+        throw(ArgumentError("variance_decomposition requires unscaled IRFs, got scale = $scale"))
+    cumulated = get(md, :cumulated_vars, nothing)
+    cumulated === nothing ||
+        throw(ArgumentError("variance_decomposition requires non-cumulated IRFs, " *
+                            "got cumulated variables $cumulated"))
 
-    # Compute MSE at each horizon
-    mse = zeros(T, H, n_vars_val)
-    for h in 1:H
-        for j in 1:n_vars_val
-            mse[h, j] = sum(irf_array[1:h, j, :] .^ 2)
-        end
-    end
+    Θ = Array(point_estimate(irf))  # (variable, shock, horizon 0:H)
+    # Forecast error variance contributions: cumulative sum of squared responses
+    contrib = cumsum(Θ .^ 2; dims = 3)
+    shares = contrib ./ sum(contrib; dims = 2)
+    fevd = AxisArray(shares,
+        Axis{:variable}(varnames(irf)),
+        Axis{:shock}(shocknames(irf)),
+        Axis{:horizon}(1:size(shares, 3)))
 
-    # Compute contribution of each shock
-    variance_shares = zeros(T, H, n_vars_val, n_shocks)
-    for h in 1:H
-        for j in 1:n_vars_val
-            for k in 1:n_shocks
-                variance_shares[h, j, k] = sum(irf_array[1:h, j, k] .^ 2) / mse[h, j]
-            end
-        end
-    end
-
-    if horizon_spec !== nothing
-        return variance_shares[horizon_spec, :, :]
-    else
-        return variance_shares
-    end
+    horizon === nothing && return fevd
+    1 <= horizon <= size(fevd, 3) ||
+        throw(ArgumentError("horizon must be in 1:$(size(fevd, 3)), got $horizon"))
+    return fevd[:, :, horizon]
 end

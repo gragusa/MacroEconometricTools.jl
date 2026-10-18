@@ -11,51 +11,43 @@ using AxisArrays: AxisArrays, AxisArray, Axis
 """
     _wrap_irf_3d(raw, names) -> AxisArray
 
-Wrap a raw (horizon+1, n_vars, n_shocks) array into a 3D AxisArray
-with axes (:variable, :shock, :horizon).
+Wrap a raw `(n_vars, n_shocks, horizon+1)` array, without copying, into a 3D
+AxisArray with axes `(:variable, :shock, :horizon)`.
 """
 function _wrap_irf_3d(raw::Array{T, 3}, names::Vector{Symbol}) where {T}
-    H1 = size(raw, 1)
-    data = permutedims(raw, (2, 3, 1))  # (variable, shock, horizon)
-    return AxisArray(data,
+    return AxisArray(raw,
         Axis{:variable}(names),
         Axis{:shock}(names),
-        Axis{:horizon}(0:(H1 - 1)))
+        Axis{:horizon}(0:(size(raw, 3) - 1)))
 end
 
 """
     _wrap_irf_4d(raw, names) -> AxisArray
 
-Wrap a raw (reps, horizon+1, n_vars, n_shocks) array into a 4D AxisArray
-with axes (:draw, :variable, :shock, :horizon).
+Wrap a raw `(reps, n_vars, n_shocks, horizon+1)` array, without copying, into a
+4D AxisArray with axes `(:draw, :variable, :shock, :horizon)`.
 """
 function _wrap_irf_4d(raw::Array{T, 4}, names::Vector{Symbol}) where {T}
-    R, H1 = size(raw, 1), size(raw, 2)
-    data = permutedims(raw, (1, 3, 4, 2))  # (draw, variable, shock, horizon)
-    return AxisArray(data,
-        Axis{:draw}(1:R),
+    return AxisArray(raw,
+        Axis{:draw}(1:size(raw, 1)),
         Axis{:variable}(names),
         Axis{:shock}(names),
-        Axis{:horizon}(0:(H1 - 1)))
+        Axis{:horizon}(0:(size(raw, 4) - 1)))
 end
 
 """
     _unwrap_irf_3d(ax) -> Array{T,3}
 
-Unwrap a 3D AxisArray (variable, shock, horizon) back to raw (horizon+1, n_vars, n_shocks).
+Copy a 3D AxisArray `(variable, shock, horizon)` into a plain array of the same layout.
 """
-function _unwrap_irf_3d(ax::AxisArray)
-    permutedims(Array(ax), (3, 1, 2))
-end
+_unwrap_irf_3d(ax::AxisArray) = Array(ax)
 
 """
     _unwrap_irf_4d(ax) -> Array{T,4}
 
-Unwrap a 4D AxisArray (draw, variable, shock, horizon) back to raw (draw, horizon+1, n_vars, n_shocks).
+Copy a 4D AxisArray `(draw, variable, shock, horizon)` into a plain array of the same layout.
 """
-function _unwrap_irf_4d(ax::AxisArray)
-    permutedims(Array(ax), (1, 4, 2, 3))
-end
+_unwrap_irf_4d(ax::AxisArray) = Array(ax)
 
 # ============================================================================
 # Fast Quantile Helpers (avoids mapslices overhead)
@@ -79,13 +71,13 @@ function _quantile_along_dim1!(lo::Array{T, 3}, hi::Array{T, 3},
     idx_hi = clamp(round(Int, α_upper * reps), 1, reps)
 
     d2, d3, d4 = size(draws, 2), size(draws, 3), size(draws, 4)
-    @inbounds for k in 1:d4, j in 1:d3, h in 1:d2
+    @inbounds for h in 1:d4, j in 1:d3, i in 1:d2
         for r in 1:reps
-            buf[r] = draws[r, h, j, k]
+            buf[r] = draws[r, i, j, h]
         end
         sort!(buf)
-        lo[h, j, k] = buf[idx_lo]
-        hi[h, j, k] = buf[idx_hi]
+        lo[i, j, h] = buf[idx_lo]
+        hi[i, j, h] = buf[idx_hi]
     end
 end
 
@@ -123,14 +115,14 @@ end
 """
     _cumulate_point!(irf, idx)
 
-In-place cumulative sum along the horizon dimension (dim 1) for selected variables.
-Operates on raw arrays with shape (horizon+1, n_vars, n_shocks).
+In-place cumulative sum along the horizon dimension (dim 3) for selected variables.
+Operates on raw arrays with shape (n_vars, n_shocks, horizon+1).
 """
 function _cumulate_point!(irf::AbstractArray{T, 3}, idx::Vector{Int}) where {T}
     for v in idx
-        for s in axes(irf, 3)
-            for h in 2:size(irf, 1)
-                irf[h, v, s] += irf[h - 1, v, s]
+        for s in axes(irf, 2)
+            for h in 2:size(irf, 3)
+                irf[v, s, h] += irf[v, s, h - 1]
             end
         end
     end
@@ -362,7 +354,7 @@ function irf(model::VARModel{T}, id::SignRestriction;
 
     # Compute multiple rotation matrices and IRFs
     rotation_matrices = Vector{Matrix{T}}(undef, n_draws)
-    irf_draws_raw = zeros(T, n_draws, horizon + 1, n_vars(model), n_vars(model))
+    irf_draws_raw = zeros(T, n_draws, n_vars(model), n_vars(model), horizon + 1)
 
     for i in 1:n_draws
         # Draw a rotation matrix satisfying restrictions
@@ -470,7 +462,7 @@ function irf(model::VARModel{T}, id::NarrativeRestriction;
     cumulate_idx = _resolve_cumulate(cumulate, model.names)
 
     rotation_matrices = Vector{Matrix{T}}(undef, n_draws)
-    irf_draws_raw = zeros(T, n_draws, horizon + 1, n_vars(model), n_vars(model))
+    irf_draws_raw = zeros(T, n_draws, n_vars(model), n_vars(model), horizon + 1)
 
     for i in 1:n_draws
         P = rotation_matrix(model, id; max_draws = max_attempts, rng = rng)
@@ -536,25 +528,17 @@ end
 Compute point estimate of structural IRFs.
 
 # Returns
-- Array of size (horizon+1, n_vars, n_shocks) with IRF coefficients
+- Array of size (n_vars, n_shocks, horizon+1); `[i, j, h+1]` is the response
+  of variable `i` to shock `j` at horizon `h`
 """
 function compute_irf_point(model::VARModel{T}, P::Matrix{T}, horizon::Int) where {T}
     n_vars_val = n_vars(model)
-    n_lags_val = n_lags(model)
-    F = model.companion
+    Φ = compute_ma_matrices(model.companion, horizon, n_vars_val, n_lags(model))
 
-    # Preallocate
-    irf_array = zeros(T, horizon + 1, n_vars_val, n_vars_val)
-
-    # Impact response (horizon 0)
-    irf_array[1, :, :] = P
-
-    # Compute MA coefficients
-    Φ = compute_ma_matrices(F, horizon, n_vars_val, n_lags_val)
-
-    # IRF_h = Φ_h * P
-    for h in 1:horizon
-        mul!(view(irf_array, (h + 1), :, :), Φ[:, :, h + 1], P)
+    # IRF_h = Φ_h * P, with Φ_0 = I
+    irf_array = similar(Φ)
+    for h in axes(Φ, 3)
+        mul!(view(irf_array, :, :, h), view(Φ, :, :, h), P)
     end
 
     return irf_array
@@ -783,24 +767,24 @@ end
 """
     _apply_shock_factors_3d!(raw, factors)
 
-Multiply raw `(horizon, variable, shock)` array by per-shock factors along dim 3.
+Multiply raw `(variable, shock, horizon)` array by per-shock factors along dim 2.
 """
 function _apply_shock_factors_3d!(raw::Array{T, 3}, factors::Vector{T}) where {T}
     for j in eachindex(factors)
         factors[j] == one(T) && continue
-        raw[:, :, j] .*= factors[j]
+        raw[:, j, :] .*= factors[j]
     end
 end
 
 """
     _apply_shock_factors_4d!(raw, factors)
 
-Multiply raw `(draw, horizon, variable, shock)` array by per-shock factors along dim 4.
+Multiply raw `(draw, variable, shock, horizon)` array by per-shock factors along dim 3.
 """
 function _apply_shock_factors_4d!(raw::Array{T, 4}, factors::Vector{T}) where {T}
     for j in eachindex(factors)
         factors[j] == one(T) && continue
-        raw[:, :, :, j] .*= factors[j]
+        raw[:, :, j, :] .*= factors[j]
     end
 end
 
@@ -1078,7 +1062,7 @@ function compute_inference_bands(
         normalization::AbstractNormalization,
         rng::AbstractRNG
 ) where {T}
-    horizon = size(irf_point, 1) - 1
+    horizon = size(irf_point, 3) - 1
 
     # Run wild bootstrap
     draws = bootstrap_irf_wild(model, identification, horizon, inf.reps, rng;
@@ -1103,7 +1087,7 @@ function compute_inference_bands(
         normalization::AbstractNormalization,
         rng::AbstractRNG
 ) where {T}
-    horizon = size(irf_point, 1) - 1
+    horizon = size(irf_point, 3) - 1
     draws = bootstrap_irf_standard(model, identification, horizon, inf.reps, rng;
         normalization)
     lower, upper = compute_bands_from_draws(irf_point, draws, coverage)
@@ -1122,7 +1106,7 @@ function compute_inference_bands(
         normalization::AbstractNormalization,
         rng::AbstractRNG
 ) where {T}
-    horizon = size(irf_point, 1) - 1
+    horizon = size(irf_point, 3) - 1
     draws = bootstrap_irf_block(model, identification, horizon, inf.reps,
         inf.block_length, rng; normalization)
     lower, upper = compute_bands_from_draws(irf_point, draws, coverage)
@@ -1180,8 +1164,8 @@ end
 Compute confidence bands from bootstrap IRF draws using percentile method.
 
 # Arguments
-- `irf_point::Array{T,3}`: Point estimate IRF (horizon+1, n_vars, n_shocks)
-- `draws::Array{T,4}`: Bootstrap draws (reps, horizon+1, n_vars, n_shocks)
+- `irf_point::Array{T,3}`: Point estimate IRF (n_vars, n_shocks, horizon+1)
+- `draws::Array{T,4}`: Bootstrap draws (reps, n_vars, n_shocks, horizon+1)
 - `coverage::Vector{Float64}`: Coverage levels (e.g., [0.68, 0.90, 0.95])
 
 # Returns

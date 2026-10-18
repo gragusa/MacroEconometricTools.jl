@@ -41,7 +41,7 @@ using Distributed
         boot2 = bootstrap_irf(var, id, horizon, reps; parallel = :none, rng = StableRNG(42))
 
         @test boot1 ≈ boot2
-        @test size(boot1) == (reps, horizon + 1, n_v, n_v)
+        @test size(boot1) == (reps, n_v, n_v, horizon + 1)
 
         # Test 2: Different seeds → different results
         boot3 = bootstrap_irf(
@@ -65,7 +65,7 @@ using Distributed
                 var, id, horizon, reps; parallel = :distributed, rng = StableRNG(42))
 
             @test boot1_dist ≈ boot2_dist
-            @test size(boot1_dist) == (reps, horizon + 1, n_v, n_v)
+            @test size(boot1_dist) == (reps, n_v, n_v, horizon + 1)
 
             # Test 2: Different seeds → different results (distributed)
             boot3_dist = bootstrap_irf(
@@ -93,8 +93,8 @@ using Distributed
             for h in 1:(horizon + 1)
                 for i in 1:n_v
                     for j in 1:n_v
-                        serial_vals = boot_serial[:, h, i, j]
-                        dist_vals = boot_dist[:, h, i, j]
+                        serial_vals = boot_serial[:, i, j, h]
+                        dist_vals = boot_dist[:, i, j, h]
 
                         # Compare median
                         @test abs(median(serial_vals) - median(dist_vals)) <

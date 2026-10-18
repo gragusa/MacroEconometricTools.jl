@@ -1,5 +1,6 @@
 using Test
 using LinearAlgebra
+using Statistics: mean
 using MacroEconometricTools
 
 @testset "Independent OLS and IRF oracles" begin
@@ -56,4 +57,54 @@ end
     point, stderr = Array(result.irf), Array(result.stderr)
     @test Array(result.lower[coverage_index]) ≈ point .- z .* stderr rtol = 1e-12
     @test Array(result.upper[coverage_index]) ≈ point .+ z .* stderr rtol = 1e-12
+end
+
+@testset "Variance decomposition against squared reference IRFs" begin
+    model = correctness_fixture().model
+    n, horizon = n_vars(model), 8
+    alpha = vec(reshape(coef(model).lags, n, 2n))
+    covariance = Matrix(vcov(model))
+    sigma_half = [covariance[1, 1], covariance[2, 1], covariance[2, 2]]
+    responses = reference_irf(alpha, sigma_half, n, 2, horizon)  # (horizon, var, shock)
+
+    expected = zeros(n, n, horizon + 1)
+    for h in 1:(horizon + 1), i in 1:n
+
+        total = sum(responses[1:h, i, :] .^ 2)
+        for j in 1:n
+            expected[i, j, h] = sum(responses[1:h, i, j] .^ 2) / total
+        end
+    end
+
+    result = irf(model, CholeskyID(); horizon)
+    fevd = variance_decomposition(result)
+    @test size(fevd) == (n, n, horizon + 1)
+    @test Array(fevd) ≈ expected atol = 1e-12
+    @test all(sum(Array(fevd); dims = 2) .≈ 1)
+    # Cholesky ordering: the second shock does not move the first variable on impact.
+    @test fevd[1, 2, 1] == 0
+    @test fevd[:output, :price, 3] == expected[1, 2, 3]
+    @test Array(variance_decomposition(result; horizon = 4)) ≈ expected[:, :, 4]
+
+    @test_throws "horizon must be in 1:9" variance_decomposition(result; horizon = 0)
+    @test_throws "unit-variance shocks" variance_decomposition(
+        irf(model, CholeskyID(); horizon, normalization = UnitEffect()))
+    rescaled = @test_logs (:warn, r"No bootstrap draws") rescale(result, :price => 2.0)
+    @test_throws "unscaled IRFs" variance_decomposition(rescaled)
+end
+
+@testset "Bootstrap draws share the IRF layout" begin
+    model = correctness_fixture().model
+    n, horizon, reps = n_vars(model), 5, 20
+    point = Array(irf(model, CholeskyID(); horizon).irf)
+    # The default ordering takes the fast Cholesky path; an explicit ordering
+    # takes the generic refit path.
+    for id in (CholeskyID(), CholeskyID([:output, :price]))
+        draws = bootstrap_irf(model, id, horizon, reps; rng = StableRNG(1))
+        @test size(draws) == (reps, n, n, horizon + 1)
+        # (draw, variable, shock, horizon): no impact response of variable 1 to shock 2
+        @test all(iszero, draws[:, 1, 2, 1])
+        @test all(>(0), draws[:, 2, 2, 1])
+        @test dropdims(mean(draws; dims = 1); dims = 1)≈point rtol=0.5 atol=0.05
+    end
 end

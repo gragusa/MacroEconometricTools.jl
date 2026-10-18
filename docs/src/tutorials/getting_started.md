@@ -287,7 +287,7 @@ fevd_result = variance_decomposition(irf_result)
 h = 24
 println("Oil price variance decomposition at horizon $h:")
 for (j, shock_name) in enumerate(["Supply", "Demand", "Speculative"])
-    contrib = fevd_result[h+1, 3, j]  # variable 3 = oil price
+    contrib = fevd_result[3, j, h]  # variable 3 = oil price, forecast horizon h
     println("  $shock_name shock: ", round(contrib * 100, digits=1), "%")
 end
 ```

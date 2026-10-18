@@ -235,7 +235,7 @@ end
     _fast_cholesky_irf!(irf_out, ws, horizon; normalization=UnitStd())
 
 Compute the Cholesky-identified IRF from workspace state into the caller-
-supplied 3D `irf_out` of shape `(horizon+1, K, K)`. Uses ping-pong buffers
+supplied 3D `irf_out` of shape `(K, K, horizon+1)`. Uses ping-pong buffers
 for companion powers; no allocation.
 
 The impact response is `P = ws.Lchol` (or a UnitEffect-scaled version);
@@ -255,7 +255,7 @@ function _fast_cholesky_irf!(
         # impact
         @inbounds for j in 1:K, i in 1:K
 
-            irf_out[1, i, j] = ws.Lchol[i, j]
+            irf_out[i, j, 1] = ws.Lchol[i, j]
         end
         P_mat = ws.Lchol
     else
@@ -264,13 +264,13 @@ function _fast_cholesky_irf!(
         @inbounds for j in 1:K
             diag_val = ws.Lchol[j, j]
             for i in 1:K
-                irf_out[1, i, j] = ws.Lchol[i, j] / diag_val
+                irf_out[i, j, 1] = ws.Lchol[i, j] / diag_val
             end
         end
         # For horizons h ≥ 1 we need P explicitly; reuse the impact slice.
-        # Since irf_out[1, :, :] now holds the normalised P, multiply by
+        # Since irf_out[:, :, 1] now holds the normalised P, multiply by
         # companion power below using a view.
-        P_mat = @view irf_out[1, :, :]
+        P_mat = @view irf_out[:, :, 1]
     end
 
     horizon == 0 && return irf_out
@@ -282,14 +282,14 @@ function _fast_cholesky_irf!(
     nxt = ws.F_power_buf
     copyto!(cur, ws.F)
 
-    # Horizon 1: irf[2, :, :] = F[1:K, 1:K] · P (reading from cur)
+    # Horizon 1: irf[:, :, 2] = F[1:K, 1:K] · P (reading from cur)
     @inbounds for j in 1:K, i in 1:K
 
         s = zero(T)
         for kk in 1:K
             s += cur[i, kk] * P_mat[kk, j]
         end
-        irf_out[2, i, j] = s
+        irf_out[i, j, 2] = s
     end
 
     # Horizons 2..horizon: advance F_power by one factor of F, then
@@ -303,7 +303,7 @@ function _fast_cholesky_irf!(
             for kk in 1:K
                 s += cur[i, kk] * P_mat[kk, j]
             end
-            irf_out[h + 1, i, j] = s
+            irf_out[i, j, h + 1] = s
         end
     end
     return irf_out
@@ -354,8 +354,8 @@ function bootstrap_irf_wild(
     m = n_vars(model)
     n_lags_val = n_lags(model)
 
-    # Preallocate output: (reps, horizon+1, n_vars, n_shocks)
-    irf_boot = zeros(T, reps, horizon + 1, m, m)
+    # Preallocate output: (reps, n_vars, n_shocks, horizon+1)
+    irf_boot = zeros(T, reps, m, m, horizon + 1)
 
     # Get residuals and original data
     u = residuals(model)
@@ -471,7 +471,7 @@ function bootstrap_irf_standard(
     n_obs = size(model.residuals, 1)
 
     # Preallocate output
-    irf_boot = zeros(T, reps, horizon + 1, m, m)
+    irf_boot = zeros(T, reps, m, m, horizon + 1)
 
     u = residuals(model)
     Y_original = model.Y
@@ -606,7 +606,7 @@ function bootstrap_irf_block(
     N = cld(n_obs, ℓ)
 
     # Preallocate
-    irf_boot = zeros(T, reps, horizon + 1, m, m)
+    irf_boot = zeros(T, reps, m, m, horizon + 1)
     u = residuals(model)
     Y_original = model.Y
 
@@ -705,7 +705,7 @@ end
 Backward-compatible wrapper that dispatches to `bootstrap_irf_wild`,
 `bootstrap_irf_standard`, or `bootstrap_irf_block` based on `method`.
 
-Returns the raw bootstrap IRF draws `(reps, horizon+1, n_vars, n_shocks)`. Most
+Returns the raw bootstrap IRF draws `(reps, n_vars, n_shocks, horizon+1)`. Most
 users should instead call `irf(model, identification; inference=...)`, which runs
 the same bootstrap internally and returns an `IRFResult` with point estimate,
 standard errors, and confidence bands assembled. This family is the lower-level

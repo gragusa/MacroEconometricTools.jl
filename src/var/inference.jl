@@ -147,7 +147,7 @@ This is used in the delta method for computing IRF standard errors.
 
 # Arguments
 - `model::VARModel`: Estimated VAR model
-- `irf_point::Array{T,3}`: Point estimate of IRF (horizon+1, n_vars, n_vars)
+- `irf_point::Array{T,3}`: Point estimate of IRF (n_vars, n_vars, horizon+1)
 - `horizon::Int`: Maximum IRF horizon
 
 # Returns
@@ -213,11 +213,12 @@ Based on Lütkepohl (2005), Section 3.7.
 - `irf_point::Array{T,3}`: Point estimate of IRF
 
 # Returns
-- Covariance array of size (horizon+1, n_vars^2, n_vars^2)
+- Covariance array of size (n_vars^2, n_vars^2, horizon+1); slice `[:, :, h+1]` is
+  the covariance of `vec(Θ_h)`
 """
 function irf_effect_covariance(model::VARModel{T, OLSVAR}, P::Matrix{T},
         irf_point::Array{T, 3}) where {T}
-    horizon = size(irf_point, 1) - 1
+    horizon = size(irf_point, 3) - 1
     n_vars_val = n_vars(model)
     n_lags_val = n_lags(model)
 
@@ -238,12 +239,12 @@ function irf_effect_covariance(model::VARModel{T, OLSVAR}, P::Matrix{T},
     H = L' * inv(L * (I(n_vars_val^2) + K) * kron(P, I_m) * L')
 
     # Preallocate covariance array
-    V = zeros(T, horizon + 1, n_vars_val^2, n_vars_val^2)
+    V = zeros(T, n_vars_val^2, n_vars_val^2, horizon + 1)
 
     # Horizon 0: Θ₀ = P, so uncertainty comes only from Σ.
-    Θ_0_P_inv = irf_point[1, :, :] * P_inv
+    Θ_0_P_inv = irf_point[:, :, 1] * P_inv
     C_bar_0 = kron(I_m, Θ_0_P_inv) * H
-    V[1, :, :] = C_bar_0 * Σ_σ * C_bar_0'
+    V[:, :, 1] = C_bar_0 * Σ_σ * C_bar_0'
 
     # Horizons h ≥ 1
     for h in 1:horizon
@@ -254,14 +255,14 @@ function irf_effect_covariance(model::VARModel{T, OLSVAR}, P::Matrix{T},
         A_h = C_h * Σ_α * C_h'
 
         # C̄_h = (I_m ⊗ Θ_h * P^{-1}) * H
-        Θ_h_P_inv = irf_point[h + 1, :, :] * P_inv
+        Θ_h_P_inv = irf_point[:, :, h + 1] * P_inv
         C_bar_h = kron(I_m, Θ_h_P_inv) * H
 
         # B_h = C̄_h * Σ_σ * C̄_h'
         B_h = C_bar_h * Σ_σ * C_bar_h'
 
         # Total variance
-        V[h + 1, :, :] = A_h + B_h
+        V[:, :, h + 1] = A_h + B_h
     end
 
     return V
@@ -280,7 +281,7 @@ Extracts the square root of diagonal elements of the covariance matrix.
 - `irf_point::Array{T,3}`: Point estimate of IRF
 
 # Returns
-- Standard error array of size (horizon+1, n_vars, n_vars)
+- Standard error array of size (n_vars, n_vars, horizon+1)
 """
 function irf_asymptotic_stderror(model::VARModel{T, OLSVAR}, P::Matrix{T},
         irf_point::Array{T, 3}) where {T}
@@ -290,13 +291,11 @@ function irf_asymptotic_stderror(model::VARModel{T, OLSVAR}, P::Matrix{T},
     V = irf_effect_covariance(model, P, irf_point)
 
     # Extract standard errors as sqrt of diagonal
-    horizon = size(V, 1) - 1
-    stderror = zeros(T, horizon + 1, n_vars_val, n_vars_val)
-
-    for h in 0:horizon
-        v_h = V[h + 1, :, :]
+    stderror = similar(irf_point)
+    for h in axes(V, 3)
+        v_h = view(V, :, :, h)
         stderror_vec = sqrt.(max.(diag(v_h), zero(T)))  # Ensure non-negative
-        stderror[h + 1, :, :] = reshape(stderror_vec, (n_vars_val, n_vars_val))
+        stderror[:, :, h] = reshape(stderror_vec, (n_vars_val, n_vars_val))
     end
 
     return stderror

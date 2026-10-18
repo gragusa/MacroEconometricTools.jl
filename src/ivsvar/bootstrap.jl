@@ -807,7 +807,7 @@ function compute_inference_bands(
         coverage::Vector{Float64},
         ::AbstractNormalization,  # ProxySVARMBB uses its own norm_scale
         rng::AbstractRNG) where {T}
-    horizon = size(irf_point, 1) - 1
+    horizon = size(irf_point, 3) - 1
     id = _resolve_iv(model, identification)
     _,
     target = _extract_instrument(id.instrument, size(model.residuals, 1),
@@ -825,17 +825,17 @@ function compute_inference_bands(
     # point-estimate impact instead would leave the draws' own scale varying.
     # `norm_factor` puts the draws back on the scale of `irf_point` (which has the
     # identified column at position `target`).
-    target_impact = irf_point[1, target, target]
+    target_impact = irf_point[target, target, 1]
     norm_factor = target_impact / inf.norm_scale
     irf_norm_store = mbb.irf_norm_store  # (K, n_imp, n_boot)
     n_boot = size(irf_norm_store, 3)
 
-    draws_4d = zeros(T, n_boot, n_imp, K, K)
+    draws_4d = zeros(T, n_boot, K, K, n_imp)
     # Fill identified shock column at position `target` after normalization
     for b in 1:n_boot
         for h in 1:n_imp, k in 1:K
 
-            draws_4d[b, h, k, target] = irf_norm_store[k, h, b] * norm_factor
+            draws_4d[b, k, target, h] = irf_norm_store[k, h, b] * norm_factor
         end
     end
     # Non-identified columns: fill with point estimate (no variation)
@@ -843,7 +843,7 @@ function compute_inference_bands(
         j == target && continue
         for h in 1:n_imp, k in 1:K
 
-            draws_4d[:, h, k, j] .= irf_point[h, k, j]
+            draws_4d[:, k, j, h] .= irf_point[k, j, h]
         end
     end
 
@@ -854,8 +854,8 @@ function compute_inference_bands(
     upper = Vector{Array{T, 3}}(undef, length(coverage))
 
     for (i, α) in enumerate(coverage)
-        lb = zeros(T, n_imp, K, K)
-        ub = zeros(T, n_imp, K, K)
+        lb = zeros(T, K, K, n_imp)
+        ub = zeros(T, K, K, n_imp)
 
         if inf.compute_ar && mbb.ar !== nothing
             # AR confidence sets: convex hull [min, max] of included grid points.
@@ -878,11 +878,11 @@ function compute_inference_bands(
                     # negative, so order the endpoints after rescaling.
                     g_lo = minimum(grid[included]) * norm_factor
                     g_hi = maximum(grid[included]) * norm_factor
-                    lb[h, k, target] = min(g_lo, g_hi)
-                    ub[h, k, target] = max(g_lo, g_hi)
+                    lb[k, target, h] = min(g_lo, g_hi)
+                    ub[k, target, h] = max(g_lo, g_hi)
                 else
-                    lb[h, k, target] = T(NaN)
-                    ub[h, k, target] = T(NaN)
+                    lb[k, target, h] = T(NaN)
+                    ub[k, target, h] = T(NaN)
                 end
             end
         else

@@ -104,6 +104,26 @@ backward-compatible).
 
   The `metadata` keys of `IRFResult` and `SignRestrictedIRFResult` that the
   package reads are documented in their docstrings.
+- IRF arrays use one layout, `(variable, shock, horizon)`, with the draw
+  dimension first when present, matching the `IRFResult` axes and the MA
+  arrays of `compute_ma_matrices_from_B!`. Affected:
+  - `bootstrap_irf`, `bootstrap_irf_wild`, `bootstrap_irf_standard`, and
+    `bootstrap_irf_block` return `(reps, n_vars, n_shocks, horizon+1)`
+    (previously `(reps, horizon+1, n_vars, n_shocks)`).
+  - `compute_irf_point` and `irf_asymptotic_stderror` return
+    `(n_vars, n_shocks, horizon+1)`; `irf_effect_covariance` returns
+    `(n_vars^2, n_vars^2, horizon+1)`.
+- `variance_decomposition` returns an `AxisArray` with axes
+  `(:variable, :shock, :horizon)` over forecast horizons `1:H+1`. Its keyword
+  is `horizon` (as documented; previously `horizon_spec`). It throws an
+  `ArgumentError` unless the shocks have unit variance (it rejects
+  `normalization = UnitEffect()`, a non-unit `scale`, and rescaled results)
+  and no variable is cumulated.
+
+### Fixed
+
+- `variance_decomposition` read the IRF array as horizon-first while it is
+  stored variable-first, so it returned wrong shares without an error.
 
 ## [0.1.2] - 2026-10-15
 
