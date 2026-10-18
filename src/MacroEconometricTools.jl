@@ -21,7 +21,7 @@ using Dates: Dates, now
 using Distributed: Distributed
 using StatsBase: StatsBase, fit
 using StatsFuns: StatsFuns, norminvcdf
-using Distributions: Distributions, mean, median, quantile, scale, std
+using Distributions: Distributions, Chisq, mean, median, quantile, scale, std
 using GLM: GLM, coef, dof, fitted, nobs, residuals, stderror, vcov
 using AxisArrays: AxisArrays, AxisArray, Axis
 using Tables: Tables
@@ -199,5 +199,8 @@ export confidence_bands
 export irfplot, irfplot!
 export first_stage_F, iv_summary, refit_for_bootstrap
 export iv_impact, iv_instrument
+
+# Public but not exported
+public proxy_svar_mbb, msw_confidence_set
 
 end # module

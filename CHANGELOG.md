@@ -184,6 +184,28 @@ backward-compatible).
 - `irf(model, ::SignRestriction; inference = ...)` (and the same call with
   `NarrativeRestriction`) throws an `ArgumentError` explaining that
   set-identified results take their bands from the accepted rotations.
+- `proxy_svar_mbb` and `msw_confidence_set` are `public` and no longer
+  exported (call them as `MacroEconometricTools.proxy_svar_mbb` or import
+  them by name). Both take a `coverage` keyword (default
+  `[0.68, 0.90, 0.95]`), and their results are vectors aligned with the
+  sorted `coverage` instead of fixed 68%/90%/95% fields:
+  - `proxy_svar_mbb`: `ci68_irf`/`ci95_irf`/… become `irf_bands`,
+    `irf_norm_bands`, `fevd_bands`, and `halls_irf_norm_bands`, each a
+    `(lower, upper)` pair of `(variable, horizon)` matrices; `ar.index68`/
+    `index90`/`index95` become `ar.included`, and `ar.rates` and each entry of
+    `ar.included` are `(grid, variable, horizon)`; `irf_store` and
+    `irf_norm_store` become `irf_draws` and `irf_norm_draws` with layout
+    `(draw, variable, horizon)`; the result also carries `coverage`.
+  - `msw_confidence_set`: `cs68_irf_norm`/`cs95_irf_norm` and
+    `bounded68`/`bounded95` become `cs_irf_norm` (arrays of size
+    `(2 or 4, variable, horizon)`) and `bounded`. Critical values are
+    `quantile(Chisq(1), α)` rather than the rounded constants 0.9889 and
+    3.8415.
+- `irf(...; inference = ProxySVARMBB(compute_ar = true))` computes the
+  Anderson-Rubin sets at each requested coverage level. Before, a level was
+  mapped to the nearest of the 68%, 90%, and 95% sets.
+- The point-estimate impact column in `proxy_svar_mbb` is computed by the
+  same Cholesky-based step as the bootstrap draws.
 
 ### Fixed
 

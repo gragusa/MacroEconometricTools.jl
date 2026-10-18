@@ -304,6 +304,22 @@ function estimate_proxy_svar!(
     copyto!(buf.U_est, yy)
     mul!(buf.U_est, xx, buf.A_raw, -one(T), one(T))
 
+    _proxy_impact!(buf, mm)
+
+    # A_est = A_raw' (row = equation)
+    transpose!(buf.A_est, buf.A_raw)
+
+    return buf.A_est, buf.U_est, buf.Σ_uu, buf.Σ_um, buf.H1
+end
+
+# Identification step on the residuals in `buf.U_est`: fills `buf.Σ_uu`,
+# `buf.Σ_um`, and `buf.H1`. Throws `PosDefException` when `Σ_uu` is not positive
+# definite.
+function _proxy_impact!(buf::ProxySvarBuffers{T}, mm::AbstractVector{T}) where {T}
+    TT, KK = size(buf.U_est)
+    length(mm) == TT ||
+        throw(DimensionMismatch("proxy has length $(length(mm)); residuals have $TT rows"))
+
     # Σ_uu = U'U / T ; Σ_um = U'm / T
     mul!(buf.Σ_uu, buf.U_est', buf.U_est)
     buf.Σ_uu ./= TT
@@ -320,11 +336,7 @@ function estimate_proxy_svar!(
     for k in 1:KK
         buf.H1[k] = buf.Σ_um[k] / φ
     end
-
-    # A_est = A_raw' (row = equation)
-    transpose!(buf.A_est, buf.A_raw)
-
-    return buf.A_est, buf.U_est, buf.Σ_uu, buf.Σ_um, buf.H1
+    return buf
 end
 
 # ============================================================================
@@ -333,37 +345,72 @@ end
 
 """
     proxy_svar_mbb(model::VARModel, id::IVIdentification, horizon, inf::ProxySVARMBB;
-                   rng) -> NamedTuple
+                   coverage=[0.68, 0.90, 0.95], rng=Random.default_rng(),
+                   block_indices=nothing) -> NamedTuple
 
 Jentsch & Lunsford (2022) corrected moving block bootstrap for SVAR-IV.
 
 Jointly resamples (residuals, instrument) in overlapping blocks with position-specific
-centering. Produces percentile CIs, Hall's CIs, and optionally Anderson-Rubin
-confidence sets.
+centering of the residuals, simulates the VAR from the resampled residuals, and
+re-estimates the proxy-SVAR on each simulated sample. Produces percentile intervals,
+Hall's intervals, and (when `inf.compute_ar` is true) Anderson-Rubin confidence sets,
+each at every level in `coverage`.
 
 A replication fails when its re-estimation raises `PosDefException`,
 `SingularException`, `LAPACKException`, or `DomainError`, or produces non-finite
 values; other exceptions propagate. Failed replications are dropped (with a warning)
-from every statistic and from the returned `irf_store`/`irf_norm_store`; `n_failed`
-counts them. The call throws when more than `inf.max_failure_rate` of the
-replications fail.
+from every statistic and from the returned draws; `n_failed` counts them. The call
+throws when more than `inf.max_failure_rate` of the replications fail.
 
 When `inf.compute_ar == true` and `inf.ar_grid === nothing`, a default grid of
 `range(-10, 10; length=201)` is used.
 
 # Arguments
-- `model`: Estimated VAR model (any spec — does not require IVSVAR)
-- `id`: `IVIdentification` carrying the external instrument
-- `horizon`: IRF horizon
+- `model`: Estimated VAR model
+- `id`: `IVIdentification` carrying the external instrument, which must be observed in
+  every residual period
+- `horizon`: IRF horizon (positive)
 - `inf`: `ProxySVARMBB` inference specification
-- `rng`: Random number generator for reproducibility
+
+# Keyword Arguments
+- `coverage`: Coverage levels in (0, 1); stored sorted in the result.
+- `rng`: Random number generator for the block draws.
+- `block_indices`: `nothing`, or an integer matrix of size
+  `(inf.reps, cld(T, inf.block_length))` of 1-based block starts, where `T` is the
+  number of residual periods. Row `b` lists the blocks of replication `b` and is used
+  in place of draws from `rng`, so a run recorded elsewhere (e.g. by another
+  implementation) can be reproduced exactly.
+
+# Returns
+A `NamedTuple`. Every matrix is `(variable, horizon)` with `horizon + 1` columns
+(impact first) and describes the response to the instrumented shock. Each
+`(lower, upper)` pair holds vectors of matrices aligned with `coverage`.
+- `coverage::Vector{Float64}`
+- `point_irf`, `point_irf_norm`, `point_fevd`, `point_svma`: point estimates;
+  `point_irf_norm` is scaled so that the impact on the target variable equals
+  `inf.norm_scale`.
+- `irf_bands`, `irf_norm_bands`, `fevd_bands`: percentile intervals `(lower, upper)`.
+  At level `α`, the bounds are the `round(q * n) + 1`-th smallest of the `n` successful
+  draws for `q = (1 - α) / 2` and `q = (1 + α) / 2`.
+- `halls_irf_norm_bands`: Hall's intervals for the normalized IRF `(lower, upper)`,
+  `2 * point_irf_norm .- upper` and `2 * point_irf_norm .- lower` of the percentile
+  intervals.
+- `ar`: `nothing`, or `(grid, rates, included)`. `rates[g, k, h]` is the fraction of
+  draws whose Anderson-Rubin statistic for value `grid[g]` of the normalized response
+  of variable `k` at horizon `h - 1` is ≤ 0; `included[i]` is a `BitArray` of the same
+  size marking the grid values inside the confidence set at level `coverage[i]`,
+  i.e. those with `(1 - α) / 2 ≤ rate ≤ (1 + α) / 2`.
+- `irf_draws`, `irf_norm_draws`: successful draws, `(draw, variable, horizon)`.
+- `n_failed`: number of failed replications.
 """
 function proxy_svar_mbb(
         model::VARModel{T}, id::IVIdentification,
         horizon::Int, inf::ProxySVARMBB;
+        coverage::AbstractVector{<:Real} = [0.68, 0.9, 0.95],
         rng::AbstractRNG = Random.default_rng(),
         block_indices::Union{Nothing, AbstractMatrix{<:Integer}} = nothing
     ) where {T}
+    coverage = collect(Float64, _validate_irf_args(horizon, coverage))
     resolved = _resolve_iv(model, id)
     ν = model.residuals
     TT = size(ν, 1)
@@ -383,8 +430,7 @@ function proxy_svar_mbb(
     end
 
     return _proxy_svar_mbb_impl(
-        model, proxy, horizon, inf_resolved, target;
-        rng = rng, block_indices = block_indices
+        model, proxy, horizon, inf_resolved, target, coverage; rng, block_indices
     )
 end
 
@@ -392,25 +438,19 @@ end
 function proxy_svar_mbb(
         model::VARModel{T, <:IVSVAR},
         horizon::Int, inf::ProxySVARMBB;
+        coverage::AbstractVector{<:Real} = [0.68, 0.9, 0.95],
         rng::AbstractRNG = Random.default_rng(),
         block_indices::Union{Nothing, AbstractMatrix{<:Integer}} = nothing
     ) where {T}
     return proxy_svar_mbb(
         model, IVIdentification(model.spec.instrument),
-        horizon, inf; rng = rng, block_indices = block_indices
+        horizon, inf; coverage, rng, block_indices
     )
 end
 
-"""
-Internal implementation of the Jentsch-Lunsford MBB. Called by `proxy_svar_mbb`.
-
-`block_indices`, when given, is an `(n_boot, n_resample)` matrix of 1-based block
-starts used in place of draws from `rng`, making a bootstrap run exactly
-reproducible from a recorded set of draws.
-"""
 function _proxy_svar_mbb_impl(
         model::VARModel{T}, proxy::Vector{T},
-        horizon::Int, inf::ProxySVARMBB, target::Int;
+        horizon::Int, inf::ProxySVARMBB, target::Int, coverage::Vector{Float64};
         rng::AbstractRNG = Random.default_rng(),
         block_indices::Union{Nothing, AbstractMatrix{<:Integer}} = nothing
     ) where {T}
@@ -487,23 +527,20 @@ function _proxy_svar_mbb_impl(
         )
     end
 
-    # ── Step 3: Storage for bootstrap results ─────────────────────────────
-    irf_store = zeros(T, KK, n_imp, n_boot)
-    irf_norm_store = zeros(T, KK, n_imp, n_boot)
-    fevd_store = zeros(T, KK, n_imp, n_boot)
+    # ── Step 3: Storage for bootstrap results (draw, variable, horizon) ──
+    irf_store = zeros(T, n_boot, KK, n_imp)
+    irf_norm_store = zeros(T, n_boot, KK, n_imp)
+    fevd_store = zeros(T, n_boot, KK, n_imp)
 
+    # AR statistics: (grid, variable, horizon, draw)
     ar_store = if inf.compute_ar
-        n_grid = length(inf.ar_grid)
-        zeros(T, KK, n_imp, n_grid, n_boot)
+        zeros(T, length(inf.ar_grid), KK, n_imp, n_boot)
     else
         nothing
     end
 
-    # ── Step 4: Bootstrap loop ────────────────────────────────────────────
-    ok = falses(n_boot)
-    dim_state = 1 + KK * p_val
-
     # Pre-allocate reusable buffers outside the loop
+    dim_state = 1 + KK * p_val
     u_temp = zeros(T, n_resample * ℓ, KK)
     m_temp = zeros(T, n_resample * ℓ)
     x_star = zeros(T, TT, dim_state)
@@ -513,6 +550,17 @@ function _proxy_svar_mbb_impl(
     # Workspace for the inner estimator and dynamics (reused across draws)
     est_buf = ProxySvarBuffers{T}(TT, KK, dim_state)
     dyn_buf = ProxyDynamicsBuffers{T}(KK, p_val, n_imp)
+
+    # ── Point estimate: the model's coefficients and residuals ───────────
+    copyto!(est_buf.U_est, ν)
+    _proxy_impact!(est_buf, proxy)
+    dyn_point = proxy_svar_dynamics(
+        A_est, est_buf.Σ_uu, est_buf.Σ_um, est_buf.H1,
+        p_val, s, n_imp, target
+    )
+
+    # ── Step 4: Bootstrap loop ────────────────────────────────────────────
+    ok = falses(n_boot)
 
     for b in 1:n_boot
         # 4a: Resample blocks with replacement
@@ -564,8 +612,8 @@ function _proxy_svar_mbb_impl(
 
         # 4e: Re-estimate proxy-SVAR on bootstrap sample (in-place)
         ok[b] = _try_draw!(
-            view(irf_store, :, :, b), view(irf_norm_store, :, :, b),
-            view(fevd_store, :, :, b)
+            view(irf_store, b, :, :), view(irf_norm_store, b, :, :),
+            view(fevd_store, b, :, :)
         ) do irf_b, irf_norm_b, fevd_b
             A_star, U_star, Σ_uu_star,
                 Σ_um_star, H1_star = estimate_proxy_svar!(est_buf, y_star, x_star, m_star)
@@ -585,14 +633,8 @@ function _proxy_svar_mbb_impl(
         if ok[b] && inf.compute_ar
             svma_star = dyn_buf.svma
             svma_target = svma_star[target, 1]
-            @inbounds for g in eachindex(inf.ar_grid)
-                grid_g = inf.ar_grid[g]
-                for h in 1:n_imp
-                    for k in 1:KK
-                        ar_store[k, h, g, b] = s * svma_star[k, h] -
-                            svma_target * grid_g
-                    end
-                end
+            for h in 1:n_imp, k in 1:KK, g in eachindex(inf.ar_grid)
+                ar_store[g, k, h, b] = s * svma_star[k, h] - svma_target * inf.ar_grid[g]
             end
             ok[b] = all(isfinite, view(ar_store, :, :, :, b))
         end
@@ -602,192 +644,106 @@ function _proxy_svar_mbb_impl(
     n_failed = count(!, ok)
     _check_failure_rate("Proxy-SVAR MBB", n_failed, n_boot, inf.max_failure_rate)
     if n_failed > 0
-        irf_store = irf_store[:, :, ok]
-        irf_norm_store = irf_norm_store[:, :, ok]
-        fevd_store = fevd_store[:, :, ok]
+        irf_store = irf_store[ok, :, :]
+        irf_norm_store = irf_norm_store[ok, :, :]
+        fevd_store = fevd_store[ok, :, :]
         ar_store = ar_store === nothing ? nothing : ar_store[:, :, :, ok]
     end
-    n_ok = n_boot - n_failed
 
-    # ── Step 5: Percentile confidence intervals ───────────────────────────
-    ci68_irf, ci95_irf = _percentile_intervals(irf_store, n_ok)
-    ci68_irf_norm, ci95_irf_norm = _percentile_intervals(irf_norm_store, n_ok)
-    ci68_fevd, ci95_fevd = _percentile_intervals(fevd_store, n_ok)
+    # ── Step 5: Percentile intervals ──────────────────────────────────────
+    irf_norm_bands = _percentile_intervals(irf_norm_store, coverage)
 
-    # ── Step 6: Hall's intervals ──────────────────────────────────────────
-    # Compute point estimates for Hall's correction
-    Σ_uu_point = (ν' * ν) ./ TT
-    Σ_um_point = vec((ν' * proxy) ./ TT)
-    φ_point = sqrt(dot(Σ_um_point, Σ_uu_point \ Σ_um_point))
-    H1_point = Σ_um_point ./ φ_point
-
-    dyn_point = proxy_svar_dynamics(
-        A_est, Σ_uu_point, Σ_um_point, H1_point,
-        p_val, s, n_imp, target
-    )
-
-    halls68_irf_norm = _halls_intervals(ci68_irf_norm, dyn_point.irf_norm)
-    halls95_irf_norm = _halls_intervals(ci95_irf_norm, dyn_point.irf_norm)
-
-    # ── Step 7: AR confidence sets ────────────────────────────────────────
+    # ── Step 6: AR confidence sets ────────────────────────────────────────
     ar_result = if inf.compute_ar
-        _ar_confidence_sets(ar_store, inf.ar_grid, s, n_ok, target)
+        _ar_confidence_sets(ar_store, inf.ar_grid, s, target, coverage)
     else
         nothing
     end
 
     return (
-        ci68_irf = ci68_irf,
-        ci95_irf = ci95_irf,
-        ci68_irf_norm = ci68_irf_norm,
-        ci95_irf_norm = ci95_irf_norm,
-        ci68_fevd = ci68_fevd,
-        ci95_fevd = ci95_fevd,
-        halls68_irf_norm = halls68_irf_norm,
-        halls95_irf_norm = halls95_irf_norm,
-        ar = ar_result,
+        coverage = coverage,
         point_irf = dyn_point.irf,
         point_irf_norm = dyn_point.irf_norm,
         point_fevd = dyn_point.fevd,
         point_svma = dyn_point.svma,
-        irf_store = irf_store,
-        irf_norm_store = irf_norm_store,
+        irf_bands = _percentile_intervals(irf_store, coverage),
+        irf_norm_bands = irf_norm_bands,
+        fevd_bands = _percentile_intervals(fevd_store, coverage),
+        halls_irf_norm_bands = _halls_intervals(irf_norm_bands, dyn_point.irf_norm),
+        ar = ar_result,
+        irf_draws = irf_store,
+        irf_norm_draws = irf_norm_store,
         n_failed = n_failed,
     )
 end
 
-# ============================================================================
-# Percentile intervals
-# ============================================================================
+# Tail probabilities `(1 - α) / 2` and `(1 + α) / 2` of a two-sided interval with
+# coverage `α`, rounded to 12 significant digits so that a decimal level gives its
+# decimal tails (`α = 0.95` gives `0.025`, not `0.025000000000000022`). Percentile
+# ranks and AR inclusion are step functions of the tails, so the representation
+# error of `1 - α` would otherwise move them at exact ties.
+_interval_tails(α::Real) = (round((1 - α) / 2; sigdigits = 12), round((1 + α) / 2; sigdigits = 12))
+
+# Rank of the `q` quantile among `n` sorted draws. The reference implementation
+# indexes the sorted draws 0-based at `round(q * n)`, i.e. the `round(q * n) + 1`-th
+# smallest.
+_percentile_rank(q::Real, n::Integer) = clamp(round(Int, q * n) + 1, 1, n)
 
 """
-    _percentile_intervals(store, n_boot) -> (ci68, ci95)
+    _percentile_intervals(store, coverage) -> (lower, upper)
 
-Compute 68% and 95% percentile confidence intervals from bootstrap draws.
-`store` has shape (K, n_imp, n_boot). Returns (2, n_imp, K) arrays.
+Percentile intervals from draws `store` of size `(draw, variable, horizon)`, one
+`(variable, horizon)` matrix per level in `coverage`.
 """
-function _percentile_intervals(store::Array{T, 3}, n_boot::Int) where {T}
-    KK, n_imp, _ = size(store)
-
-    # Sort along bootstrap dimension
-    sorted = sort(store; dims = 3)
-
-    # Quantile indices. The reference implementation indexes the sorted draws
-    # 0-based at `round(q * n_boot)`, i.e. the `round(q * n_boot) + 1`-th
-    # smallest; the `+ 1` converts that rank to Julia's 1-based indexing.
-    i16 = round(Int, 0.16 * n_boot) + 1
-    i84 = round(Int, 0.84 * n_boot) + 1
-    i025 = round(Int, 0.025 * n_boot) + 1
-    i975 = round(Int, 0.975 * n_boot) + 1
-
-    # Clamp to valid range
-    i16 = clamp(i16, 1, n_boot)
-    i84 = clamp(i84, 1, n_boot)
-    i025 = clamp(i025, 1, n_boot)
-    i975 = clamp(i975, 1, n_boot)
-
-    ci68 = zeros(T, 2, n_imp, KK)
-    ci95 = zeros(T, 2, n_imp, KK)
-
-    for k in 1:KK
-        for h in 1:n_imp
-            ci68[1, h, k] = sorted[k, h, i16]
-            ci68[2, h, k] = sorted[k, h, i84]
-            ci95[1, h, k] = sorted[k, h, i025]
-            ci95[2, h, k] = sorted[k, h, i975]
-        end
+function _percentile_intervals(store::AbstractArray{T, 3}, coverage::AbstractVector{<:Real}) where {T}
+    n = size(store, 1)
+    sorted = sort(store; dims = 1)
+    lower = Vector{Matrix{T}}(undef, length(coverage))
+    upper = Vector{Matrix{T}}(undef, length(coverage))
+    for (i, α) in enumerate(coverage)
+        q_lo, q_hi = _interval_tails(α)
+        lower[i] = sorted[_percentile_rank(q_lo, n), :, :]
+        upper[i] = sorted[_percentile_rank(q_hi, n), :, :]
     end
-
-    return ci68, ci95
+    return (lower = lower, upper = upper)
 end
 
-# ============================================================================
-# Hall's percentile intervals
-# ============================================================================
-
 """
-    _halls_intervals(pctile_ci, irf_point) -> (2, n_imp, K) array
+    _halls_intervals(bands, point) -> (lower, upper)
 
-Hall's bias-corrected percentile intervals:
-  lower = 2*θ̂ - upper_percentile
-  upper = 2*θ̂ - lower_percentile
+Hall's intervals from percentile intervals `bands`:
+`lower = 2 * point - upper_percentile`, `upper = 2 * point - lower_percentile`.
 """
-function _halls_intervals(
-        pctile_ci::Array{T, 3},
-        irf_point::Matrix{T}
-    ) where {T}
-    _, n_imp, KK = size(pctile_ci)
-    halls = zeros(T, 2, n_imp, KK)
-
-    for k in 1:KK
-        for h in 1:n_imp
-            halls[1, h, k] = 2 * irf_point[k, h] - pctile_ci[2, h, k]
-            halls[2, h, k] = 2 * irf_point[k, h] - pctile_ci[1, h, k]
-        end
-    end
-
-    return halls
+function _halls_intervals(bands::NamedTuple, point::AbstractMatrix)
+    return (
+        lower = [2 .* point .- u for u in bands.upper],
+        upper = [2 .* point .- l for l in bands.lower],
+    )
 end
 
-# ============================================================================
-# Anderson-Rubin confidence sets
-# ============================================================================
-
 """
-    _ar_confidence_sets(ar_store, grid, scale, n_boot, target)
+    _ar_confidence_sets(ar_store, grid, scale, target, coverage) -> (grid, rates, included)
 
-Compute Anderson-Rubin confidence sets from bootstrap test statistics.
-
-For each grid point g, compute the proportion of bootstrap draws where
-the test statistic T_b(g) ≤ 0. Include g in the confidence set if this
-proportion is within the critical region. The target shock's own-variable
-impact at h=1 is always included (equals `scale` by construction).
-
-Returns named tuple with `index68`, `index90`, `index95` (boolean arrays)
-and `grid`.
+Anderson-Rubin confidence sets from bootstrap statistics `ar_store` of size
+`(grid, variable, horizon, draw)`. `rates[g, k, h]` is the fraction of draws with
+statistic ≤ 0; at level `α`, `grid[g]` is included when the rate lies in
+`[(1 - α) / 2, (1 + α) / 2]`. The target variable's impact equals `scale` by
+construction, so grid values `≈ scale` are always included at `(target, impact)`.
 """
 function _ar_confidence_sets(
-        ar_store::Array{T, 4},
-        grid::Vector{Float64}, scale::Float64, n_boot::Int, target::Int
+        ar_store::AbstractArray{T, 4}, grid::AbstractVector{<:Real}, scale::Real,
+        target::Integer, coverage::AbstractVector{<:Real}
     ) where {T}
-    KK, n_imp, n_grid, _ = size(ar_store)
-
-    # Compute rejection rates: P(T_b(g) ≤ 0)
-    rates = zeros(KK, n_imp, n_grid)
-    for k in 1:KK, h in 1:n_imp, g in 1:n_grid
-        count = 0
-        for b in 1:n_boot
-            if ar_store[k, h, g, b] <= 0
-                count += 1
-            end
-        end
-        rates[k, h, g] = count / n_boot
+    n = size(ar_store, 4)
+    rates = dropdims(count(<=(0), ar_store; dims = 4); dims = 4) ./ n
+    at_scale = findall(g -> g ≈ scale, grid)
+    included = map(coverage) do α
+        q_lo, q_hi = _interval_tails(α)
+        inc = q_lo .<= rates .<= q_hi
+        inc[at_scale, target, 1] .= true
+        inc
     end
-
-    # Inclusion indices
-    index68 = falses(n_grid, n_imp, KK)
-    index90 = falses(n_grid, n_imp, KK)
-    index95 = falses(n_grid, n_imp, KK)
-
-    for k in 1:KK, h in 1:n_imp, g in 1:n_grid
-        # Special case: target shock's own-variable impact equals `scale` by
-        # construction — always include it at (h=1, k=target).
-        if grid[g] ≈ scale && h == 1 && k == target
-            index68[g, h, k] = true
-            index90[g, h, k] = true
-            index95[g, h, k] = true
-        else
-            r = rates[k, h, g]
-            index68[g, h, k] = 0.16 ≤ r ≤ 0.84
-            index90[g, h, k] = 0.05 ≤ r ≤ 0.95
-            index95[g, h, k] = 0.025 ≤ r ≤ 0.975
-        end
-    end
-
-    return (
-        index68 = index68, index90 = index90, index95 = index95,
-        grid = grid, rates = rates,
-    )
+    return (grid = grid, rates = rates, included = included)
 end
 
 # ============================================================================
@@ -796,14 +752,14 @@ end
 
 """
     compute_inference_bands(model, id::IVIdentification, irf_point,
-        inf::ProxySVARMBB, coverage, rng)
+        inf::ProxySVARMBB, coverage, normalization, rng)
 
 Dispatch for Jentsch-Lunsford MBB on SVAR-IV models. Works with any VARModel
 (not just IVSVAR) as long as the identification carries an instrument.
 
-When `inf.compute_ar == true`, confidence bands use the convex hull of the
-Anderson-Rubin confidence set (weak-instrument robust). Otherwise, percentile CIs
-are used.
+When `inf.compute_ar == true`, the bands at each level in `coverage` are the
+smallest and largest grid values in the Anderson-Rubin confidence set at that level
+(weak-instrument robust). Otherwise, percentile bands are computed from the draws.
 """
 function compute_inference_bands(
         model::VARModel{T},
@@ -822,30 +778,26 @@ function compute_inference_bands(
         n_lags(model), model.names
     )
 
-    # Run the full MBB
-    mbb = proxy_svar_mbb(model, id, horizon, inf; rng = rng)
+    mbb = proxy_svar_mbb(model, id, horizon, inf; coverage, rng)
+    mbb.coverage == coverage ||
+        throw(ArgumentError("coverage must be sorted, got $coverage"))
 
     K = n_vars(model)
     n_imp = horizon + 1
 
-    # Construct 4D draws from irf_norm_store (K, n_imp, n_boot) — identified shock
-    # only. Each draw is normalized by *its own* impact on the target variable
-    # (J&L 2022), which fixes that impact at `inf.norm_scale`; using the
-    # point-estimate impact instead would leave the draws' own scale varying.
-    # `norm_factor` puts the draws back on the scale of `irf_point` (which has the
-    # identified column at position `target`).
+    # Draws of the identified shock only. Each draw is normalized by *its own*
+    # impact on the target variable (J&L 2022), which fixes that impact at
+    # `inf.norm_scale`; using the point-estimate impact instead would leave the
+    # draws' own scale varying. `norm_factor` puts the draws back on the scale of
+    # `irf_point` (which has the identified column at position `target`).
     target_impact = irf_point[target, target, 1]
     norm_factor = target_impact / inf.norm_scale
-    irf_norm_store = mbb.irf_norm_store  # (K, n_imp, n_boot)
-    n_boot = size(irf_norm_store, 3)
+    irf_norm_draws = mbb.irf_norm_draws  # (draw, variable, horizon)
+    n_boot = size(irf_norm_draws, 1)
 
     draws_4d = zeros(T, n_boot, K, K, n_imp)
-    # Fill identified shock column at position `target` after normalization
-    for b in 1:n_boot
-        for h in 1:n_imp, k in 1:K
-
-            draws_4d[b, k, target, h] = irf_norm_store[k, h, b] * norm_factor
-        end
+    for h in 1:n_imp, k in 1:K
+        draws_4d[:, k, target, h] .= view(irf_norm_draws, :, k, h) .* norm_factor
     end
     # Non-identified columns: fill with point estimate (no variation)
     for j in 1:K
@@ -856,7 +808,6 @@ function compute_inference_bands(
         end
     end
 
-    draws = inf.save_draws ? draws_4d : nothing
     stderr = dropdims(std(draws_4d; dims = 1); dims = 1)
 
     lower = Vector{Array{T, 3}}(undef, length(coverage))
@@ -866,20 +817,13 @@ function compute_inference_bands(
         lb = zeros(T, K, K, n_imp)
         ub = zeros(T, K, K, n_imp)
 
-        if inf.compute_ar && mbb.ar !== nothing
+        if inf.compute_ar
             # AR confidence sets: convex hull [min, max] of included grid points.
-            # Conservative but plottable. Raw boolean masks in mbb.ar for full detail.
-            ar_idx = if α ≤ 0.7
-                mbb.ar.index68
-            elseif α ≤ 0.92
-                mbb.ar.index90
-            else
-                mbb.ar.index95
-            end
+            # Conservative but plottable; the full sets are in `mbb.ar.included`.
             grid = mbb.ar.grid
             for h in 1:n_imp, k in 1:K
 
-                included = ar_idx[:, h, k]
+                included = view(mbb.ar.included[i], :, k, h)
                 if any(included)
                     # `grid` is already on the normalized scale (impact on the
                     # target variable equals `inf.norm_scale`), so it only needs
@@ -944,4 +888,4 @@ function compute_inference_bands(
     )
 end
 
-export proxy_svar_mbb, proxy_svar_dynamics
+export proxy_svar_dynamics

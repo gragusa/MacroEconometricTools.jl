@@ -3,6 +3,7 @@
 # ============================================================================
 
 using MacroEconometricTools
+using MacroEconometricTools: proxy_svar_mbb, msw_confidence_set
 using Test
 using LinearAlgebra
 using Random
@@ -143,8 +144,8 @@ end
     @testset "68% CI is narrower than 95% CI" begin
         for k in 1:K, h in 1:21
 
-            width68 = mbb.ci68_irf_norm[2, h, k] - mbb.ci68_irf_norm[1, h, k]
-            width95 = mbb.ci95_irf_norm[2, h, k] - mbb.ci95_irf_norm[1, h, k]
+            width68 = mbb.irf_norm_bands.upper[1][k, h] - mbb.irf_norm_bands.lower[1][k, h]
+            width95 = mbb.irf_norm_bands.upper[3][k, h] - mbb.irf_norm_bands.lower[3][k, h]
             @test width68 ≤ width95 + 1.0e-10
         end
     end
@@ -153,7 +154,7 @@ end
         for k in 1:K, h in 1:21
 
             point = mbb.point_irf_norm[k, h]
-            @test mbb.ci95_irf_norm[1, h, k] ≤ point ≤ mbb.ci95_irf_norm[2, h, k]
+            @test mbb.irf_norm_bands.lower[3][k, h] ≤ point ≤ mbb.irf_norm_bands.upper[3][k, h]
         end
     end
 
@@ -181,15 +182,15 @@ end
     )
 
     @testset "All CIs are finite" begin
-        @test all(isfinite, mbb.ci68_irf_norm)
-        @test all(isfinite, mbb.ci95_irf_norm)
+        @test all(isfinite, mbb.irf_norm_bands.lower[1]) && all(isfinite, mbb.irf_norm_bands.upper[1])
+        @test all(isfinite, mbb.irf_norm_bands.lower[3]) && all(isfinite, mbb.irf_norm_bands.upper[3])
     end
 
     @testset "CI widths are positive" begin
         for k in 1:K, h in 1:21
 
-            @test mbb.ci68_irf_norm[2, h, k] ≥ mbb.ci68_irf_norm[1, h, k]
-            @test mbb.ci95_irf_norm[2, h, k] ≥ mbb.ci95_irf_norm[1, h, k]
+            @test mbb.irf_norm_bands.upper[1][k, h] ≥ mbb.irf_norm_bands.lower[1][k, h]
+            @test mbb.irf_norm_bands.upper[3][k, h] ≥ mbb.irf_norm_bands.lower[3][k, h]
         end
     end
 end
@@ -216,8 +217,8 @@ end
     for k in 1:K, h in 1:11
 
         point = mbb.point_irf_norm[k, h]
-        @test mbb.halls68_irf_norm[1, h, k] ≈ 2 * point - mbb.ci68_irf_norm[2, h, k] atol = 1.0e-12
-        @test mbb.halls68_irf_norm[2, h, k] ≈ 2 * point - mbb.ci68_irf_norm[1, h, k] atol = 1.0e-12
+        @test mbb.halls_irf_norm_bands.lower[1][k, h] ≈ 2 * point - mbb.irf_norm_bands.upper[1][k, h] atol = 1.0e-12
+        @test mbb.halls_irf_norm_bands.upper[1][k, h] ≈ 2 * point - mbb.irf_norm_bands.lower[1][k, h] atol = 1.0e-12
     end
 end
 
@@ -248,9 +249,9 @@ end
     @testset "AR sets are nested: 68% ⊂ 90% ⊂ 95%" begin
         for k in 1:K, h in 1:11
 
-            n68 = sum(mbb.ar.index68[:, h, k])
-            n90 = sum(mbb.ar.index90[:, h, k])
-            n95 = sum(mbb.ar.index95[:, h, k])
+            n68 = sum(mbb.ar.included[1][:, k, h])
+            n90 = sum(mbb.ar.included[2][:, k, h])
+            n95 = sum(mbb.ar.included[3][:, k, h])
             @test n68 ≤ n90
             @test n90 ≤ n95
         end
@@ -259,8 +260,8 @@ end
     @testset "Normalization point always in AR set" begin
         # grid point closest to norm_scale = -1
         g_norm = argmin(abs.(ar_grid .- (-1.0)))
-        @test mbb.ar.index68[g_norm, 1, 1]  # impact of Y1 at h=0
-        @test mbb.ar.index95[g_norm, 1, 1]
+        @test mbb.ar.included[1][g_norm, 1, 1]  # impact of Y1 at h=0
+        @test mbb.ar.included[3][g_norm, 1, 1]
     end
 
     @testset "Rates are in [0, 1]" begin
@@ -288,20 +289,20 @@ end
     end
 
     @testset "68% set is bounded (strong proxy)" begin
-        @test msw.bounded68
+        @test msw.bounded[1]
     end
 
     @testset "Normalization at impact" begin
-        @test msw.cs68_irf_norm[1, 1, 1] ≈ -1.0
-        @test msw.cs68_irf_norm[2, 1, 1] ≈ -1.0
+        @test msw.cs_irf_norm[1][1, 1, 1] ≈ -1.0
+        @test msw.cs_irf_norm[1][2, 1, 1] ≈ -1.0
     end
 
     @testset "95% set wider than 68% set (bounded case)" begin
-        if msw.bounded68 && msw.bounded95
+        if msw.bounded[1] && msw.bounded[3]
             for k in 1:K, h in 2:21  # skip h=0 (normalization point)
 
-                w68 = msw.cs68_irf_norm[2, h, k] - msw.cs68_irf_norm[1, h, k]
-                w95 = msw.cs95_irf_norm[2, h, k] - msw.cs95_irf_norm[1, h, k]
+                w68 = msw.cs_irf_norm[1][2, k, h] - msw.cs_irf_norm[1][1, k, h]
+                w95 = msw.cs_irf_norm[3][2, k, h] - msw.cs_irf_norm[3][1, k, h]
                 if !isnan(w68) && !isnan(w95)
                     @test w68 ≤ w95 + 1.0e-6
                 end
@@ -393,7 +394,7 @@ end
             max_diff = max(
                 max_diff,
                 abs(
-                    mbb.irf_norm_store[k, h, b] -
+                    mbb.irf_norm_draws[b, k, h] -
                         irf_norm_draws_py[b, (k - 1) * n_imp + h]
                 )
             )
@@ -414,16 +415,16 @@ end
     @testset "68% CIs" begin
         for k in 1:K, h in 1:n_imp
 
-            @test mbb.ci68_irf_norm[1, h, k] ≈ ci68_py[1, h, k] atol = 1.0e-10
-            @test mbb.ci68_irf_norm[2, h, k] ≈ ci68_py[2, h, k] atol = 1.0e-10
+            @test mbb.irf_norm_bands.lower[1][k, h] ≈ ci68_py[1, h, k] atol = 1.0e-10
+            @test mbb.irf_norm_bands.upper[1][k, h] ≈ ci68_py[2, h, k] atol = 1.0e-10
         end
     end
 
     @testset "95% CIs" begin
         for k in 1:K, h in 1:n_imp
 
-            @test mbb.ci95_irf_norm[1, h, k] ≈ ci95_py[1, h, k] atol = 1.0e-10
-            @test mbb.ci95_irf_norm[2, h, k] ≈ ci95_py[2, h, k] atol = 1.0e-10
+            @test mbb.irf_norm_bands.lower[3][k, h] ≈ ci95_py[1, h, k] atol = 1.0e-10
+            @test mbb.irf_norm_bands.upper[3][k, h] ≈ ci95_py[2, h, k] atol = 1.0e-10
         end
     end
 
@@ -432,10 +433,10 @@ end
         pt = mbb.point_irf_norm
         for k in 1:K, h in 1:n_imp
 
-            @test mbb.halls68_irf_norm[1, h, k] ≈ 2 * pt[k, h] - ci68_py[2, h, k] atol = 1.0e-10
-            @test mbb.halls68_irf_norm[2, h, k] ≈ 2 * pt[k, h] - ci68_py[1, h, k] atol = 1.0e-10
-            @test mbb.halls95_irf_norm[1, h, k] ≈ 2 * pt[k, h] - ci95_py[2, h, k] atol = 1.0e-10
-            @test mbb.halls95_irf_norm[2, h, k] ≈ 2 * pt[k, h] - ci95_py[1, h, k] atol = 1.0e-10
+            @test mbb.halls_irf_norm_bands.lower[1][k, h] ≈ 2 * pt[k, h] - ci68_py[2, h, k] atol = 1.0e-10
+            @test mbb.halls_irf_norm_bands.upper[1][k, h] ≈ 2 * pt[k, h] - ci68_py[1, h, k] atol = 1.0e-10
+            @test mbb.halls_irf_norm_bands.lower[3][k, h] ≈ 2 * pt[k, h] - ci95_py[2, h, k] atol = 1.0e-10
+            @test mbb.halls_irf_norm_bands.upper[3][k, h] ≈ 2 * pt[k, h] - ci95_py[1, h, k] atol = 1.0e-10
         end
     end
 end
@@ -537,5 +538,5 @@ end
         A_star, Σ_uu_star, Σ_um_star, H1_star, p, s, n_imp, 1
     )
 
-    @test mbb.irf_norm_store[:, :, b] ≈ dyn.irf_norm atol = 1.0e-10
+    @test mbb.irf_norm_draws[b, :, :] ≈ dyn.irf_norm atol = 1.0e-10
 end

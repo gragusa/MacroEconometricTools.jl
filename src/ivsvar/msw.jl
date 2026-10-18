@@ -10,52 +10,63 @@
 #     with an External Instrument"
 
 """
-    msw_confidence_set(model::VARModel, id::IVIdentification; norm_scale=-1.0, horizon=20)
-    msw_confidence_set(model::VARModel{T, <:IVSVAR}; norm_scale=-1.0, horizon=20)
+    msw_confidence_set(model::VARModel, id::IVIdentification;
+                       coverage=[0.68, 0.90, 0.95], norm_scale=-1.0, horizon=20)
+    msw_confidence_set(model::VARModel{T, <:IVSVAR}; coverage, norm_scale, horizon)
 
 Compute Montiel Olea, Stock & Watson (2021) confidence sets for an SVAR-IV.
 
 These are analytic (no bootstrap), robust to weak instruments, and based on
-inverting a Wald-type test statistic using the quadratic formula.
+inverting a Wald-type test statistic using the quadratic formula. The critical
+value at level `α` is `quantile(Chisq(1), α)`. The instrument must be observed in
+every residual period.
 
 # Returns
-Named tuple with:
-- `cs68_irf_norm`: 68% confidence set for normalized IRFs
-- `cs95_irf_norm`: 95% confidence set for normalized IRFs
-- `vcv_matrix`: Full variance-covariance matrix
-- `wald_stat`: Wald statistic for proxy strength
-- `bounded68::Bool`: Whether 68% set is bounded
-- `bounded95::Bool`: Whether 95% set is bounded
+A `NamedTuple`; vector fields are aligned with `coverage`.
+- `coverage::Vector{Float64}`: the levels, sorted.
+- `cs_irf_norm`: one array per level for the normalized IRF (impact on the target
+  variable equal to `norm_scale`), of size `(2, variable, horizon)` when the set is
+  bounded (`[lower, upper]`) and `(4, variable, horizon)` when it is not
+  (`(-Inf, a] ∪ [b, Inf)` stored as `[-Inf, a, b, Inf]`). `horizon` has
+  `horizon + 1` entries, impact first. Entries are `NaN` where the set is empty.
+- `bounded::Vector{Bool}`: whether the set at each level is bounded, which holds
+  when the Wald statistic exceeds the critical value.
+- `vcv_matrix`: full variance-covariance matrix of the reduced-form coefficients and
+  the residual-instrument covariances.
+- `wald_stat`: Wald statistic for proxy strength.
 """
 function msw_confidence_set(
         model::VARModel{T}, id::IVIdentification;
+        coverage::AbstractVector{<:Real} = [0.68, 0.9, 0.95],
         norm_scale::Float64 = -1.0,
         horizon::Int = 20
     ) where {T}
+    coverage = collect(Float64, _validate_irf_args(horizon, coverage))
     resolved = _resolve_iv(model, id)
     ν = model.residuals
     Z,
         target = _extract_instrument(resolved.instrument, size(ν, 1), n_lags(model), model.names)
     return _msw_impl(
         model, vec(_require_observed(Z, "msw_confidence_set")),
-        target; norm_scale = norm_scale, horizon = horizon
+        target, coverage; norm_scale, horizon
     )
 end
 
 # Deprecated `IVSVAR` models carry the instrument in the spec.
 function msw_confidence_set(
         model::VARModel{T, <:IVSVAR};
+        coverage::AbstractVector{<:Real} = [0.68, 0.9, 0.95],
         norm_scale::Float64 = -1.0,
         horizon::Int = 20
     ) where {T}
     return msw_confidence_set(
         model, IVIdentification(model.spec.instrument);
-        norm_scale = norm_scale, horizon = horizon
+        coverage, norm_scale, horizon
     )
 end
 
 function _msw_impl(
-        model::VARModel{T}, proxy::Vector{T}, target::Int;
+        model::VARModel{T}, proxy::Vector{T}, target::Int, coverage::Vector{Float64};
         norm_scale::Float64 = -1.0,
         horizon::Int = 20
     ) where {T}
@@ -165,84 +176,64 @@ function _msw_impl(
 
     # ── Step 5: Wald statistic and critical values ────────────────────────
     wald = TT * γ_est[target]^2 / V33[target, target]
-
-    crit68 = 0.9889   # χ²(1) at 68%
-    crit95 = 3.8415   # χ²(1) at 95%
+    crit = [quantile(Chisq(1), α) for α in coverage]
 
     # ── Step 6: Solve quadratic for each (variable, horizon) ──────────────
-    aa68 = TT * γ_est[target]^2 - crit68 * V33[target, target]
-    aa95 = TT * γ_est[target]^2 - crit95 * V33[target, target]
+    aa = [TT * γ_est[target]^2 - c * V33[target, target] for c in crit]
+    bounded = aa .> 0
+    cs = [fill(T(NaN), bnd ? 2 : 4, KK, n_imp) for bnd in bounded]
 
-    bounded68 = aa68 > 0
-    bounded95 = aa95 > 0
+    for h in 1:n_imp, k in 1:KK
+        Φ_h = bigA[1:KK, 1:KK, h]'
 
-    cs68 = bounded68 ? zeros(T, 2, n_imp, KK) : zeros(T, 4, n_imp, KK)
-    cs95 = bounded95 ? zeros(T, 2, n_imp, KK) : zeros(T, 4, n_imp, KK)
+        # Kronecker product for variance computation
+        Mkron = kron(γ_est', I_K[k:k, :])
 
-    for k in 1:KK
-        for h in 1:n_imp
-            Φ_h = bigA[1:KK, 1:KK, h]'
+        temp1 = (Φ_h[k:k, :] * γ_est)[1]
+        temp2 = Mkron * G[:, :, h]
 
-            # Kronecker product for variance computation
-            Mkron = kron(γ_est', I_K[k:k, :])
+        # b coefficient
+        bpart1 = -TT * temp1 * γ_est[target]
+        bpart2 = (temp2 * V31[target:target, :]')[1] +
+            (Φ_h[k:k, :] * V33[:, target:target])[1]
 
-            temp1 = (Φ_h[k:k, :] * γ_est)[1]
-            temp2 = Mkron * G[:, :, h]
+        # c coefficient
+        cpart1 = TT * temp1^2
+        cpart2 = (temp2 * V11 * temp2')[1] +
+            2 * (temp2 * V31' * Φ_h[k:k, :]')[1] +
+            (Φ_h[k:k, :] * V33 * Φ_h[k:k, :]')[1]
 
-            # b coefficient
-            bpart1 = -TT * temp1 * γ_est[target]
-            bpart2 = (temp2 * V31[target:target, :]')[1] +
-                (Φ_h[k:k, :] * V33[:, target:target])[1]
-            bb68 = 2 * s * (bpart1 + crit68 * bpart2)
-            bb95 = 2 * s * (bpart1 + crit95 * bpart2)
-
-            # c coefficient
-            cpart1 = TT * temp1^2
-            cpart2 = (temp2 * V11 * temp2')[1] +
-                2 * (temp2 * V31' * Φ_h[k:k, :]')[1] +
-                (Φ_h[k:k, :] * V33 * Φ_h[k:k, :]')[1]
-            cc68 = s^2 * (cpart1 - crit68 * cpart2)
-            cc95 = s^2 * (cpart1 - crit95 * cpart2)
-
-            # Solve quadratic
-            _solve_msw_quadratic!(cs68, aa68, bb68, cc68, h, k, bounded68)
-            _solve_msw_quadratic!(cs95, aa95, bb95, cc95, h, k, bounded95)
+        for i in eachindex(crit)
+            bb = 2 * s * (bpart1 + crit[i] * bpart2)
+            cc = s^2 * (cpart1 - crit[i] * cpart2)
+            _solve_msw_quadratic!(cs[i], aa[i], bb, cc, k, h, bounded[i])
         end
     end
 
     # Normalization at impact (target variable's IRF equals `s` by construction)
-    if bounded68
-        cs68[:, 1, target] .= s
-    else
-        cs68[1:2, 1, target] .= s
-        cs68[3:4, 1, target] .= 0
-    end
-    if bounded95
-        cs95[:, 1, target] .= s
-    else
-        cs95[1:2, 1, target] .= s
-        cs95[3:4, 1, target] .= 0
+    for i in eachindex(cs)
+        cs[i][1:2, target, 1] .= s
+        bounded[i] || (cs[i][3:4, target, 1] .= 0)
     end
 
     return (
-        cs68_irf_norm = cs68,
-        cs95_irf_norm = cs95,
+        coverage = coverage,
+        cs_irf_norm = cs,
+        bounded = bounded,
         vcv_matrix = V,
         wald_stat = wald,
-        bounded68 = bounded68,
-        bounded95 = bounded95,
     )
 end
 
 """
-    _solve_msw_quadratic!(cs, aa, bb, cc, h, k, bounded)
+    _solve_msw_quadratic!(cs, aa, bb, cc, k, h, bounded)
 
-Solve the MSW quadratic inequality and store roots in confidence set array.
+Solve the MSW quadratic inequality and store its roots in `cs[:, k, h]`.
 """
 function _solve_msw_quadratic!(
         cs::Array{T, 3},
         aa::T, bb::T, cc::T,
-        h::Int, k::Int, bounded::Bool
+        k::Int, h::Int, bounded::Bool
     ) where {T}
     disc = bb^2 - 4 * aa * cc
 
@@ -250,26 +241,24 @@ function _solve_msw_quadratic!(
         # Bounded set: standard quadratic roots
         if disc > 0
             sq = sqrt(disc)
-            cs[1, h, k] = (-bb - sq) / (2 * aa)
-            cs[2, h, k] = (-bb + sq) / (2 * aa)
+            cs[1, k, h] = (-bb - sq) / (2 * aa)
+            cs[2, k, h] = (-bb + sq) / (2 * aa)
         else
-            # No real roots → empty set at this (h, k)
-            cs[1, h, k] = T(NaN)
-            cs[2, h, k] = T(NaN)
+            # No real roots → empty set at this (k, h)
+            cs[1, k, h] = T(NaN)
+            cs[2, k, h] = T(NaN)
         end
     else
         # Unbounded set: disjoint intervals
-        cs[1, h, k] = T(-Inf)
-        cs[4, h, k] = T(Inf)
+        cs[1, k, h] = T(-Inf)
+        cs[4, k, h] = T(Inf)
         if disc > 0
             sq = sqrt(disc)
-            cs[2, h, k] = (-bb + sq) / (2 * aa)
-            cs[3, h, k] = (-bb - sq) / (2 * aa)
+            cs[2, k, h] = (-bb + sq) / (2 * aa)
+            cs[3, k, h] = (-bb - sq) / (2 * aa)
         else
-            cs[2, h, k] = T(Inf)
-            cs[3, h, k] = T(-Inf)
+            cs[2, k, h] = T(Inf)
+            cs[3, k, h] = T(-Inf)
         end
     end
 end
-
-export msw_confidence_set

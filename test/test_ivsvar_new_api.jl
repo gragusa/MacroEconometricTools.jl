@@ -5,6 +5,7 @@
 # produces identical results to the old API and works with all inference types.
 
 using MacroEconometricTools
+using MacroEconometricTools: proxy_svar_mbb, msw_confidence_set
 using Test
 using LinearAlgebra
 using Random
@@ -185,8 +186,8 @@ end
         rng = Random.Xoshiro(42)
     )
 
-    @test all(isfinite, mbb.ci68_irf_norm)
-    @test all(isfinite, mbb.ci95_irf_norm)
+    @test all(isfinite, mbb.irf_norm_bands.lower[1]) && all(isfinite, mbb.irf_norm_bands.upper[1])
+    @test all(isfinite, mbb.irf_norm_bands.lower[3]) && all(isfinite, mbb.irf_norm_bands.upper[3])
     @test mbb.point_irf_norm[1, 1] ≈ -1.0 atol = 1.0e-10
 end
 
@@ -222,8 +223,8 @@ end
 
     for k in 1:K, h in 1:6
 
-        @test sum(mbb.ar.index68[:, h, k]) ≤ sum(mbb.ar.index90[:, h, k])
-        @test sum(mbb.ar.index90[:, h, k]) ≤ sum(mbb.ar.index95[:, h, k])
+        @test sum(mbb.ar.included[1][:, k, h]) ≤ sum(mbb.ar.included[2][:, k, h])
+        @test sum(mbb.ar.included[2][:, k, h]) ≤ sum(mbb.ar.included[3][:, k, h])
     end
 end
 
@@ -328,7 +329,7 @@ end
     msw = msw_confidence_set(model, id; horizon = 10)
 
     @test msw.wald_stat > 0
-    @test msw.bounded68  # strong instrument → bounded
+    @test msw.bounded[1]  # strong instrument → bounded
 
     # Compare with the deprecated API
     model_old = @test_deprecated fit(
@@ -338,7 +339,7 @@ end
     msw_old = msw_confidence_set(model_old; horizon = 10)
 
     @test msw.wald_stat ≈ msw_old.wald_stat atol = 1.0e-10
-    @test msw.cs68_irf_norm ≈ msw_old.cs68_irf_norm atol = 1.0e-10
+    @test msw.cs_irf_norm ≈ msw_old.cs_irf_norm atol = 1.0e-10
 end
 
 # ============================================================================
@@ -443,17 +444,17 @@ end
 
         # Wald statistic is a scalar: strictly invariant
         @test msw_perm.wald_stat ≈ msw_base.wald_stat atol = 1.0e-8
-        @test msw_perm.bounded68 == msw_base.bounded68
-        @test msw_perm.bounded95 == msw_base.bounded95
+        @test msw_perm.bounded[1] == msw_base.bounded[1]
+        @test msw_perm.bounded[3] == msw_base.bounded[3]
 
         # Normalization at impact: target variable's CS = {-1.0}
-        @test all(msw_perm.cs68_irf_norm[1:2, 1, target] .≈ -1.0)
-        @test all(msw_perm.cs95_irf_norm[1:2, 1, target] .≈ -1.0)
+        @test all(msw_perm.cs_irf_norm[1][1:2, target, 1] .≈ -1.0)
+        @test all(msw_perm.cs_irf_norm[3][1:2, target, 1] .≈ -1.0)
 
-        # Full confidence sets (n_roots, n_imp, K). Reorder permuted-variable
+        # Full confidence sets (n_roots, variable, horizon). Reorder permuted-variable
         # dim back to original indexing via invperm.
-        cs_perm = msw_perm.cs68_irf_norm[:, :, invperm(perm)]
-        @test cs_perm ≈ msw_base.cs68_irf_norm atol = 1.0e-6
+        cs_perm = msw_perm.cs_irf_norm[1][:, invperm(perm), :]
+        @test cs_perm ≈ msw_base.cs_irf_norm[1] atol = 1.0e-6
     end
 end
 
