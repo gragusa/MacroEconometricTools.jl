@@ -248,3 +248,32 @@ function build_selection_matrix(
 
     return S, n_free
 end
+
+# ============================================================================
+# Equality of specification types
+# ============================================================================
+
+# Field-wise `==`, `isequal`, and `hash` for specification types whose fields
+# include arrays (the default `===` compares arrays by identity). Values that
+# differ only in a type parameter (e.g. the date type `D` of
+# `NarrativeRestriction{D}`) compare by their fields.
+for S in (
+        :ZeroConstraint, :FixedConstraint, :BlockExogeneity, :CholeskyID,
+        :SignRestriction, :NarrativeShockRestriction, :NarrativeRestriction,
+    )
+    @eval begin
+        function Base.:(==)(a::$S, b::$S)
+            return all(f -> getfield(a, f) == getfield(b, f), fieldnames(typeof(a)))
+        end
+        function Base.isequal(a::$S, b::$S)
+            return all(f -> isequal(getfield(a, f), getfield(b, f)), fieldnames(typeof(a)))
+        end
+        function Base.hash(x::$S, h::UInt)
+            h = hash($(QuoteNode(S)), h)
+            for f in fieldnames(typeof(x))
+                h = hash(getfield(x, f), h)
+            end
+            return h
+        end
+    end
+end

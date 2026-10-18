@@ -194,16 +194,18 @@ end
 """
     coef(model::VARModel)
 
-Extract VAR coefficients.
+Coefficient matrix `B` of the regression `Y = X B + U`, of size
+`(1 + n_vars * n_lags) × n_vars`. Column `j` holds equation `j`; row 1 is the
+intercept and rows `1 + (ℓ - 1) * n_vars .+ (1:n_vars)` are the coefficients on
+lag `ℓ` of each variable, matching the columns of `modelmatrix(model)`.
 
-# Returns
-- `NamedTuple` with `intercept` and `lags` fields
+Returns a new matrix. See [`intercept`](@ref) for the intercept alone and
+`model.coefficients.lags` for the `(n_vars, n_vars, n_lags)` lag array.
 """
 function StatsBase.coef(model::VARModel)
-    return (
-        intercept = model.coefficients.intercept,
-        lags = model.coefficients.lags,
-    )
+    (; intercept, lags) = model.coefficients
+    n, _, p = size(lags)
+    return vcat(transpose(intercept), transpose(reshape(lags, n, n * p)))
 end
 
 """
@@ -214,11 +216,30 @@ Extract model residuals.
 StatsBase.residuals(model::VARModel) = model.residuals
 
 """
+    residual_covariance(model::VARModel)
+
+Residual covariance matrix `Σ = U'U / dof_residual(model)` (`n_vars × n_vars`).
+"""
+residual_covariance(model::VARModel) = model.Σ
+
+"""
     vcov(model::VARModel)
 
-Extract residual covariance matrix.
+Covariance matrix of `vec(coef(model))`, `kron(Σ, inv(X'X))`, where `Σ` is
+[`residual_covariance`](@ref) and `X` the design matrix of the estimation
+sample. Size `n_vars * (1 + n_vars * n_lags)` square.
+
+Coefficient constraints are not taken into account: the formula is that of
+unrestricted OLS.
 """
-StatsBase.vcov(model::VARModel) = model.Σ
+function StatsBase.vcov(model::VARModel)
+    X = _estimation_design(model)
+    return kron(Matrix(residual_covariance(model)), inv(X' * X))
+end
+
+# Design matrix rows used in estimation (the first `n_lags` rows of `model.X`
+# are presample).
+_estimation_design(model::VARModel) = model.X[(n_lags(model) + 1):end, :]
 
 """
     dates(model::VARModel)
@@ -233,37 +254,23 @@ dates(model::VARModel) = model.dates
 """
     fitted(model::VARModel)
 
-Compute fitted values.
+Fitted values `X B` on the estimation sample (`nobs(model) × n_vars`).
 """
-function StatsBase.fitted(model::VARModel)
-    n_lags_val = n_lags(model)
-    valid_idx = (n_lags_val + 1):size(model.Y, 1)
-    X_est = model.X[valid_idx, :]
+StatsBase.fitted(model::VARModel) = _estimation_design(model) * coef(model)
 
-    # Reconstruct A matrix
-    n_vars_val = n_vars(model)
-    A = zeros(eltype(model.Y), 1 + n_vars_val * n_lags_val, n_vars_val)
-    A[1, :] = model.coefficients.intercept
-    A[2:end, :] = reshape(model.coefficients.lags, (n_vars_val * n_lags_val, n_vars_val))
+"""
+    loglikelihood(model::VARModel{T,OLSVAR})
 
-    return X_est * A
+Gaussian log-likelihood evaluated at the residual covariance `Σ`:
+`-nobs/2 * (n_vars * log(2π) + log|Σ| + n_vars)`.
+"""
+function StatsBase.loglikelihood(model::VARModel{T, OLSVAR}) where {T}
+    n_obs_val, n_vars_val = nobs(model), n_vars(model)
+    logdet_Σ = logdet(residual_covariance(model))
+    return -0.5 * n_obs_val * (n_vars_val * log(2π) + logdet_Σ + n_vars_val)
 end
 
-"""
-    log_likelihood(model::VARModel{T,OLSVAR})
-
-Compute log-likelihood for OLS-VAR.
-"""
-function log_likelihood(model::VARModel{T, OLSVAR}) where {T}
-    n_obs_val, n_vars_val = effective_obs(model), n_vars(model)
-    Σ = vcov(model)
-
-    # Log-likelihood: -0.5 * T * (n*log(2π) + log|Σ| + n)
-    logdet_Σ = logdet(Σ)
-    ll = -0.5 * n_obs_val * (n_vars_val * log(2π) + logdet_Σ + n_vars_val)
-
-    return ll
-end
+@deprecate log_likelihood(model::VARModel) loglikelihood(model)
 
 """
     is_stable(model::VARModel)

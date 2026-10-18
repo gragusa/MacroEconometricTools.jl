@@ -3,65 +3,28 @@
 # ============================================================================
 
 """
-    StatsBase.stderror(model::VARModel{T,OLSVAR}) where T
+    stderror(model::VARModel{T,OLSVAR})
 
-Compute standard errors for VAR coefficients.
-
-Returns standard errors in same shape as coefficients.
+Standard errors of the coefficients, shaped like `coef(model)`: the square
+roots of the diagonal of `vcov(model)`.
 """
 function StatsBase.stderror(model::VARModel{T, OLSVAR}) where {T}
-    n_obs_val = effective_obs(model)
-    n_vars_val = n_vars(model)
-    n_lags_val = n_lags(model)
-
-    # Get X matrix used in estimation
-    n_lags_val_check = n_lags(model)
-    valid_idx = (n_lags_val_check + 1):size(model.Y, 1)
-    X = model.X[valid_idx, :]
-
-    # Variance-covariance of coefficients: (Σ ⊗ (X'X)^{-1})
-    Σ = vcov(model)
-    XXinv = inv(X' * X)
-
-    # Kronecker product for coefficient variance
-    V_coef = kron(Σ, XXinv)
-
-    # Extract standard errors (sqrt of diagonal)
-    stderr_vec = sqrt.(diag(V_coef))
-
-    # Reshape to coefficient matrix
-    n_coef_per_eq = 1 + n_vars_val * n_lags_val
-    stderr_matrix = reshape(stderr_vec, (n_coef_per_eq, n_vars_val))
-
-    return stderr_matrix
+    return reshape(sqrt.(diag(vcov(model))), size(model.X, 2), n_vars(model))
 end
 
 """
-    confint(model::VARModel; level=0.95)
+    confint(model::VARModel{T,OLSVAR}; level = 0.95)
 
-Compute confidence intervals for VAR coefficients.
-
-# Returns
-- NamedTuple with `lower` and `upper` matrices
+Normal-approximation confidence intervals for the coefficients: a
+`length(coef(model)) × 2` matrix whose row `i` is `[lower upper]` for
+`vec(coef(model))[i]`.
 """
-function StatsBase.confint(model::VARModel{T, OLSVAR}; level::Float64 = 0.95) where {T}
-    coef_est = coef(model)
-    stderr_est = stderror(model)
-
-    α = 1 - level
-    z = norminvcdf(1 - α / 2)
-
-    # Reconstruct full coefficient matrix
-    n_vars_val = n_vars(model)
-    n_lags_val = n_lags(model)
-    A = zeros(T, 1 + n_vars_val * n_lags_val, n_vars_val)
-    A[1, :] = coef_est.intercept
-    A[2:end, :] = reshape(coef_est.lags, (n_vars_val * n_lags_val, n_vars_val))
-
-    lower = A .- z .* stderr_est
-    upper = A .+ z .* stderr_est
-
-    return (lower = lower, upper = upper)
+function StatsBase.confint(model::VARModel{T, OLSVAR}; level::Real = 0.95) where {T}
+    0 < level < 1 || throw(ArgumentError("level must be in (0, 1), got $level"))
+    b = vec(coef(model))
+    se = vec(stderror(model))
+    z = norminvcdf(1 - (1 - level) / 2)
+    return hcat(b .- z .* se, b .+ z .* se)
 end
 
 # ============================================================================
@@ -85,13 +48,8 @@ residual covariance. This is the coefficient ordering used by
 - Covariance matrix of size (n_vars * n_lags * n_vars, n_vars * n_lags * n_vars)
 """
 function coefficient_covariance(model::VARModel{T, OLSVAR}) where {T}
-    n_vars_val = n_vars(model)
-    n_lags_val = n_lags(model)
-    Σ = vcov(model)
-
-    # Get design matrix (without first n_lags rows)
-    valid_idx = (n_lags_val + 1):size(model.Y, 1)
-    X = model.X[valid_idx, :]
+    Σ = residual_covariance(model)
+    X = _estimation_design(model)
 
     # (X'X)^{-1}
     XXinv = inv(X' * X)
@@ -120,7 +78,7 @@ where D is the duplication matrix and D⁺ is its Moore-Penrose pseudoinverse.
 function sigma_covariance(model::VARModel{T, OLSVAR}) where {T}
     n_obs_val = effective_obs(model)
     n_vars_val = n_vars(model)
-    Σ = Matrix(vcov(model))
+    Σ = Matrix(residual_covariance(model))
 
     # Duplication matrix and its pseudoinverse
     D = duplication_matrix(n_vars_val)

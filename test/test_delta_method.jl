@@ -51,7 +51,7 @@ const IRFResult = MacroEconometricTools.IRFResult
 
         valid_idx = (n_l + 1):size(var.Y, 1)
         XXinv_lags = inv(var.X[valid_idx, :]' * var.X[valid_idx, :])[2:end, 2:end]
-        @test Σ_α ≈ kron(XXinv_lags, vcov(var))
+        @test Σ_α ≈ kron(XXinv_lags, residual_covariance(var))
 
         # Test sigma covariance
         Σ_σ = MacroEconometricTools.sigma_covariance(var)

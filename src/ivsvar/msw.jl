@@ -135,12 +135,7 @@ function _msw_impl(
     V33 = V[(dim_A + 1):dim_total, (dim_A + 1):dim_total]
 
     # ── Step 4: Companion matrix and G matrices ───────────────────────────
-    coefs = coef(model)
-    A_est = zeros(T, KK, 1 + KK * p_val)
-    A_est[:, 1] .= coefs.intercept
-    for lag in 1:p_val
-        A_est[:, (1 + (lag - 1) * KK + 1):(1 + lag * KK)] .= coefs.lags[:, :, lag]
-    end
+    A_est = Matrix(transpose(coef(model)))
 
     comp = zeros(T, KK * p_val, KK * p_val)
     if p_val == 1

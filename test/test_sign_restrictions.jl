@@ -63,7 +63,7 @@ using Dates: Date, Month
         @test P3[1, 1] > 0
 
         # Test 4: Verify P*P' ≈ Σ
-        Σ = Matrix(vcov(var))
+        Σ = Matrix(residual_covariance(var))
         @test P1 * P1' ≈ Σ rtol = 1.0e-10
         @test P3 * P3' ≈ Σ rtol = 1.0e-10
     end
@@ -93,7 +93,7 @@ using Dates: Date, Month
             @test P1_dist[1, 1] > 0
 
             # Test 3: Verify P*P' ≈ Σ
-            Σ = Matrix(vcov(var))
+            Σ = Matrix(residual_covariance(var))
             @test P1_dist * P1_dist' ≈ Σ rtol = 1.0e-10
         end
     end
@@ -118,7 +118,7 @@ using Dates: Date, Month
         @test P[2, 2] > 0
 
         # Verify P*P' ≈ Σ
-        Σ = Matrix(vcov(var))
+        Σ = Matrix(residual_covariance(var))
         @test P * P' ≈ Σ rtol = 1.0e-10
     end
 
@@ -138,7 +138,7 @@ using Dates: Date, Month
         )
 
         # Verify P*P' ≈ Σ
-        Σ = Matrix(vcov(var))
+        Σ = Matrix(residual_covariance(var))
         @test P * P' ≈ Σ rtol = 1.0e-10
 
         # Basic check: impact should satisfy restrictions

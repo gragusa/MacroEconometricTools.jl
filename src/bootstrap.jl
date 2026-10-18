@@ -299,7 +299,7 @@ function _fast_cholesky_irf!(
     K = size(ws.Σ, 1)
     # Apply normalization to produce the identification matrix P.
     # For UnitStd, P = L (no change). For UnitEffect, divide columns by P[k,k].
-    P = ws.Lchol   # alias; normalize! mutates in place on a copy if needed
+    P = ws.Lchol   # alias; normalize_impact! mutates in place on a copy if needed
     if normalization isa UnitStd
         # impact
         @inbounds for j in 1:K, i in 1:K
@@ -373,7 +373,7 @@ function _bootstrap_irf_draw!(
     )
     var_boot = refit_for_bootstrap(model, Y_boot, n_lags(model))
     P_boot = rotation_matrix(var_boot, identification)
-    normalize!(P_boot, normalization)
+    normalize_impact!(P_boot, normalization)
     return copyto!(out, compute_irf_point(var_boot, P_boot, horizon))
 end
 

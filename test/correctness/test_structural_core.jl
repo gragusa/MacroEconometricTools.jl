@@ -24,7 +24,7 @@ end
     Y = _simulate_var2(rng, 200, 3)
     model = fit(OLSVAR, Y, 2)
     K = n_vars(model)
-    Σ_L = Matrix(cholesky(vcov(model)).L)
+    Σ_L = Matrix(cholesky(residual_covariance(model)).L)
 
     @testset "compute_ma_matrices matches companion powers" begin
         F = model.companion
@@ -68,7 +68,7 @@ end
             # ordering_idx defaults to the integer ordering stored in the id
             @test structural_impact(Σ_L, CholeskyID(ordering)) == P
             # Oracle: Cholesky of the reordered covariance, permuted back
-            Σ = Matrix(vcov(model))
+            Σ = Matrix(residual_covariance(model))
             L = cholesky(Symmetric(Σ[ordering, ordering])).L
             inv_perm = invperm(ordering)
             @test P ≈ L[inv_perm, inv_perm] rtol = 1.0e-10

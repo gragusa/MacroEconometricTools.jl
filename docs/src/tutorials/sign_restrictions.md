@@ -204,7 +204,7 @@ while length(valid_rotations) < n_rotations && attempts < max_attempts
 
     # Draw random rotation
     Q = random_orthonormal_matrix(3)
-    P_candidate = cholesky(vcov(var_model)).L * Q
+    P_candidate = cholesky(residual_covariance(var_model)).L * Q
 
     # Compute IRFs
     irf_candidate = compute_irf_point(var_model, P_candidate, horizon_restrict)
@@ -269,7 +269,7 @@ function bootstrap_sign_restrictions(model, id::SignRestriction;
         model_boot = fit(typeof(model.spec), Y_boot, n_lags(model))
 
         # 2. Find valid rotations for bootstrap model
-        Σ_boot = vcov(model_boot)
+        Σ_boot = residual_covariance(model_boot)
         P_chol = cholesky(Σ_boot).L
 
         attempts = 0

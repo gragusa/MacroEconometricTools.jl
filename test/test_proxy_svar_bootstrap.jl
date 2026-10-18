@@ -485,7 +485,7 @@ end
     # Replay one draw by hand, centering residuals only, and confirm the
     # driver produced the same normalized IRF.
     A_est = zeros(K, 1 + K * p)
-    coefs = coef(model)
+    coefs = model.coefficients
     A_est[:, 1] .= coefs.intercept
     for lag in 1:p
         A_est[:, (1 + (lag - 1) * K + 1):(1 + lag * K)] .= coefs.lags[:, :, lag]

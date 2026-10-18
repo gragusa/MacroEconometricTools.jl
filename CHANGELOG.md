@@ -29,6 +29,13 @@ backward-compatible).
   instrument is observed. `NaN`/`Inf` entries throw an `ArgumentError`.
   `ProxySVARMBB` and `msw_confidence_set` throw when the instrument has missing
   values.
+- `residual_covariance(model)` returns the residual covariance matrix `Σ`
+  (formerly returned by `vcov`).
+- `normalize_impact` and `normalize_impact!` (exported).
+- `==`, `isequal`, and `hash` compare `ZeroConstraint`, `FixedConstraint`,
+  `BlockExogeneity`, `CholeskyID`, `SignRestriction`,
+  `NarrativeShockRestriction`, and `NarrativeRestriction` by their fields, so
+  two specifications built from equal arrays are equal.
 
 ### Removed (breaking)
 
@@ -47,9 +54,28 @@ backward-compatible).
   `irf(model, IVIdentification(Z, target_shock))`,
   `first_stage_F(model, id)`, `iv_summary(model, id)`.
 - `ProxyIV` is a deprecated name for `ExternalInstrument`.
+- `log_likelihood(model)`; use `loglikelihood(model)`.
+- `normalize(P, norm)` and `normalize!(P, norm)`; use `normalize_impact` and
+  `normalize_impact!`. The deprecated names are no longer exported, so they no
+  longer clash with `LinearAlgebra.normalize`.
 
 ### Changed (breaking)
 
+- `VARModel` follows the StatsAPI contract:
+  - `coef(model)` is the `(1 + n_vars * n_lags) × n_vars` coefficient matrix
+    `B` of `Y = X B + U` (intercept in row 1, column = equation) instead of a
+    NamedTuple. The lag array stays available as `model.coefficients.lags`.
+  - `vcov(model)` is the covariance of `vec(coef(model))`,
+    `kron(Σ, inv(X'X))`, instead of the residual covariance.
+  - `stderror(model)` is shaped like `coef(model)`; `confint(model; level)` is
+    a `length(coef(model)) × 2` matrix in `vec(coef(model))` order instead of
+    a NamedTuple of matrices.
+  - `nobs(model)` is the effective sample `size(Y, 1) - n_lags` instead of
+    the total; `dof_residual(model)` is `nobs(model) - (1 + n_vars * n_lags)`,
+    the divisor of `Σ`; `modelmatrix(model)` has `nobs(model)` rows.
+  - `loglikelihood`, `aic`, and `bic` are methods of the StatsAPI functions
+    (formulas unchanged), so they no longer clash with StatsBase's.
+- `Base.size(::VARModel)` is removed; use `nobs`, `n_lags`, and `n_vars`.
 - One instrument type, `ExternalInstrument{T, S}` with fields `Z` and
   `target_shock`. `ProxyIV` (field `proxies`) is merged into it.
 - The `method` keyword (`:tsls`, `:liml`, `:fuller`) of `ExternalInstrument`
@@ -222,6 +248,9 @@ backward-compatible).
   zero constraints it threw a `DimensionMismatch`. Constrained estimation is now
   restricted least squares, equation by equation, for any mix of zero and fixed
   constraints.
+- `fitted(model)` and `confint(model)` rebuilt the coefficient matrix with a
+  wrong reshape of the lag array, so for more than one variable they returned
+  wrong values.
 
 ## [0.1.2] - 2026-10-15
 

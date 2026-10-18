@@ -29,7 +29,7 @@ using StableRNGs: StableRNG
         @test effective_obs(var) == T - n_l
 
         # Check coefficients
-        coefs = coef(var)
+        coefs = var.coefficients
         @test length(coefs.intercept) == n_v
         @test size(coefs.lags) == (n_v, n_v, n_l)
 
@@ -38,7 +38,7 @@ using StableRNGs: StableRNG
         @test size(resid) == (T - n_l, n_v)
 
         # Check covariance
-        Σ = vcov(var)
+        Σ = residual_covariance(var)
         @test size(Σ) == (n_v, n_v)
         @test Σ isa Symmetric
     end
@@ -63,13 +63,13 @@ using StableRNGs: StableRNG
         @test istril(P)  # Should be lower triangular
 
         # Check that P*P' ≈ Σ
-        Σ = vcov(var)
+        Σ = residual_covariance(var)
         @test P * P' ≈ Matrix(Σ) rtol = 1.0e-10
     end
 
     @testset "Matrix-level Cholesky impact with an ordering" begin
         var = fit(OLSVAR, Y, n_l)
-        Σ = Matrix(vcov(var))
+        Σ = Matrix(residual_covariance(var))
         Σ_L = Matrix(cholesky(Symmetric(Σ)).L)
 
         @test structural_impact(Σ_L, CholeskyID()) == Σ_L

@@ -260,7 +260,7 @@ function irf(
 
     # Compute point estimate of IRF
     P = rotation_matrix(model, identification)
-    P = normalize(P, normalization)
+    P = normalize_impact(P, normalization)
     impact_diagonal = T.(diag(P))
     irf_point = compute_irf_point(model, P, horizon)
 
@@ -454,7 +454,7 @@ function _set_identified_irf(
     irf_draws_raw = zeros(T, n_draws, n, n, horizon + 1)
 
     for i in 1:n_draws
-        P = normalize(draw_rotation(), normalization)
+        P = normalize_impact(draw_rotation(), normalization)
         rotation_matrices[i] = P
         irf_draws_raw[i, :, :, :] = compute_irf_point(model, P, horizon)
     end
@@ -1171,7 +1171,7 @@ function compute_inference_bands(
 
     # Compute asymptotic standard errors
     P = rotation_matrix(model, identification)
-    P = normalize(P, normalization)
+    P = normalize_impact(P, normalization)
     stderr = irf_asymptotic_stderror(model, P, irf_point)
 
     # Compute bands from normal approximation

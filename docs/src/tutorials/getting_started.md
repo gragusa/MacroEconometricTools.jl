@@ -109,32 +109,32 @@ VARModel{Float64,OLSVAR}
 println("Variable names: ", varnames(var_model))
 println("Number of variables: ", n_vars(var_model))
 println("Number of lags: ", n_lags(var_model))
-println("Effective observations: ", n_obs(var_model))
-println("Total observations: ", raw_nobs(var_model))
+println("Effective observations: ", effective_obs(var_model))
 ```
 
 ### Examining Coefficients
 
 ```julia
-# Extract coefficients
-coefs = coef(var_model)
+# Coefficient matrix B, (1 + n_vars * n_lags) × n_vars: row 1 is the intercept,
+# column j is equation j
+B = coef(var_model)
 
 # Intercepts
 println("Intercepts:")
 for (i, name) in enumerate(names)
-    println("  $name: ", round(coefs.intercept[i], digits=4))
+    println("  $name: ", round(intercept(var_model)[i], digits=4))
 end
 
-# First lag coefficients (3×3 matrix)
+# First lag coefficients (3×3 matrix, row = equation)
 println("\nFirst lag coefficients (A₁):")
-display(round.(coefs.lags[:,:,1], digits=3))
+display(round.(var_model.coefficients.lags[:,:,1], digits=3))
 ```
 
 ### Model Diagnostics
 
 ```julia
 # Residual covariance matrix
-Σ = vcov(var_model)
+Σ = residual_covariance(var_model)
 println("Residual covariance:")
 display(round.(Σ, digits=4))
 
@@ -341,7 +341,7 @@ VARModel{Float64,OLSVAR}
 
 ```julia
 # Verify constraints are satisfied
-coefs_c = coef(var_constrained)
+coefs_c = var_constrained.coefficients
 
 # Check that oil production equation has zeros
 println("Checking constraints in oil production equation:")
@@ -368,8 +368,8 @@ Checking constraints in oil production equation:
 
 ```julia
 # Likelihood ratio test (informal)
-ll_unrestricted = log_likelihood(var_model)
-ll_restricted = log_likelihood(var_constrained)
+ll_unrestricted = loglikelihood(var_model)
+ll_restricted = loglikelihood(var_constrained)
 
 LR_stat = 2 * (ll_unrestricted - ll_restricted)
 df = 2 * p  # 2 constraints × p lags

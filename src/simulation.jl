@@ -155,7 +155,7 @@ function forecast(
         return forecast_point
     else
         # Forecast with uncertainty
-        Σ = vcov(model)
+        Σ = residual_covariance(model)
         L = cholesky(Σ).L
 
         # Storage for draws

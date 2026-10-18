@@ -12,18 +12,18 @@ using MacroEconometricTools
     free = [1, 2, 4, 5]
     expected_output = zeros(5)
     expected_output[free] = reference.X[:, free] \ Y[3:end, 1]
-    @test [coef(model).intercept[1]; vec(coef(model).lags[1, :, :])] ≈
+    @test [model.coefficients.intercept[1]; vec(model.coefficients.lags[1, :, :])] ≈
         expected_output atol = 1.0e-12
-    @test coef(model).lags[1, 2, 1] == 0
+    @test model.coefficients.lags[1, 2, 1] == 0
 
     block = BlockExogeneity([:price], [:output])
     block_model = fit(OLSVAR, Y, 2; names, constraints = [block])
     block_free = [1, 2, 4]
     expected_block = zeros(5)
     expected_block[block_free] = reference.X[:, block_free] \ Y[3:end, 1]
-    @test [coef(block_model).intercept[1]; vec(coef(block_model).lags[1, :, :])] ≈
+    @test [block_model.coefficients.intercept[1]; vec(block_model.coefficients.lags[1, :, :])] ≈
         expected_block atol = 1.0e-12
-    @test all(coef(block_model).lags[1, 2, :] .== 0)
+    @test all(block_model.coefficients.lags[1, 2, :] .== 0)
 end
 
 @testset "Fixed-value constraints: restricted least squares" begin
@@ -41,9 +41,9 @@ end
     expected = zeros(5)
     expected[3] = 0.3
     expected[free] = X[:, free] \ (y - X[:, 3] * 0.3)
-    @test [coef(model).intercept[1]; vec(coef(model).lags[1, :, :])] ≈ expected atol = 1.0e-12
+    @test [model.coefficients.intercept[1]; vec(model.coefficients.lags[1, :, :])] ≈ expected atol = 1.0e-12
     # The price equation is unrestricted
-    @test coef(model).lags[2, :, :] ≈ coef(fixture.model).lags[2, :, :] atol = 1.0e-12
+    @test model.coefficients.lags[2, :, :] ≈ fixture.model.coefficients.lags[2, :, :] atol = 1.0e-12
 
     # Fixed and zero constraints together
     zero = ZeroConstraint(:output, [:price], [2])
@@ -52,6 +52,6 @@ end
     expected = zeros(5)
     expected[3] = 0.3
     expected[free] = X[:, free] \ (y - X[:, 3] * 0.3)
-    @test [coef(mixed).intercept[1]; vec(coef(mixed).lags[1, :, :])] ≈ expected atol = 1.0e-12
-    @test coef(mixed).lags[1, 2, 2] == 0
+    @test [mixed.coefficients.intercept[1]; vec(mixed.coefficients.lags[1, :, :])] ≈ expected atol = 1.0e-12
+    @test mixed.coefficients.lags[1, 2, 2] == 0
 end

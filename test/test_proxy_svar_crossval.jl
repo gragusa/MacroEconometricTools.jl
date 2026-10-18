@@ -56,7 +56,7 @@ const DATADIR = joinpath(@__DIR__, "data")
     @testset "VAR coefficients match Python" begin
         # Python A_est is K × (K*p + 1): [const | A1 | A2]
         # Julia stores intercept + lag arrays separately
-        coefs = coef(model)
+        coefs = model.coefficients
 
         # Intercepts (Python column 0)
         for i in 1:K

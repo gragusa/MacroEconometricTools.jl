@@ -54,7 +54,7 @@ Computes lower-triangular Cholesky factor: Σ = P*P'
   when `id.ordering` is `nothing`. Computed by [`structural_impact`](@ref).
 """
 function rotation_matrix(model::VARModel{T}, id::CholeskyID) where {T}
-    Σ_L = Matrix(cholesky(vcov(model)).L)
+    Σ_L = Matrix(cholesky(residual_covariance(model)).L)
     ordering_idx = id.ordering === nothing ? nothing :
         get_permutation(model.names, id.ordering)
     return structural_impact(Σ_L, id; ordering_idx)
@@ -150,7 +150,7 @@ function identify_sign_serial(
         rng::AbstractRNG
     ) where {T}
     n_vars_val = n_vars(model)
-    Σ = vcov(model)
+    Σ = residual_covariance(model)
 
     # Cholesky as starting point
     P_chol = Matrix(cholesky(Σ).L)
@@ -207,7 +207,7 @@ function identify_sign_distributed(
     end
 
     n_vars_val = n_vars(model)
-    Σ = vcov(model)
+    Σ = residual_covariance(model)
     P_chol = Matrix(cholesky(Σ).L)
     Φ = compute_ma_matrices(model.companion, id.horizon, n_vars_val, n_lags(model))
 
@@ -321,7 +321,7 @@ function rotation_matrix(model::VARModel{T}, id::IVIdentification) where {T}
     ν = residuals(model)
     Z, target = _extract_instrument(inst, size(ν, 1), n_lags(model), model.names)
     β_iv, _, _ = _iv_identify(ν, Z, target)
-    return _build_full_impact_matrix(β_iv, target, Matrix(vcov(model)))
+    return _build_full_impact_matrix(β_iv, target, Matrix(residual_covariance(model)))
 end
 
 # ============================================================================
@@ -358,7 +358,7 @@ function rotation_matrix(
     n_vars_val = n_vars(model)
     n_lags_val = n_lags(model)
 
-    Σ_L = Matrix(cholesky(vcov(model)).L)
+    Σ_L = Matrix(cholesky(residual_covariance(model)).L)
     U = residuals(model)
     Φ = compute_ma_matrices(model.companion, id.horizon, n_vars_val, n_lags_val)
     model_dates = dates(model)
@@ -384,28 +384,22 @@ end
 # ============================================================================
 
 """
-    normalize!(P::Matrix, norm::AbstractNormalization)
+    normalize_impact!(P::AbstractMatrix, norm::AbstractNormalization)
 
-Normalize impact matrix according to normalization scheme.
+Rescale the columns of the impact matrix `P` in place according to `norm` and
+return `P`.
 
-# Arguments
-- `P::Matrix`: Impact matrix
-- `norm::AbstractNormalization`: Normalization scheme
-
-# Returns
-- Normalized impact matrix (modifies in place)
+- `UnitStd()`: no change (each column is the response to a one-standard-deviation
+  shock).
+- `UnitEffect()`: divide column `j` by `P[j, j]`, so shock `j` moves variable `j`
+  by one unit on impact. Columns with `|P[j, j]| ≤ eps` are left unchanged.
 """
-function normalize!(P::Matrix{T}, ::UnitStd) where {T}
-    # Already normalized with Cholesky: P*P' = Σ implies structural shocks have unit variance
-    return P
-end
+normalize_impact!(P::AbstractMatrix, ::UnitStd) = P
 
-function normalize!(P::Matrix{T}, ::UnitEffect) where {T}
-    # Normalize so diagonal elements are 1 (unit effect on impact)
-    n = size(P, 1)
-    for j in 1:n
+function normalize_impact!(P::AbstractMatrix, ::UnitEffect)
+    for j in axes(P, 2)
         scale = P[j, j]
-        if abs(scale) > eps(T)
+        if abs(scale) > eps(real(eltype(P)))
             P[:, j] ./= scale
         end
     end
@@ -413,11 +407,14 @@ function normalize!(P::Matrix{T}, ::UnitEffect) where {T}
 end
 
 """
-    normalize(P::Matrix, norm::AbstractNormalization)
+    normalize_impact(P::AbstractMatrix, norm::AbstractNormalization)
 
-Non-mutating version of normalize!
+Non-mutating [`normalize_impact!`](@ref).
 """
-normalize(P::Matrix, norm::AbstractNormalization) = normalize!(copy(P), norm)
+normalize_impact(P::AbstractMatrix, norm::AbstractNormalization) = normalize_impact!(copy(P), norm)
+
+@deprecate normalize!(P::AbstractMatrix, norm::AbstractNormalization) normalize_impact!(P, norm) false
+@deprecate normalize(P::AbstractMatrix, norm::AbstractNormalization) normalize_impact(P, norm) false
 
 # ============================================================================
 # MA Representation

@@ -381,7 +381,7 @@ end
 
 ```julia
 function identify_cholesky(model::VARModel, id::CholeskyID)
-    Σ = vcov(model)
+    Σ = residual_covariance(model)
 
     # Handle ordering if specified
     if !isnothing(id.ordering)
@@ -415,7 +415,7 @@ end
 
 ```julia
 function identify_sign(model, id::SignRestriction; max_draws=10000)
-    Σ = vcov(model)
+    Σ = residual_covariance(model)
     P_chol = cholesky(Symmetric(Σ)).L
 
     for draw in 1:max_draws

@@ -467,12 +467,7 @@ function _proxy_svar_mbb_impl(
     _check_block_length(ℓ, TT)
 
     # ── Build A_est in Python format: (K, 1+K*p) ─────────────────────────
-    coefs = coef(model)
-    A_est = zeros(T, KK, 1 + KK * p_val)
-    A_est[:, 1] .= coefs.intercept
-    for lag in 1:p_val
-        A_est[:, (1 + (lag - 1) * KK + 1):(1 + lag * KK)] .= coefs.lags[:, :, lag]
-    end
+    A_est = Matrix(transpose(coef(model)))
 
     # Transpose for simulation: (1+K*p, K)
     A_sim = A_est'

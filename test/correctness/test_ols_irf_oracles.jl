@@ -9,7 +9,8 @@ using MacroEconometricTools
     reference = reference_ols(fixture.sample, 2)
 
     @testset "estimator equals direct least squares" begin
-        estimated = coef(model)
+        @test coef(model) ≈ reference.coefficients atol = 1.0e-12
+        estimated = model.coefficients
         @test estimated.intercept ≈ vec(reference.coefficients[1, :]) atol = 1.0e-12
         # OLS rows are (variable, lag) and columns are equations; the model
         # stores (equation, variable, lag).
@@ -17,12 +18,12 @@ using MacroEconometricTools
             reshape(reference.coefficients[2:end, :], 2, 2, 2), (3, 1, 2)
         ) atol = 1.0e-12
         @test residuals(model) ≈ reference.innovations atol = 1.0e-12
-        @test Matrix(vcov(model)) ≈ reference.covariance atol = 1.0e-12
+        @test Matrix(residual_covariance(model)) ≈ reference.covariance atol = 1.0e-12
     end
 
     @testset "IRF equals direct companion recursion" begin
-        alpha = vec(reshape(coef(model).lags, 2, 4))
-        covariance = Matrix(vcov(model))
+        alpha = vec(reshape(model.coefficients.lags, 2, 4))
+        covariance = Matrix(residual_covariance(model))
         sigma_half = [covariance[1, 1], covariance[2, 1], covariance[2, 2]]
         expected = reference_irf(alpha, sigma_half, 2, 2, 8)
         actual = permutedims(Array(irf(model, CholeskyID(); horizon = 8).irf), (3, 1, 2))
@@ -33,8 +34,8 @@ end
 @testset "Analytic IRF standard errors against numerical differentiation" begin
     model = correctness_fixture().model
     n, p, horizon = n_vars(model), n_lags(model), 6
-    alpha = vec(reshape(coef(model).lags, n, n * p))
-    covariance = Matrix(vcov(model))
+    alpha = vec(reshape(model.coefficients.lags, n, n * p))
+    covariance = Matrix(residual_covariance(model))
     sigma_half = [covariance[row, column] for column in 1:n for row in column:n]
     parameters = [alpha; sigma_half]
 
@@ -67,8 +68,8 @@ end
 @testset "Variance decomposition against squared reference IRFs" begin
     model = correctness_fixture().model
     n, horizon = n_vars(model), 8
-    alpha = vec(reshape(coef(model).lags, n, 2n))
-    covariance = Matrix(vcov(model))
+    alpha = vec(reshape(model.coefficients.lags, n, 2n))
+    covariance = Matrix(residual_covariance(model))
     sigma_half = [covariance[1, 1], covariance[2, 1], covariance[2, 2]]
     responses = reference_irf(alpha, sigma_half, n, 2, horizon)  # (horizon, var, shock)
 

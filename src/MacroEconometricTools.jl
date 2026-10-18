@@ -19,7 +19,7 @@ using Statistics: Statistics
 using Random: Random, AbstractRNG, randn!
 using Dates: Dates, now
 using Distributed: Distributed
-using StatsBase: StatsBase, fit
+using StatsBase: StatsBase, aic, bic, fit, loglikelihood
 using StatsFuns: StatsFuns, norminvcdf
 using Distributions: Distributions, Chisq, mean, median, quantile, scale, std
 using GLM: GLM, coef, dof, fitted, nobs, residuals, stderror, vcov
@@ -178,13 +178,13 @@ export AbstractNormalization, UnitStd, UnitEffect
 # Export main functions
 export fit
 export irf, impulse_response
-export coef, vcov, residuals, fitted, dates
+export coef, vcov, residuals, fitted, dates, residual_covariance
 export n_vars, n_lags, effective_obs, varnames, shocknames, intercept
 # StatsBase methods (not exported, use via StatsBase): nobs, dof, dof_residual, modelmatrix, rss
-export log_likelihood, aic, bic, hqic
+export loglikelihood, aic, bic, hqic
 export bootstrap_irf, bootstrap_irf_wild, bootstrap_irf_standard, bootstrap_irf_block
 export forecast
-export rotation_matrix, normalize, normalize!
+export rotation_matrix, normalize_impact, normalize_impact!
 # Matrix-level structural core (advanced building blocks; operate on raw
 # (B, Σ_L) matrices rather than a fitted VARModel — used by spoke packages that
 # loop over reduced-form draws, e.g. BayesianVAR.jl posterior draws).

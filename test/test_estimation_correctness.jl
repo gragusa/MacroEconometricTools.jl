@@ -44,8 +44,7 @@ end
         # Check variable names (default)
         @test var5.names == [:Y_1, :Y_2, :Y_3, :Y_4]
 
-        # Check size tuple
-        @test size(var5) == (effective_obs(var5), 5, 4)
+        @test MacroEconometricTools.StatsBase.nobs(var5) == effective_obs(var5)
 
         # Check stability
         @test is_stable(var5) == true
@@ -55,7 +54,7 @@ end
         # Estimate VAR(2) - reference values
         var2 = fit(OLSVAR, Y, 2)
 
-        coefs = coef(var2)
+        coefs = var2.coefficients
         A = coefs.lags
         c = coefs.intercept
 
@@ -102,14 +101,14 @@ end
             6.15607313e-2 3.76845726e-3 1.40371219e-1 2.96150123e-1
         ]
 
-        @test Matrix(vcov(var2)) ≈ Σ_ref
+        @test Matrix(residual_covariance(var2)) ≈ Σ_ref
 
         # MLE estimate: Σ_MLE = n_obs/T * Σ_OLS where Σ_OLS uses n_obs denominator
         # Note: Small numerical differences may exist between old and new implementations
         # due to different calculation paths, but the estimates should be very close
         T = size(Y, 1)
         n_obs_val = effective_obs(var2)
-        Σ_mle_computed = (n_obs_val / T) * Matrix(vcov(var2))
+        Σ_mle_computed = (n_obs_val / T) * Matrix(residual_covariance(var2))
         @test Σ_mle_computed ≈ Σ_mle_ref rtol = 0.02  # Relaxed tolerance for numerical differences
     end
 
@@ -128,14 +127,14 @@ end
         @test lr_computed ≈ lr_ref
 
         # Verify computation: (I - A₁ - A₂)⁻¹
-        A = coef(var2).lags
+        A = var2.coefficients.lags
         A_sum = dropdims(sum(A, dims = 3), dims = 3)
         lr_manual = inv(I - A_sum)
         @test lr_manual ≈ lr_ref
 
         # Long-run mean
         lr_mean = long_run_mean(var2)
-        lr_mean_manual = lr_computed * coef(var2).intercept
+        lr_mean_manual = lr_computed * var2.coefficients.intercept
         @test lr_mean ≈ lr_mean_manual
     end
 
@@ -183,7 +182,7 @@ end
         var2 = fit(OLSVAR, Y, 2)
 
         ll_ref = -1855.70345572
-        ll_computed = log_likelihood(var2)
+        ll_computed = loglikelihood(var2)
 
         # Note: Small numerical differences may exist due to different calculation paths
         # The difference should be small relative to the magnitude of the log-likelihood
@@ -207,7 +206,7 @@ end
 
         @test P ≈ i0_ref
         @test istril(P)
-        @test P * P' ≈ Matrix(vcov(var2)) rtol = 1.0e-10
+        @test P * P' ≈ Matrix(residual_covariance(var2)) rtol = 1.0e-10
 
         # Compute IRFs (use keyword argument)
         irf_result = irf(var2, id; horizon = 2)
