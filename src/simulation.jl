@@ -258,7 +258,7 @@ Compute historical decomposition of observed data into structural shocks.
 function historical_decomposition(model::VARModel{T}, identification::AbstractIdentification) where {T}
     n_lags_val = n_lags(model)
     n_vars_val = n_vars(model)
-    n_obs_val = effective_obs(model)
+    n_obs_val = nobs(model)
 
     # Identify structural shocks
     P = rotation_matrix(model, identification)

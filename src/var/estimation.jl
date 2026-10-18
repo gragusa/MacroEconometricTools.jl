@@ -270,7 +270,7 @@ function StatsBase.loglikelihood(model::VARModel{T, OLSVAR}) where {T}
     return -0.5 * n_obs_val * (n_vars_val * log(2π) + logdet_Σ + n_vars_val)
 end
 
-@deprecate log_likelihood(model::VARModel) loglikelihood(model)
+@deprecate log_likelihood(model::VARModel) loglikelihood(model) false
 
 """
     is_stable(model::VARModel)

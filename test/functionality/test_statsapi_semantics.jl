@@ -21,7 +21,7 @@ using Test
     end
 
     @testset "deprecated names" begin
-        ll = @test_deprecated log_likelihood(model)
+        ll = @test_deprecated MacroEconometricTools.log_likelihood(model)
         @test ll == loglikelihood(model)
         P = [2.0 0.0 0.0; 1.0 0.5 0.0; 0.3 0.2 4.0]
         Pn = @test_deprecated MacroEconometricTools.normalize(P, UnitEffect())

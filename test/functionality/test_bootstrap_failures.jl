@@ -1,5 +1,6 @@
 using Test
 using MacroEconometricTools
+using MacroEconometricTools: bootstrap_irf
 using LinearAlgebra
 using Statistics: std
 using StableRNGs

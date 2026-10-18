@@ -4,6 +4,7 @@
 # argument checks.
 
 using MacroEconometricTools
+using MacroEconometricTools: check_sign_restrictions, compute_ma_matrices_from_B!, generate_random_orthogonal!, structural_impact
 using Test
 using LinearAlgebra
 using Random

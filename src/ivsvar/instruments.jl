@@ -23,7 +23,7 @@ function ExternalInstrument(Z::AbstractVecOrMat; target_shock::Union{Integer, Sy
     return ExternalInstrument(Z, target_shock)
 end
 
-Base.@deprecate_binding ProxyIV ExternalInstrument
+Base.@deprecate_binding ProxyIV ExternalInstrument false
 
 # --- Target resolution --------------------------------------------------------
 

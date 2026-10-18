@@ -51,5 +51,3 @@ function iv_summary(model::VARModel{T}, id::IVIdentification) where {T}
     end
     return
 end
-
-export first_stage_F, iv_summary

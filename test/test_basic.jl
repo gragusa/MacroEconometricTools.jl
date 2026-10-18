@@ -1,5 +1,6 @@
 # Basic smoke tests for MacroEconometricTools
 using MacroEconometricTools
+using MacroEconometricTools: bootstrap_irf, companion_form, lag, structural_impact
 using Test
 using LinearAlgebra
 using Random
@@ -26,7 +27,7 @@ using StableRNGs: StableRNG
         @test var isa VARModel{Float64, OLSVAR}
         @test n_vars(var) == n_v
         @test n_lags(var) == n_l
-        @test effective_obs(var) == T - n_l
+        @test nobs(var) == T - n_l
 
         # Check coefficients
         coefs = var.coefficients

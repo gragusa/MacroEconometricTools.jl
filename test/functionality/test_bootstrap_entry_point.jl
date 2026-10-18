@@ -3,6 +3,7 @@
 # ============================================================================
 
 using MacroEconometricTools
+using MacroEconometricTools: bootstrap_irf
 using Test
 using Random
 using StableRNGs: StableRNG
@@ -90,17 +91,17 @@ using StableRNGs: StableRNG
             )
         ) == new_block
         @test (
-            @test_deprecated bootstrap_irf_wild(
+            @test_deprecated MacroEconometricTools.bootstrap_irf_wild(
                 model, id, horizon, reps, StableRNG(5)
             )
         ) == new_wild
         @test (
-            @test_deprecated bootstrap_irf_standard(
+            @test_deprecated MacroEconometricTools.bootstrap_irf_standard(
                 model, id, horizon, reps, StableRNG(5)
             )
         ) == new_std
         @test (
-            @test_deprecated bootstrap_irf_block(
+            @test_deprecated MacroEconometricTools.bootstrap_irf_block(
                 model, id, horizon, reps, 6, StableRNG(5)
             )
         ) == new_block

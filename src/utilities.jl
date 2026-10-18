@@ -283,13 +283,7 @@ Number of variables in the model.
 """
 n_vars(model::VARModel) = size(model.Y, 2)
 
-"""
-    effective_obs(model)
-
-Number of observations used in estimation, `size(Y, 1) - n_lags`. Same as
-`nobs(model)`.
-"""
-effective_obs(model::VARModel) = size(model.residuals, 1)
+@deprecate effective_obs(model::VARModel) nobs(model) false
 
 """
     nobs(model::VARModel)

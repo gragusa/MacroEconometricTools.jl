@@ -876,5 +876,3 @@ function compute_inference_bands(
         )
     )
 end
-
-export proxy_svar_dynamics

@@ -76,7 +76,7 @@ where D is the duplication matrix and D⁺ is its Moore-Penrose pseudoinverse.
 - Covariance matrix of vech(Σ) elements
 """
 function sigma_covariance(model::VARModel{T, OLSVAR}) where {T}
-    n_obs_val = effective_obs(model)
+    n_obs_val = nobs(model)
     n_vars_val = n_vars(model)
     Σ = Matrix(residual_covariance(model))
 

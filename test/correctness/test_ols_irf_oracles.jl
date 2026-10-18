@@ -2,6 +2,7 @@ using Test
 using LinearAlgebra
 using Statistics: mean
 using MacroEconometricTools
+using MacroEconometricTools: bootstrap_irf
 
 @testset "Independent OLS and IRF oracles" begin
     fixture = correctness_fixture()

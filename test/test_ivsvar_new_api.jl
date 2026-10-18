@@ -62,7 +62,7 @@ Y, ε = simulate_var_dgp(T_sim, [A1], H_true; rng = StableRNG(2024))
     # Deprecated API
     Z_trimmed = reshape(ε[(p_lag + 1):end, 1], :, 1)
     model_old = @test_deprecated r"fit\(IVSVAR" fit(
-        IVSVAR, Y, p_lag;
+        MacroEconometricTools.IVSVAR, Y, p_lag;
         instrument = ExternalInstrument(Z_trimmed, 1), names = [:Y1, :Y2, :Y3]
     )
     id_empty = @test_deprecated r"IVIdentification\(\)" IVIdentification()
@@ -102,7 +102,7 @@ end
 
     # Compare with the deprecated API
     model_old = @test_deprecated fit(
-        IVSVAR, Y, p_lag;
+        MacroEconometricTools.IVSVAR, Y, p_lag;
         instrument = ExternalInstrument(ε[:, 1], 1), names = [:Y1, :Y2, :Y3]
     )
     @test first_stage_F(model_old) ≈ F atol = 1.0e-10
@@ -333,7 +333,7 @@ end
 
     # Compare with the deprecated API
     model_old = @test_deprecated fit(
-        IVSVAR, Y, p_lag;
+        MacroEconometricTools.IVSVAR, Y, p_lag;
         instrument = ExternalInstrument(ε[:, 1], 1), names = [:Y1, :Y2, :Y3]
     )
     msw_old = msw_confidence_set(model_old; horizon = 10)

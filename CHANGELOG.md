@@ -32,6 +32,8 @@ backward-compatible).
 - `residual_covariance(model)` returns the residual covariance matrix `Σ`
   (formerly returned by `vcov`).
 - `normalize_impact` and `normalize_impact!` (exported).
+- `stderror`, `confint`, `nobs`, `dof`, and `dof_residual` are exported (the
+  StatsAPI functions, so they do not clash with StatsBase or GLM).
 - `==`, `isequal`, and `hash` compare `ZeroConstraint`, `FixedConstraint`,
   `BlockExogeneity`, `CholeskyID`, `SignRestriction`,
   `NarrativeShockRestriction`, and `NarrativeRestriction` by their fields, so
@@ -62,6 +64,8 @@ backward-compatible).
   `first_stage_F(model, id)`, `iv_summary(model, id)`.
 - `ProxyIV` is a deprecated name for `ExternalInstrument`.
 - `log_likelihood(model)`; use `loglikelihood(model)`.
+- `impulse_response`; use `irf`.
+- `effective_obs(model)`; use `nobs(model)`.
 - `normalize(P, norm)` and `normalize!(P, norm)`; use `normalize_impact` and
   `normalize_impact!`. The deprecated names are no longer exported, so they no
   longer clash with `LinearAlgebra.normalize`.
@@ -79,6 +83,26 @@ backward-compatible).
 
 ### Changed (breaking)
 
+- Export surface. Exported names are the end-user API. Building blocks for
+  packages built on this one are `public` but not exported; call them as
+  `MacroEconometricTools.name` or bring them in with
+  `using MacroEconometricTools: name`. Newly public, no longer exported:
+  `structural_impact`, `compute_ma_matrices_from_B!`,
+  `generate_random_orthogonal!`, `check_sign_restrictions`,
+  `compute_structural_shocks`, `check_narrative_restrictions`, `iv_impact`,
+  `iv_instrument`, `refit_for_bootstrap`, `proxy_svar_dynamics`,
+  `bootstrap_irf`, `lag` (avoids a clash with ShiftedArrays' `lag`),
+  `create_lags!`, and `companion_form`. Newly public (previously internal):
+  `compute_ma_matrices`, `compute_irf_point`, `n_shocks`,
+  `estimate_proxy_svar`, `apply_constraints!`, `build_selection_matrix`,
+  `check_constraints`, `coefficient_covariance`, `sigma_covariance`,
+  `irf_jacobian_matrices`, `irf_effect_covariance`,
+  `irf_asymptotic_stderror`, `duplication_matrix`, `elimination_matrix`,
+  `commutation_matrix`, `simulate_var`, and `simulate_structural`.
+- Deprecated names are not exported: `IVSVAR`, `ProxyIV`, `log_likelihood`,
+  `bootstrap_irf_wild`, `bootstrap_irf_standard`, `bootstrap_irf_block`,
+  `impulse_response`, and `effective_obs`. They still work, with a
+  deprecation warning, when qualified with the module name.
 - `cumulative_irf(::IRFResult)` throws an `ArgumentError` when the result has
   no stored draws, as `irf(...; cumulate)` does, instead of cumulating the
   bands themselves with a warning. Store the draws with `save_draws = true`.

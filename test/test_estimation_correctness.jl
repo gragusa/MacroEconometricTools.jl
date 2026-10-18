@@ -39,12 +39,12 @@ end
         @test var5 isa VARModel{Float64, OLSVAR}
         @test n_vars(var5) == 4
         @test n_lags(var5) == 5
-        @test effective_obs(var5) == size(Y, 1) - 5
+        @test nobs(var5) == size(Y, 1) - 5
 
         # Check variable names (default)
         @test var5.names == [:Y_1, :Y_2, :Y_3, :Y_4]
 
-        @test MacroEconometricTools.StatsBase.nobs(var5) == effective_obs(var5)
+        @test (@test_deprecated MacroEconometricTools.effective_obs(var5)) == nobs(var5)
 
         # Check stability
         @test is_stable(var5) == true
@@ -107,7 +107,7 @@ end
         # Note: Small numerical differences may exist between old and new implementations
         # due to different calculation paths, but the estimates should be very close
         T = size(Y, 1)
-        n_obs_val = effective_obs(var2)
+        n_obs_val = nobs(var2)
         Σ_mle_computed = (n_obs_val / T) * Matrix(residual_covariance(var2))
         @test Σ_mle_computed ≈ Σ_mle_ref rtol = 0.02  # Relaxed tolerance for numerical differences
     end

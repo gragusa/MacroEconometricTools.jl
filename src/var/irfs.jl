@@ -314,8 +314,7 @@ function irf(
     return _deprecated_scale(result, scale)
 end
 
-# Convenience alias
-impulse_response = irf
+@deprecate impulse_response(args...; kwargs...) irf(args...; kwargs...) false
 
 """
     irf(model::VARModel{T, <:IVSVAR}; kwargs...)

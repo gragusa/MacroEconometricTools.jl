@@ -109,7 +109,7 @@ VARModel{Float64,OLSVAR}
 println("Variable names: ", varnames(var_model))
 println("Number of variables: ", n_vars(var_model))
 println("Number of lags: ", n_lags(var_model))
-println("Effective observations: ", effective_obs(var_model))
+println("Effective observations: ", nobs(var_model))
 ```
 
 ### Examining Coefficients
