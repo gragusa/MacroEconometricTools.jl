@@ -208,7 +208,9 @@ and horizon (e.g., `result.irf[:GDP, :MonetaryShock, 0:12]`).
 - `normalization::AbstractNormalization=UnitStd()`: Shock normalization
 - `cumulate::Union{Nothing, Vector{Symbol}, Vector{Int}}=nothing`: Variables to cumulate.
   When specified, the selected variables are cumulated (cumulative sum along horizon).
-  Requires a bootstrap inference method — incompatible with `Analytic()`.
+  Requires a bootstrap inference method — incompatible with `Analytic()` and with
+  Anderson-Rubin bands (`ProxySVARMBB(compute_ar = true)`).
+- `scale`: deprecated; use [`rescale`](@ref) on the result
 - `rng::AbstractRNG=Random.default_rng()`: Random number generator
 
 # Returns
@@ -239,7 +241,7 @@ function irf(
         coverage::Vector{Float64} = [0.68, 0.9, 0.95],
         normalization::AbstractNormalization = UnitStd(),
         cumulate::Union{Nothing, Vector{Symbol}, Vector{Int}} = nothing,
-        scale::Real = 1,
+        scale::Union{Nothing, Real} = nothing,
         rng::AbstractRNG = Random.default_rng()
     ) where {T}
     coverage = _validate_irf_args(horizon, coverage)
@@ -257,6 +259,7 @@ function irf(
             )
         )
     end
+    cumulate_idx === nothing || _check_cumulable(inference)
 
     # Compute point estimate of IRF
     P = rotation_matrix(model, identification)
@@ -271,26 +274,12 @@ function irf(
         model, identification, irf_point, inference, coverage, normalization, rng
     )
 
-    # Apply cumulation if requested (BEFORE scaling and wrapping)
+    # Apply cumulation if requested (before wrapping)
     if cumulate_idx !== nothing
         irf_point, draws, stderr,
             lower, upper = _apply_cumulation(
             irf_point, draws, coverage, cumulate_idx
         )
-    end
-
-    # Apply scaling (e.g., scale=0.25 for a 25bp shock under unit-effect normalization)
-    if scale != 1
-        s = T(scale)
-        irf_point .*= s
-        stderr .*= abs(s)
-        for i in eachindex(lower)
-            lower[i] .*= s
-            upper[i] .*= s
-        end
-        if draws !== nothing
-            draws .*= s
-        end
     end
 
     # Conditionally save draws based on inference type
@@ -313,15 +302,16 @@ function irf(
         normalization = typeof(normalization),
         names = model.names,
         cumulated_vars = cumulate_syms,
-        scale = fill(T(scale), n),
+        scale = ones(T, n),
         impact_diagonal = impact_diagonal,
         timestamp = now(),
     )
 
-    return IRFResult(
+    result = IRFResult(
         irf_ax, stderr_ax, draws_ax, lower_ax, upper_ax, coverage,
         identification, inference, metadata
     )
+    return _deprecated_scale(result, scale)
 end
 
 # Convenience alias
@@ -353,7 +343,7 @@ draws to represent set identification.
 - `coverage::Vector{Float64}=[0.68, 0.90, 0.95]`: Coverage levels for quantile bands
 - `normalization::AbstractNormalization=UnitStd()`: Shock normalization
 - `cumulate::Union{Nothing, Vector{Symbol}, Vector{Int}}=nothing`: Variables to cumulate
-- `scale::Real=1`: Scaling applied to the responses
+- `scale`: deprecated; use [`rescale`](@ref) on the result
 - `parallel::Symbol=:none`: Parallelization of the rotation search (`:none` or `:distributed`)
 - `rng::AbstractRNG=Random.default_rng()`: Random number generator
 
@@ -390,7 +380,7 @@ structural shocks.
 - `coverage::Vector{Float64}=[0.68, 0.90, 0.95]`: Coverage levels for quantile bands
 - `normalization::AbstractNormalization=UnitStd()`: Shock normalization
 - `cumulate::Union{Nothing, Vector{Symbol}, Vector{Int}}=nothing`: Variables to cumulate
-- `scale::Real=1`: Scaling applied to the responses
+- `scale`: deprecated; use [`rescale`](@ref) on the result
 - `parallel::Symbol=:none`: Only `:none` is supported; other values throw
 - `rng::AbstractRNG=Random.default_rng()`: Random number generator
 
@@ -419,7 +409,7 @@ end
 
 """
     _set_identified_irf(draw_rotation, model, id; n_draws, max_attempts, horizon,
-                        coverage, normalization, cumulate, scale)
+                        coverage, normalization, cumulate, scale = nothing)
 
 Shared implementation of `irf` for set-identifying schemes. `draw_rotation()`
 returns one impact matrix accepted by the identification `id`; it is called
@@ -434,7 +424,7 @@ function _set_identified_irf(
         coverage::Vector{Float64} = [0.68, 0.9, 0.95],
         normalization::AbstractNormalization = UnitStd(),
         cumulate::Union{Nothing, Vector{Symbol}, Vector{Int}} = nothing,
-        scale::Real = 1,
+        scale::Union{Nothing, Real} = nothing,
         inference = nothing
     ) where {T}
     inference === nothing || throw(
@@ -465,25 +455,8 @@ function _set_identified_irf(
         end
     end
 
-    if scale != 1
-        irf_draws_raw .*= T(scale)
-    end
-
-    # Pointwise quantiles of the (possibly cumulated and scaled) draws
-    irf_median_raw = dropdims(median(irf_draws_raw; dims = 1); dims = 1)
-
-    lower_raw = Vector{Array{T, 3}}(undef, length(coverage))
-    upper_raw = Vector{Array{T, 3}}(undef, length(coverage))
-
-    sz3 = size(irf_draws_raw)[2:4]
-    for (idx, cov) in enumerate(coverage)
-        α = 1 - cov
-        lo = zeros(T, sz3...)
-        hi = zeros(T, sz3...)
-        _quantile_along_dim1!(lo, hi, irf_draws_raw, α / 2, 1 - α / 2)
-        lower_raw[idx] = lo
-        upper_raw[idx] = hi
-    end
+    # Pointwise median and quantiles of the (possibly cumulated) draws
+    irf_median_raw, lower_raw, upper_raw = _median_and_quantile_bands(irf_draws_raw, coverage)
 
     impact_diags = hcat([T.(diag(rotation_matrices[i])) for i in 1:n_draws]...)
     impact_diagonal = vec(median(impact_diags; dims = 2))
@@ -501,15 +474,16 @@ function _set_identified_irf(
         normalization = typeof(normalization),
         names = model.names,
         cumulated_vars = cumulate_syms,
-        scale = fill(T(scale), n),
+        scale = ones(T, n),
         impact_diagonal = impact_diagonal,
         timestamp = now(),
     )
 
-    return SignRestrictedIRFResult(
+    result = SignRestrictedIRFResult(
         irf_median_ax, irf_draws_ax, lower_ax, upper_ax,
         coverage, rotation_matrices, id, metadata
     )
+    return _deprecated_scale(result, scale)
 end
 
 """
@@ -593,83 +567,76 @@ end
 # Cumulative IRFs
 # ============================================================================
 
+# Anderson-Rubin bands are confidence sets for the uncumulated responses; a
+# cumulated response would need its own test statistic.
+function _check_cumulable(inference)
+    inference isa ProxySVARMBB && inference.compute_ar && throw(
+        ArgumentError(
+            "Cumulation is not supported with Anderson-Rubin bands " *
+                "(ProxySVARMBB(compute_ar = true)); use ProxySVARMBB(reps) for " *
+                "percentile bands of the cumulated responses."
+        )
+    )
+    return nothing
+end
+
+"""
+    _post_hoc_cumulate(irf, vars) -> (idx, cumulated_vars)
+
+Positions of the variables `vars` to cumulate (all variables when `vars === nothing`)
+and the names of every cumulated variable afterwards. `idx` is `nothing` when `vars`
+is empty. Throws when a variable in `vars` is already cumulated.
+"""
+function _post_hoc_cumulate(irf::AbstractIRFResult, vars)
+    names = varnames(irf)
+    idx = vars === nothing ? collect(eachindex(names)) : _resolve_cumulate(vars, names)
+    previous = get(irf.metadata, :cumulated_vars, nothing)
+    previous = previous === nothing ? Symbol[] : Symbol.(previous)
+    idx === nothing && return nothing, previous
+    again = intersect(Symbol.(names[idx]), previous)
+    isempty(again) || throw(ArgumentError("Variables $again are already cumulated"))
+    cumulated = Symbol.(names[sort(union(idx, findall(in(previous), Symbol.(names))))])
+    return idx, cumulated
+end
+
 """
     cumulative_irf(irf::IRFResult; vars=nothing)
 
-Compute cumulative impulse response functions.
+Cumulate the responses of the variables `vars` (names or positions; all variables
+when `nothing`) along the horizon. Bands and standard errors are recomputed from the
+cumulated draws, so the result agrees with `irf(model, id; cumulate = vars, ...)`.
 
-# Keyword Arguments
-- `vars::Union{Nothing, Vector{Symbol}, Vector{Int}}=nothing`: Variables to cumulate.
-  When `nothing`, all variables are cumulated (backward compatible).
-
-When bootstrap draws are available, confidence bands are correctly recomputed
-from cumulated draws. Without draws, bands are approximately cumulated with a warning.
+Requires stored draws (an inference method with `save_draws = true`); throws
+otherwise, and when the result has Anderson-Rubin bands or a variable in `vars` is
+already cumulated.
 
 # Returns
 - New `IRFResult` with cumulative IRFs
 """
 function cumulative_irf(irf::IRFResult; vars = nothing)
+    has_draws(irf) || throw(
+        ArgumentError(
+            "cumulative_irf requires stored bootstrap draws to recompute the bands; use " *
+                "an inference method with save_draws = true, or irf(...; cumulate = vars)."
+        )
+    )
+    _check_cumulable(irf.inference)
+    cumulate_idx, cumulated_vars = _post_hoc_cumulate(irf, vars)
+    cumulate_idx === nothing && return irf
+
+    cum_point, cum_draws, cum_stderr, lower_raw,
+        upper_raw = _apply_cumulation(
+        _unwrap_irf_3d(irf.irf), _unwrap_irf_4d(irf.bootstrap_draws),
+        irf.coverage, cumulate_idx
+    )
+
     names = varnames(irf)
-    all_idx = collect(1:length(names))
-
-    # Resolve which variables to cumulate
-    if vars === nothing
-        cumulate_idx = all_idx
-    else
-        cumulate_idx = _resolve_cumulate(vars, names)
-        cumulate_idx === nothing && return irf  # empty cumulate
-    end
-
-    # Unwrap AxisArrays to raw arrays
-    raw_point = _unwrap_irf_3d(irf.irf)
-
-    # Cumulate point estimate
-    cum_point = copy(raw_point)
-    _cumulate_point!(cum_point, cumulate_idx)
-
-    if irf.bootstrap_draws !== nothing
-        # Correct path: cumulate draws, recompute bands
-        raw_draws = _unwrap_irf_4d(irf.bootstrap_draws)
-        cum_draws = copy(raw_draws)
-        for r in axes(cum_draws, 1)
-            _cumulate_point!(view(cum_draws, r, :, :, :), cumulate_idx)
-        end
-
-        lower_raw, upper_raw = compute_bands_from_draws(cum_point, cum_draws, irf.coverage)
-        cum_stderr = dropdims(std(cum_draws; dims = 1); dims = 1)
-    else
-        @warn "No bootstrap draws available. Cumulated confidence bands are approximate. " *
-            "For correct bands, use irf() with a bootstrap method and save_draws=true, " *
-            "or use the cumulate keyword in irf() directly."
-
-        # Approximate: cumsum the bands directly (known to be incorrect but best available)
-        cum_draws = nothing
-        raw_lower = [_unwrap_irf_3d(lb) for lb in irf.lower]
-        raw_upper = [_unwrap_irf_3d(ub) for ub in irf.upper]
-        lower_raw = similar(raw_lower)
-        upper_raw = similar(raw_upper)
-        for i in eachindex(raw_lower)
-            lb = copy(raw_lower[i])
-            ub = copy(raw_upper[i])
-            _cumulate_point!(lb, cumulate_idx)
-            _cumulate_point!(ub, cumulate_idx)
-            lower_raw[i] = lb
-            upper_raw[i] = ub
-        end
-        raw_stderr = _unwrap_irf_3d(irf.stderr)
-        cum_stderr = similar(raw_stderr)
-        fill!(cum_stderr, NaN)
-    end
-
-    # Re-wrap in AxisArrays
     irf_ax = _wrap_irf_3d(cum_point, names)
     stderr_ax = _wrap_irf_3d(cum_stderr, names)
     lower_ax = [_wrap_irf_3d(lb, names) for lb in lower_raw]
     upper_ax = [_wrap_irf_3d(ub, names) for ub in upper_raw]
-    draws_ax = cum_draws === nothing ? nothing : _wrap_irf_4d(cum_draws, names)
-
-    cumulate_syms = Symbol.(names[cumulate_idx])
-    metadata = merge(irf.metadata, (cumulative = true, cumulated_vars = cumulate_syms))
+    draws_ax = _wrap_irf_4d(cum_draws, names)
+    metadata = merge(irf.metadata, (; cumulated_vars))
 
     return IRFResult(
         irf_ax, stderr_ax, draws_ax, lower_ax, upper_ax, irf.coverage,
@@ -680,63 +647,57 @@ end
 """
     cumulative_irf(irf::SignRestrictedIRFResult; vars=nothing)
 
-Compute cumulative impulse response functions for sign-restricted IRFs.
-
-Cumulates draws first, then recomputes median and quantile bands correctly.
-
-# Keyword Arguments
-- `vars::Union{Nothing, Vector{Symbol}, Vector{Int}}=nothing`: Variables to cumulate.
+Cumulate the responses of the variables `vars` (names or positions; all variables
+when `nothing`) in every accepted draw, then recompute the median and quantile bands.
+Throws when a variable in `vars` is already cumulated.
 
 # Returns
 - New `SignRestrictedIRFResult` with cumulative IRFs
 """
 function cumulative_irf(irf::SignRestrictedIRFResult; vars = nothing)
-    names = varnames(irf)
-    all_idx = collect(1:length(names))
+    cumulate_idx, cumulated_vars = _post_hoc_cumulate(irf, vars)
+    cumulate_idx === nothing && return irf
 
-    if vars === nothing
-        cumulate_idx = all_idx
-    else
-        cumulate_idx = _resolve_cumulate(vars, names)
-        cumulate_idx === nothing && return irf
-    end
-
-    # Unwrap, cumulate draws, recompute median and bands
-    raw_draws = _unwrap_irf_4d(irf.irf_draws)
-    cum_draws = copy(raw_draws)
+    cum_draws = _unwrap_irf_4d(irf.irf_draws)
     for r in axes(cum_draws, 1)
         _cumulate_point!(view(cum_draws, r, :, :, :), cumulate_idx)
     end
+    cum_median, lower_raw, upper_raw = _median_and_quantile_bands(cum_draws, irf.coverage)
 
-    cum_median = dropdims(median(cum_draws; dims = 1); dims = 1)
-
-    Te = eltype(cum_draws)
-    sz3 = size(cum_draws)[2:4]
-    lower_raw = Vector{Array{Te, 3}}(undef, length(irf.coverage))
-    upper_raw = Vector{Array{Te, 3}}(undef, length(irf.coverage))
-    for (i, cov) in enumerate(irf.coverage)
-        α = 1 - cov
-        lo = zeros(Te, sz3...)
-        hi = zeros(Te, sz3...)
-        _quantile_along_dim1!(lo, hi, cum_draws, α / 2, 1 - α / 2)
-        lower_raw[i] = lo
-        upper_raw[i] = hi
-    end
-
-    # Re-wrap in AxisArrays
+    names = varnames(irf)
     cum_median_ax = _wrap_irf_3d(cum_median, names)
     cum_draws_ax = _wrap_irf_4d(cum_draws, names)
     lower_ax = [_wrap_irf_3d(lb, names) for lb in lower_raw]
     upper_ax = [_wrap_irf_3d(ub, names) for ub in upper_raw]
-
-    cumulate_syms = Symbol.(names[cumulate_idx])
-    metadata = merge(irf.metadata, (cumulative = true, cumulated_vars = cumulate_syms))
+    metadata = merge(irf.metadata, (; cumulated_vars))
 
     return SignRestrictedIRFResult(
         cum_median_ax, cum_draws_ax, lower_ax, upper_ax,
         irf.coverage, irf.rotation_matrices,
         irf.identification, metadata
     )
+end
+
+"""
+    _median_and_quantile_bands(draws, coverage) -> (median, lower, upper)
+
+Pointwise median and equal-tailed quantile bands at each level in `coverage` of
+`draws` indexed `(draw, variable, shock, horizon)`.
+"""
+function _median_and_quantile_bands(draws::Array{T, 4}, coverage::Vector{Float64}) where {T}
+    med = dropdims(median(draws; dims = 1); dims = 1)
+    sz3 = size(draws)[2:4]
+    lower = Vector{Array{T, 3}}(undef, length(coverage))
+    upper = Vector{Array{T, 3}}(undef, length(coverage))
+    for (i, cov) in enumerate(coverage)
+        α = 1 - cov
+        lo = zeros(T, sz3...)
+        hi = zeros(T, sz3...)
+        _quantile_along_dim1!(lo, hi, draws, α / 2, 1 - α / 2)
+        lower[i] = lo
+        upper[i] = hi
+    end
+    return med, lower, upper
 end
 
 # ============================================================================
@@ -763,30 +724,28 @@ function _build_shock_factors(
     return factors
 end
 
-"""
-    _apply_shock_factors_3d!(raw, factors)
-
-Multiply raw `(variable, shock, horizon)` array by per-shock factors along dim 2.
-"""
-function _apply_shock_factors_3d!(raw::Array{T, 3}, factors::Vector{T}) where {T}
+# Multiply the shock dimension `dim` of `x` by per-shock `factors`.
+function _scale_shocks(x::AxisArray, factors::AbstractVector, dim::Integer)
+    raw = Array(x)
     for j in eachindex(factors)
-        factors[j] == one(T) && continue
-        raw[:, j, :] .*= factors[j]
+        selectdim(raw, dim, j) .*= factors[j]
     end
-    return
+    return AxisArray(raw, AxisArrays.axes(x)...)
 end
 
-"""
-    _apply_shock_factors_4d!(raw, factors)
-
-Multiply raw `(draw, variable, shock, horizon)` array by per-shock factors along dim 3.
-"""
-function _apply_shock_factors_4d!(raw::Array{T, 4}, factors::Vector{T}) where {T}
-    for j in eachindex(factors)
-        factors[j] == one(T) && continue
-        raw[:, :, j, :] .*= factors[j]
+# Scaling a shock by `c` maps every band this package computes (percentiles of
+# centered draws, normal bands from standard errors, Anderson-Rubin hulls) to the
+# band of the scaled responses; a negative `c` swaps lower and upper.
+function _scale_bands(lower::Vector, upper::Vector, factors::AbstractVector)
+    lo = [_scale_shocks(l, factors, 2) for l in lower]
+    hi = [_scale_shocks(u, factors, 2) for u in upper]
+    for k in eachindex(lo, hi), j in eachindex(factors)
+        factors[j] < 0 || continue
+        l, u = copy(lo[k][:, j, :]), copy(hi[k][:, j, :])
+        lo[k][:, j, :] = u
+        hi[k][:, j, :] = l
     end
-    return
+    return lo, hi
 end
 
 function _update_scale_metadata(metadata::NamedTuple, factors::Vector{T}) where {T}
@@ -796,15 +755,15 @@ function _update_scale_metadata(metadata::NamedTuple, factors::Vector{T}) where 
 end
 
 """
-    rescale(irf::IRFResult, pairs::Pair{Symbol, <:Real}...) -> IRFResult
+    rescale(irf, shock => factor, ...) -> typeof(irf)
+    rescale(irf, factor::Real) -> typeof(irf)
 
-Return a new `IRFResult` with per-shock rescaling.  Each pair `shock => factor`
-multiplies the specified shock column (all variables, all horizons) by `factor`.
-Shocks not mentioned are left unchanged.
-
-When bootstrap draws are available, confidence bands are **recomputed from
-rescaled draws** (statistically correct).  Without draws, bands are rescaled
-directly and a warning is emitted.
+Return a copy of `irf` (an `IRFResult` or `SignRestrictedIRFResult`) with the
+responses to each named shock multiplied by `factor`; the second form multiplies the
+responses to every shock. Shocks not mentioned are unchanged. Point estimates, draws,
+and bands are multiplied by the factor (lower and upper swap when it is negative),
+standard errors by its absolute value. The cumulative factors are recorded in the
+result's metadata and reported by [`get_scale`](@ref).
 
 # Examples
 ```julia
@@ -813,218 +772,53 @@ result2 = rescale(result, :MP => -1)
 
 # Flip MP and convert supply shock to percentage points
 result2 = rescale(result, :MP => -1, :Supply => 100)
+
+# Express every response in percent
+result_pct = rescale(result, 100)
 ```
 """
-function rescale(irf::IRFResult, pairs::Pair{Symbol, <:Real}...)
-    T = eltype(irf.irf)
-    names = varnames(irf)
-    factors = _build_shock_factors(names, T, pairs)
+function rescale(
+        irf::Union{IRFResult, SignRestrictedIRFResult}, pairs::Pair{Symbol, <:Real}...
+    )
+    T = eltype(point_estimate(irf))
+    return _rescale(irf, _build_shock_factors(shocknames(irf), T, pairs))
+end
 
-    raw_point = _unwrap_irf_3d(irf.irf) |> copy
-    raw_stderr = _unwrap_irf_3d(irf.stderr) |> copy
-    _apply_shock_factors_3d!(raw_point, factors)
-    # stderr scales by |factor| per shock
-    _apply_shock_factors_3d!(raw_stderr, abs.(factors))
+function rescale(irf::Union{IRFResult, SignRestrictedIRFResult}, factor::Real)
+    T = eltype(point_estimate(irf))
+    return _rescale(irf, fill(T(factor), n_shocks(irf)))
+end
 
-    if irf.bootstrap_draws !== nothing
-        raw_draws = _unwrap_irf_4d(irf.bootstrap_draws) |> copy
-        _apply_shock_factors_4d!(raw_draws, factors)
-        lower_raw, upper_raw = compute_bands_from_draws(raw_point, raw_draws, irf.coverage)
-    else
-        @warn "No bootstrap draws available. Rescaled confidence bands are approximate. " *
-            "For correct bands, use irf() with save_draws=true."
-        raw_draws = nothing
-        lower_raw = [
-            let lb = copy(_unwrap_irf_3d(l))
-                _apply_shock_factors_3d!(lb, factors)
-                lb
-            end
-                for l in irf.lower
-        ]
-        upper_raw = [
-            let ub = copy(_unwrap_irf_3d(u))
-                _apply_shock_factors_3d!(ub, factors)
-                ub
-            end
-                for u in irf.upper
-        ]
-        # Negative factors swap lower/upper — fix with elementwise min/max
-        if any(f -> f < 0, factors)
-            for k in eachindex(lower_raw)
-                lo, hi = lower_raw[k], upper_raw[k]
-                lower_raw[k] = min.(lo, hi)
-                upper_raw[k] = max.(lo, hi)
-            end
-        end
-    end
-
-    irf_ax = _wrap_irf_3d(raw_point, names)
-    stderr_ax = _wrap_irf_3d(raw_stderr, names)
-    lower_ax = [_wrap_irf_3d(lb, names) for lb in lower_raw]
-    upper_ax = [_wrap_irf_3d(ub, names) for ub in upper_raw]
-    draws_ax = raw_draws === nothing ? nothing : _wrap_irf_4d(raw_draws, names)
-
-    metadata = _update_scale_metadata(irf.metadata, factors)
-
+function _rescale(irf::IRFResult, factors::Vector)
+    all(isfinite, factors) || throw(ArgumentError("scale factors must be finite, got $factors"))
+    lower, upper = _scale_bands(irf.lower, irf.upper, factors)
+    draws = irf.bootstrap_draws === nothing ? nothing :
+        _scale_shocks(irf.bootstrap_draws, factors, 3)
     return IRFResult(
-        irf_ax, stderr_ax, draws_ax, lower_ax, upper_ax, irf.coverage,
-        irf.identification, irf.inference, metadata
+        _scale_shocks(irf.irf, factors, 2), _scale_shocks(irf.stderr, abs.(factors), 2),
+        draws, lower, upper, irf.coverage, irf.identification, irf.inference,
+        _update_scale_metadata(irf.metadata, factors)
     )
 end
 
-"""
-    rescale(irf::SignRestrictedIRFResult, pairs::Pair{Symbol, <:Real}...) -> SignRestrictedIRFResult
-
-Per-shock rescaling for sign-restricted IRFs.  Draws are rescaled, then median
-and quantile bands are recomputed.
-"""
-function rescale(irf::SignRestrictedIRFResult, pairs::Pair{Symbol, <:Real}...)
-    T = eltype(irf.irf_median)
-    names = varnames(irf)
-    factors = _build_shock_factors(names, T, pairs)
-
-    raw_draws = _unwrap_irf_4d(irf.irf_draws) |> copy
-    _apply_shock_factors_4d!(raw_draws, factors)
-    raw_median = dropdims(median(raw_draws; dims = 1); dims = 1)
-
-    sz3 = size(raw_draws)[2:4]
-    lower_raw = Vector{Array{T, 3}}(undef, length(irf.coverage))
-    upper_raw = Vector{Array{T, 3}}(undef, length(irf.coverage))
-    for (i, cov) in enumerate(irf.coverage)
-        α = 1 - cov
-        lo = zeros(T, sz3...)
-        hi = zeros(T, sz3...)
-        _quantile_along_dim1!(lo, hi, raw_draws, α / 2, 1 - α / 2)
-        lower_raw[i] = lo
-        upper_raw[i] = hi
-    end
-
-    median_ax = _wrap_irf_3d(raw_median, names)
-    draws_ax = _wrap_irf_4d(raw_draws, names)
-    lower_ax = [_wrap_irf_3d(lb, names) for lb in lower_raw]
-    upper_ax = [_wrap_irf_3d(ub, names) for ub in upper_raw]
-
-    metadata = _update_scale_metadata(irf.metadata, factors)
-
+function _rescale(irf::SignRestrictedIRFResult, factors::Vector)
+    all(isfinite, factors) || throw(ArgumentError("scale factors must be finite, got $factors"))
+    lower, upper = _scale_bands(irf.lower, irf.upper, factors)
     return SignRestrictedIRFResult(
-        median_ax, draws_ax, lower_ax, upper_ax,
-        irf.coverage, irf.rotation_matrices, irf.identification, metadata
+        _scale_shocks(irf.irf_median, factors, 2), _scale_shocks(irf.irf_draws, factors, 3),
+        lower, upper, irf.coverage, irf.rotation_matrices, irf.identification,
+        _update_scale_metadata(irf.metadata, factors)
     )
 end
 
-"""
-    rescale!(irf::IRFResult, pairs::Pair{Symbol, <:Real}...) -> IRFResult
-
-In-place per-shock rescaling.  Mutates AxisArray contents and returns a new
-`IRFResult` with updated metadata (the returned object must be used).
-"""
-function rescale!(irf::IRFResult, pairs::Pair{Symbol, <:Real}...)
-    T = eltype(irf.irf)
-    names = varnames(irf)
-    factors = _build_shock_factors(names, T, pairs)
-
-    # Mutate point estimate and stderr via raw views
-    raw_point = _unwrap_irf_3d(irf.irf)
-    raw_stderr = _unwrap_irf_3d(irf.stderr)
-    for j in eachindex(factors)
-        factors[j] == one(T) && continue
-        # AxisArray shares memory with the unwrapped view after permutedims?
-        # No — permutedims creates a copy.  Must write back via AxisArray indexing.
-    end
-    # Safer: operate on the AxisArrays directly (variable, shock, horizon)
-    for j in eachindex(factors)
-        factors[j] == one(T) && continue
-        irf.irf[:, j, :] .*= factors[j]
-        irf.stderr[:, j, :] .*= abs(factors[j])
-    end
-
-    if irf.bootstrap_draws !== nothing
-        for j in eachindex(factors)
-            factors[j] == one(T) && continue
-            irf.bootstrap_draws[:, :, j, :] .*= factors[j]
-        end
-        raw_point_new = _unwrap_irf_3d(irf.irf)
-        raw_draws_new = _unwrap_irf_4d(irf.bootstrap_draws)
-        lower_raw,
-            upper_raw = compute_bands_from_draws(raw_point_new, raw_draws_new, irf.coverage)
-        lower_ax = [_wrap_irf_3d(lb, names) for lb in lower_raw]
-        upper_ax = [_wrap_irf_3d(ub, names) for ub in upper_raw]
-    else
-        @warn "No bootstrap draws available. Rescaled confidence bands are approximate. " *
-            "For correct bands, use irf() with save_draws=true."
-        for j in eachindex(factors)
-            factors[j] == one(T) && continue
-            for lb in irf.lower
-                lb[:, j, :] .*= factors[j]
-            end
-            for ub in irf.upper
-                ub[:, j, :] .*= factors[j]
-            end
-        end
-        # Negative factors swap lower/upper — fix with elementwise min/max
-        if any(f -> f < 0, factors)
-            for k in eachindex(irf.lower)
-                lo = Array(irf.lower[k])
-                hi = Array(irf.upper[k])
-                irf.lower[k] .= min.(lo, hi)
-                irf.upper[k] .= max.(lo, hi)
-            end
-        end
-        lower_ax = irf.lower
-        upper_ax = irf.upper
-    end
-
-    metadata = _update_scale_metadata(irf.metadata, factors)
-
-    return IRFResult(
-        irf.irf, irf.stderr, irf.bootstrap_draws,
-        lower_ax, upper_ax, irf.coverage,
-        irf.identification, irf.inference, metadata
+# `scale` keyword of `irf`, deprecated in favor of `rescale`.
+_deprecated_scale(result, ::Nothing) = result
+function _deprecated_scale(result, scale::Real)
+    Base.depwarn(
+        "The `scale` keyword of `irf` is deprecated; use `rescale(irf(...), $scale)`.",
+        :irf
     )
-end
-
-"""
-    rescale!(irf::SignRestrictedIRFResult, pairs::Pair{Symbol, <:Real}...) -> SignRestrictedIRFResult
-
-In-place per-shock rescaling for sign-restricted IRFs.
-"""
-function rescale!(irf::SignRestrictedIRFResult, pairs::Pair{Symbol, <:Real}...)
-    T = eltype(irf.irf_median)
-    names = varnames(irf)
-    factors = _build_shock_factors(names, T, pairs)
-
-    # Mutate draws via AxisArray (draw, variable, shock, horizon)
-    for j in eachindex(factors)
-        factors[j] == one(T) && continue
-        irf.irf_draws[:, :, j, :] .*= factors[j]
-    end
-
-    # Recompute median and bands
-    raw_draws = _unwrap_irf_4d(irf.irf_draws)
-    raw_median = dropdims(median(raw_draws; dims = 1); dims = 1)
-
-    sz3 = size(raw_draws)[2:4]
-    lower_raw = Vector{Array{T, 3}}(undef, length(irf.coverage))
-    upper_raw = Vector{Array{T, 3}}(undef, length(irf.coverage))
-    for (i, cov) in enumerate(irf.coverage)
-        α = 1 - cov
-        lo = zeros(T, sz3...)
-        hi = zeros(T, sz3...)
-        _quantile_along_dim1!(lo, hi, raw_draws, α / 2, 1 - α / 2)
-        lower_raw[i] = lo
-        upper_raw[i] = hi
-    end
-
-    irf.irf_median .= _wrap_irf_3d(raw_median, names)
-    lower_ax = [_wrap_irf_3d(lb, names) for lb in lower_raw]
-    upper_ax = [_wrap_irf_3d(ub, names) for ub in upper_raw]
-
-    metadata = _update_scale_metadata(irf.metadata, factors)
-
-    return SignRestrictedIRFResult(
-        irf.irf_median, irf.irf_draws, lower_ax, upper_ax,
-        irf.coverage, irf.rotation_matrices, irf.identification, metadata
-    )
+    return rescale(result, scale)
 end
 
 # ============================================================================

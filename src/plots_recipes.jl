@@ -118,7 +118,7 @@ labels), `plot_type` (`:quantiles`, `:paths`, or `:both`; paths need stored
 draws), `path_alpha`, `path_color`, `median_color` (point-estimate line, unless
 `linecolor` is given), `drawzero`, `zerolinecol`.
 
-Scale data before plotting with `rescale` / `rescale!`.
+Scale data before plotting with `rescale`.
 """
 RecipesBase.@recipe function f(
         irf::AbstractIRFResult;

@@ -64,7 +64,7 @@ Plot impulse response functions using Makie.  Returns a `Makie.Figure`.
 Requires a Makie backend (e.g., `CairoMakie` or `GLMakie`) to be loaded.
 
 All scaling should be applied to the IRF result *before* plotting
-using `rescale` / `rescale!`.
+using `rescale`.
 
 # Selection
 - `vars = :all`: variables to plot (`:all`, a vector of names from `varnames(irf)`,
@@ -127,7 +127,7 @@ Draw a single IRF panel (one variable–shock pair) onto an existing `Makie.Axis
 Returns `ax`.  Requires a Makie backend (e.g., `CairoMakie` or `GLMakie`).
 
 All scaling should be applied to the IRF result *before* plotting
-using `rescale` / `rescale!`.
+using `rescale`.
 
 Use this to compose custom multi-panel figures:
 
@@ -166,7 +166,7 @@ export BayesianIRFResult, LocalProjectionIRFResult
 export NarrativeShockRestriction, NarrativeRestriction
 export point_estimate, mean_estimate, has_draws, n_draws, get_draws
 export lowerbounds, upperbounds, coverages, horizon
-export IRFScale, get_scale, rescale, rescale!
+export IRFScale, get_scale, rescale
 
 # Export inference types
 export InferenceType, Analytic, WildBootstrap, Bootstrap, BlockBootstrap, ProxySVARMBB

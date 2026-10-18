@@ -662,8 +662,8 @@ The trailing type parameters `D`, `I`, `N` are the types of `bootstrap_draws`,
 - `horizon`, `names`, `timestamp`, `inference_type`: descriptive
 - `normalization` (type), `scale` (per-shock vector), `impact_diagonal`: read by
   [`get_scale`](@ref) and updated by `rescale`
-- `cumulated_vars` (`nothing` or a vector of names), `cumulative`: set when the IRF is
-  cumulated; shown by `show`
+- `cumulated_vars`: `nothing`, or the names of the cumulated variables; set by the
+  `cumulate` keyword of `irf` and by [`cumulative_irf`](@ref); shown by `show`
 """
 struct IRFResult{
         T <: AbstractFloat, A <: AxisArray, D <: Union{Nothing, AxisArray},

@@ -49,6 +49,9 @@ backward-compatible).
   for every value; the bootstrap has no parallel option. `parallel` remains
   for the sign-restriction search (`rotation_matrix`, `irf` with
   `SignRestriction`).
+- `rescale!`. It changed its argument's arrays in place but returned a new
+  result carrying the updated scale metadata, so the argument was left
+  inconsistent. Use `rescale`.
 
 ### Deprecated
 
@@ -71,8 +74,25 @@ backward-compatible).
   `irf(model, identification; inference)`, and both return the same draws for
   the same `rng`. `bootstrap_irf` throws an `ArgumentError` for other
   inference types and for `IVIdentification`.
+- The `scale` keyword of `irf`. Use `rescale(irf(...), factor)`, which gives
+  the same responses, draws, and bands.
 
 ### Changed (breaking)
+
+- `cumulative_irf(::IRFResult)` throws an `ArgumentError` when the result has
+  no stored draws, as `irf(...; cumulate)` does, instead of cumulating the
+  bands themselves with a warning. Store the draws with `save_draws = true`.
+  Both paths throw for results with Anderson-Rubin bands
+  (`ProxySVARMBB(compute_ar = true)`), and `cumulative_irf` throws when a
+  requested variable is already cumulated. The `cumulative` metadata key is
+  gone; `cumulated_vars` lists every cumulated variable.
+- `rescale` multiplies the bands directly instead of recomputing them from the
+  draws, and no longer warns when the result has no draws. Every band type in
+  the package scales exactly with the shock, so the bands are unchanged for
+  percentile and delta-method results; Anderson-Rubin bands of `ProxySVARMBB`
+  results were previously replaced by percentile bands and are now kept.
+  `rescale(irf, factor)` scales the responses to every shock; non-finite
+  factors throw.
 
 - `VARModel` follows the StatsAPI contract:
   - `coef(model)` is the `(1 + n_vars * n_lags) × n_vars` coefficient matrix

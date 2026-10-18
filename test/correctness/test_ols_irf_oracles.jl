@@ -96,7 +96,7 @@ end
     @test_throws "unit-variance shocks" variance_decomposition(
         irf(model, CholeskyID(); horizon, normalization = UnitEffect())
     )
-    rescaled = @test_logs (:warn, r"No bootstrap draws") rescale(result, :price => 2.0)
+    rescaled = rescale(result, :price => 2.0)
     @test_throws "unscaled IRFs" variance_decomposition(rescaled)
 end
 

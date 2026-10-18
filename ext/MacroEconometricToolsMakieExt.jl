@@ -22,7 +22,7 @@ estimate line, and optional zero reference line.
 
 `lb` and `ub` are vectors of vectors (one per coverage level), already sliced
 to the correct variable/shock combination.  All scaling must be applied to the
-data *before* calling this function (use `rescale` / `rescale!`).
+data *before* calling this function (use `rescale`).
 """
 function _plot_irf_panel!(
         ax, xvals, y, lb, ub, cvgs;

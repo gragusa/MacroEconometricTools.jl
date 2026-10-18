@@ -14,7 +14,7 @@ using StableRNGs
     narrative_id = NarrativeRestriction(R, NarrativeShockRestriction{Int}[]; horizon = 0)
 
     @testset "Sign and narrative paths agree without narrative constraints" begin
-        kw = (; horizon = 4, n_draws = 20, coverage = [0.9, 0.68], scale = 2, cumulate = [:a])
+        kw = (; horizon = 4, n_draws = 20, coverage = [0.9, 0.68], cumulate = [:a])
         s = irf(model, sign_id; rng = StableRNG(7), kw...)
         n = irf(model, narrative_id; rng = StableRNG(7), kw...)
         @test s.rotation_matrices == n.rotation_matrices
