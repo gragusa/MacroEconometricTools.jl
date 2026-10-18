@@ -236,64 +236,33 @@ end
 
 ### Estimation with Constraints
 
-The estimation algorithm adapts based on constraint types:
+Every constraint is first resolved against the variable names and lag order by
+`_resolve_constraints`, which returns a `(1 + n_vars * n_lags) × n_vars` mask of
+restricted coefficients (layout of the coefficient matrix `B`: intercept first,
+column = equation) and their values. It throws `ArgumentError` for unknown
+variable names, lags outside `1:n_lags`, and conflicting values for the same
+coefficient. `check_constraints`, `apply_constraints!`, `build_selection_matrix`,
+and `constrained_ols` all go through it.
+
+`constrained_ols` estimates equation by equation: the restricted coefficients take
+their values (zero or fixed), their contribution is subtracted from the dependent
+variable, and the free coefficients are estimated by OLS on the remaining
+regressors:
 
 ```julia
-function constrained_ols(X, Y, constraints, names, n_lags, n_vars)
-    only_zero = all(c -> c isa Union{ZeroConstraint,BlockExogeneity}, constraints)
-
-    if only_zero
-        return constrained_ols_selection(X, Y, constraints, names, n_lags, n_vars)
-    else
-        return constrained_ols_general(X, Y, constraints, names, n_lags, n_vars)
-    end
+for eq in 1:n_vars
+    fixed = findall(restricted[:, eq])
+    free = findall(.!restricted[:, eq])
+    y = Y[:, eq] - X[:, fixed] * values[fixed, eq]
+    A[fixed, eq] = values[fixed, eq]
+    A[free, eq] = X[:, free] \ y
 end
 ```
 
-#### Algorithm: Zero Constraints (Selection Method)
-
-For zero constraints only, we estimate equation-by-equation using restricted least squares:
-
-```julia
-function constrained_ols_selection(X, Y, constraints, names, n_lags, n_vars)
-    A = zeros(1 + n_vars * n_lags, n_vars)
-
-    # For each equation
-    for eq_idx in 1:n_vars
-        # Determine free coefficients in this equation
-        is_free = determine_free_coefficients(eq_idx, constraints, names, n_lags)
-
-        # Estimate using only free regressors
-        X_free = X[:, is_free]
-        A[is_free, eq_idx] = X_free \ Y[:, eq_idx]
-    end
-
-    return A
-end
-```
-
-**Complexity**: O(n_vars × n_obs × n_free²) where n_free ≤ n_vars × n_lags
-
-**Key insight**: VAR equations can be estimated separately under zero constraints. Each equation's constrained coefficients are simply omitted from that equation's regression.
-
-#### Algorithm: Mixed Constraints
-
-When fixed-value constraints are present:
-
-1. Start with unconstrained OLS
-2. Apply fixed constraints directly
-3. Re-estimate free parameters holding fixed values constant
-
-**Mathematical formulation**:
-Given `Y = Xβ + ε` with constraints `Rβ = r`, we solve:
-
-```
-Minimize: ||Y - Xβ||²
-Subject to: β_fixed = r_fixed (fixed constraints)
-           β_zero = 0 (zero constraints)
-```
-
-This is solved by partitioning parameters into fixed and free, then estimating the free parameters conditional on the fixed ones.
+**Mathematical formulation**: given `y_k = X β_k + ε_k` for equation `k`, minimize
+`||y_k - X β_k||²` subject to `β_k[fixed] = r_k`. Because every constraint
+restricts coefficients of a single equation, the equations are estimated
+separately.
 
 ---
 
@@ -675,16 +644,15 @@ struct MyConstraint <: AbstractConstraint
 end
 ```
 
-2. **Implement constraint application**:
+2. **List the restricted coefficients**: add a method returning
+   `(equation, coefficient row, value)` triples; resolution, validation, and
+   estimation then handle the new type:
 
 ```julia
-function apply_constraint!(A::Matrix, c::MyConstraint, varnames, n_lags, n_vars)
-    # Modify A in-place
+function _restricted_cells(c::MyConstraint, varnames::Vector{Symbol}, n_lags::Int)
+    # return [(eq, _coef_row(reg_idx, lag, length(varnames)), value), ...]
 end
 ```
-
-3. **Update constraint handling in estimation**:
-   - Add case to `constrained_ols_selection` or `constrained_ols_general`
 
 ---
 

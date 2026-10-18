@@ -140,12 +140,29 @@ backward-compatible).
   throws `SingularException` for a numerically rank-deficient design. It
   accepts `Float32` and `Float64` data.
 
+- Constraints are resolved by one routine shared by `fit`,
+  `check_constraints`, `apply_constraints!`, and `build_selection_matrix`. An
+  unknown variable name or a lag outside `1:n_lags` throws an `ArgumentError`
+  on every path, and so do two constraints that set the same coefficient to
+  different values. `build_selection_matrix` treats coefficients fixed by a
+  `FixedConstraint` as not free.
+- `irf(model, ::SignRestriction)` and `irf(model, ::NarrativeRestriction)`
+  share one implementation and validate `horizon`, `coverage`, `n_draws`, and
+  `max_attempts` like `irf` for the other identifications (`horizon = 0`
+  now throws). Coverage levels are sorted. `irf(model, ::NarrativeRestriction;
+  parallel = :distributed)` throws an `ArgumentError`.
+
 ### Fixed
 
 - `compute_ma_matrices_from_B!` with `n_lags = 0` left `Φ[:, :, 2:end]`
   unset; these slices are now zero.
 - `variance_decomposition` read the IRF array as horizon-first while it is
   stored variable-first, so it returned wrong shares without an error.
+- `fit(OLSVAR, ...)` with a `FixedConstraint` set the fixed coefficient but did
+  not re-estimate the other coefficients of that equation; with both fixed and
+  zero constraints it threw a `DimensionMismatch`. Constrained estimation is now
+  restricted least squares, equation by equation, for any mix of zero and fixed
+  constraints.
 
 ## [0.1.2] - 2026-10-15
 

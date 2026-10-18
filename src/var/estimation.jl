@@ -134,169 +134,42 @@ end
 """
     constrained_ols(X, Y, constraints, names, n_lags, n_vars)
 
-Estimate VAR coefficients under linear constraints.
+Estimate VAR coefficients under zero and fixed-value constraints.
 
-Uses restricted least squares with selection matrix approach.
+Restricted least squares equation by equation: in each equation the restricted
+coefficients are set to their values, their contribution is subtracted from the
+dependent variable, and the free coefficients are estimated by OLS on the
+remaining regressors. Returns the `(1 + n_vars * n_lags) × n_vars` coefficient
+matrix (intercept first; column = equation).
 """
 function constrained_ols(
         X::AbstractMatrix{T}, Y::AbstractMatrix{T},
-        constraints::Vector{<:AbstractConstraint},
+        constraints::AbstractVector{<:AbstractConstraint},
         names::Vector{Symbol}, n_lags::Int, n_vars::Int
     ) where {T}
+    length(names) == n_vars ||
+        throw(DimensionMismatch("expected $n_vars names, got $(length(names))"))
+    n_coef = 1 + n_vars * n_lags
+    size(X, 2) == n_coef && size(Y, 2) == n_vars && size(X, 1) == size(Y, 1) || throw(
+        DimensionMismatch(
+            "X must be T × $n_coef and Y T × $n_vars with the same T; got $(size(X)) and $(size(Y))"
+        )
+    )
+    Base.require_one_based_indexing(X, Y)
+    (; restricted, values) = _resolve_constraints(constraints, names, n_lags)
 
-    # Check if we only have zero/block constraints (easy case)
-    only_zero = all(c -> c isa Union{ZeroConstraint, BlockExogeneity}, constraints)
-
-    if only_zero
-        # Use selection matrix approach
-        return constrained_ols_selection(X, Y, constraints, names, n_lags, n_vars)
-    else
-        # General case with fixed constraints
-        return constrained_ols_general(X, Y, constraints, names, n_lags, n_vars)
-    end
-end
-
-"""
-    constrained_ols_selection(X, Y, constraints, names, n_lags, n_vars)
-
-Restricted OLS using selection matrix (for zero constraints only).
-
-Estimates each equation separately, applying constraints.
-"""
-function constrained_ols_selection(
-        X::AbstractMatrix{T}, Y::AbstractMatrix{T},
-        constraints::Vector{<:AbstractConstraint},
-        names::Vector{Symbol}, n_lags::Int, n_vars::Int
-    ) where {T}
-    n_coef_per_eq = 1 + n_vars * n_lags
-    A = zeros(T, n_coef_per_eq, n_vars)
-
-    # Estimate each equation separately
-    for eq_idx in 1:n_vars
-        # Determine which coefficients are free in this equation
-        is_free = trues(n_coef_per_eq)
-
-        for c in constraints
-            if c isa ZeroConstraint
-                # Check if this constraint applies to current equation
-                if names[eq_idx] == c.variable
-                    lags_to_constrain = isempty(c.lags) ? (1:n_lags) : c.lags
-                    for regressor in c.regressors
-                        reg_idx = findfirst(==(regressor), names)
-                        reg_idx === nothing && continue
-                        for lag in lags_to_constrain
-                            (lag < 1 || lag > n_lags) && continue
-                            col_idx = 1 + (lag - 1) * n_vars + reg_idx
-                            is_free[col_idx] = false
-                        end
-                    end
-                end
-            elseif c isa BlockExogeneity
-                # Check if this equation is in the "to" list
-                if names[eq_idx] in c.to
-                    for from_var in c.from
-                        reg_idx = findfirst(==(from_var), names)
-                        reg_idx === nothing && continue
-                        for lag in 1:n_lags
-                            col_idx = 1 + (lag - 1) * n_vars + reg_idx
-                            is_free[col_idx] = false
-                        end
-                    end
-                end
-            end
-        end
-
-        # Select free columns and estimate
-        free_indices = findall(is_free)
-        if !isempty(free_indices)
-            X_free = X[:, free_indices]
-            A[free_indices, eq_idx] = X_free \ Y[:, eq_idx]
+    A = zeros(T, n_coef, n_vars)
+    for eq in 1:n_vars
+        fixed = findall(restricted[:, eq])
+        free = findall(.!restricted[:, eq])
+        vals = T.(values[fixed, eq])
+        y = Y[:, eq] - X[:, fixed] * vals
+        A[fixed, eq] = vals
+        if !isempty(free)
+            A[free, eq] = X[:, free] \ y
         end
     end
-
     return A
-end
-
-"""
-    constrained_ols_general(X, Y, constraints, names, n_lags, n_vars)
-
-Restricted OLS with general linear equality constraints.
-
-Handles both zero and fixed value constraints.
-"""
-function constrained_ols_general(
-        X::AbstractMatrix{T}, Y::AbstractMatrix{T},
-        constraints::Vector{<:AbstractConstraint},
-        names::Vector{Symbol}, n_lags::Int, n_vars::Int
-    ) where {T}
-
-    # Start with unconstrained estimate
-    A = X \ Y
-
-    # Apply fixed constraints directly
-    for c in constraints
-        if c isa FixedConstraint
-            row_idx = findfirst(==(c.variable), names)
-            reg_idx = findfirst(==(c.regressor), names)
-            col_idx = 1 + (c.lag - 1) * n_vars + reg_idx
-            A[col_idx, row_idx] = c.value
-        end
-    end
-
-    # Apply zero/block constraints
-    zero_constraints = filter(c -> c isa Union{ZeroConstraint, BlockExogeneity}, constraints)
-    if !isempty(zero_constraints)
-        # Re-estimate with zero constraints holding fixed values constant
-        A = reestimate_with_fixed(X, Y, A, constraints, names, n_lags, n_vars)
-    end
-
-    return A
-end
-
-"""
-    reestimate_with_fixed(X, Y, A_init, constraints, names, n_lags, n_vars)
-
-Re-estimate holding fixed constraints at their specified values.
-"""
-function reestimate_with_fixed(
-        X::AbstractMatrix{T}, Y::AbstractMatrix{T},
-        A_init::AbstractMatrix{T},
-        constraints::Vector{<:AbstractConstraint},
-        names::Vector{Symbol}, n_lags::Int, n_vars::Int
-    ) where {T}
-
-    # Build modified system: Y_adj = Y - X_fixed * A_fixed
-    # Then estimate free parameters
-
-    fixed_constraints = filter(c -> c isa FixedConstraint, constraints)
-    if isempty(fixed_constraints)
-        return constrained_ols_selection(X, Y, constraints, names, n_lags, n_vars)
-    end
-
-    # Adjust Y for fixed parameters
-    Y_adj = copy(Y)
-    for c in fixed_constraints
-        row_idx = findfirst(==(c.variable), names)
-        reg_idx = findfirst(==(c.regressor), names)
-        col_idx = 1 + (c.lag - 1) * n_vars + reg_idx
-        Y_adj[:, row_idx] .-= X[:, col_idx] .* c.value
-    end
-
-    # Now estimate on free parameters
-    zero_constraints = filter(c -> c isa Union{ZeroConstraint, BlockExogeneity}, constraints)
-    S, n_free = build_selection_matrix(zero_constraints, names, n_lags)
-
-    # Solve for free parameters
-    XS = X * S
-    θ_free = XS \ Y_adj
-    A = S * θ_free
-
-    # Reshape and apply fixed constraints
-    n_coef_per_eq = 1 + n_vars * n_lags
-    A_full = reshape(A, (n_coef_per_eq, n_vars))
-    apply_constraints!(A_full, fixed_constraints, names, n_lags)
-
-    return A_full
 end
 
 """

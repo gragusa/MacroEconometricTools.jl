@@ -176,6 +176,13 @@ end
 
 # ============================================================================
 
+# Checks shared by every `irf` method; returns the coverage levels sorted.
+function _validate_irf_args(horizon::Integer, coverage::AbstractVector{<:Real})
+    horizon > 0 || throw(ArgumentError("horizon must be positive"))
+    all(0 .< coverage .< 1) || throw(ArgumentError("coverage levels must be in (0, 1)"))
+    return sort(coverage)
+end
+
 """
     irf(model::VARModel, identification::AbstractIdentification; kwargs...)
 
@@ -234,8 +241,7 @@ function irf(
         scale::Real = 1,
         rng::AbstractRNG = Random.default_rng()
     ) where {T}
-    horizon > 0 || throw(ArgumentError("horizon must be positive"))
-    all(0 .< coverage .< 1) || throw(ArgumentError("coverage levels must be in (0, 1)"))
+    coverage = _validate_irf_args(horizon, coverage)
 
     # Resolve cumulation indices
     cumulate_idx = _resolve_cumulate(cumulate, model.names)
@@ -250,9 +256,6 @@ function irf(
             )
         )
     end
-
-    # Sort coverage levels
-    coverage = sort(coverage)
 
     # Compute point estimate of IRF
     P = rotation_matrix(model, identification)
@@ -349,101 +352,24 @@ draws to represent set identification.
 - `coverage::Vector{Float64}=[0.68, 0.90, 0.95]`: Coverage levels for quantile bands
 - `normalization::AbstractNormalization=UnitStd()`: Shock normalization
 - `cumulate::Union{Nothing, Vector{Symbol}, Vector{Int}}=nothing`: Variables to cumulate
-- `parallel::Symbol=:none`: Parallelization (`:none` or `:distributed`)
+- `scale::Real=1`: Scaling applied to the responses
+- `parallel::Symbol=:none`: Parallelization of the rotation search (`:none` or `:distributed`)
 - `rng::AbstractRNG=Random.default_rng()`: Random number generator
 
 # Returns
 - `SignRestrictedIRFResult`: IRF result with multiple draws and quantile bands
 """
 function irf(
-        model::VARModel{T}, id::SignRestriction;
-        n_draws::Int = 1000,
+        model::VARModel, id::SignRestriction;
         max_attempts::Int = 10000,
-        horizon::Int = 24,
-        coverage::Vector{Float64} = [0.68, 0.9, 0.95],
-        normalization::AbstractNormalization = UnitStd(),
-        cumulate::Union{Nothing, Vector{Symbol}, Vector{Int}} = nothing,
-        scale::Real = 1,
         parallel::Symbol = :none,
-        rng::AbstractRNG = Random.default_rng()
-    ) where {T}
-
-    # Resolve cumulation indices
-    cumulate_idx = _resolve_cumulate(cumulate, model.names)
-
-    # Compute multiple rotation matrices and IRFs
-    rotation_matrices = Vector{Matrix{T}}(undef, n_draws)
-    irf_draws_raw = zeros(T, n_draws, n_vars(model), n_vars(model), horizon + 1)
-
-    for i in 1:n_draws
-        # Draw a rotation matrix satisfying restrictions
-        P = rotation_matrix(
-            model, id; max_draws = max_attempts, parallel = parallel,
-            verbose = false, rng = rng
-        )
-        P = normalize(P, normalization)
-        rotation_matrices[i] = P
-
-        # Compute IRF for this draw
-        irf_draws_raw[i, :, :, :] = compute_irf_point(model, P, horizon)
-    end
-
-    # Apply cumulation to each draw if requested
-    if cumulate_idx !== nothing
-        for i in 1:n_draws
-            _cumulate_point!(view(irf_draws_raw, i, :, :, :), cumulate_idx)
-        end
-    end
-
-    # Apply scaling
-    if scale != 1
-        irf_draws_raw .*= T(scale)
-    end
-
-    # Compute pointwise quantiles (from possibly cumulated/scaled draws)
-    irf_median_raw = dropdims(median(irf_draws_raw; dims = 1); dims = 1)
-
-    lower_raw = Vector{Array{T, 3}}(undef, length(coverage))
-    upper_raw = Vector{Array{T, 3}}(undef, length(coverage))
-
-    sz3 = size(irf_draws_raw)[2:4]
-    for (idx, cov) in enumerate(coverage)
-        α = 1 - cov
-        lo = zeros(T, sz3...)
-        hi = zeros(T, sz3...)
-        _quantile_along_dim1!(lo, hi, irf_draws_raw, α / 2, 1 - α / 2)
-        lower_raw[idx] = lo
-        upper_raw[idx] = hi
-    end
-
-    # Compute median impact diagonal from rotation matrices
-    impact_diags = hcat([T.(diag(rotation_matrices[i])) for i in 1:n_draws]...)
-    impact_diagonal = vec(median(impact_diags; dims = 2))
-
-    # Wrap in AxisArrays
-    names = Symbol.(model.names)
-    irf_median_ax = _wrap_irf_3d(irf_median_raw, names)
-    irf_draws_ax = _wrap_irf_4d(irf_draws_raw, names)
-    lower_ax = [_wrap_irf_3d(lb, names) for lb in lower_raw]
-    upper_ax = [_wrap_irf_3d(ub, names) for ub in upper_raw]
-
-    n = n_vars(model)
-    cumulate_syms = cumulate_idx === nothing ? nothing : Symbol.(model.names[cumulate_idx])
-    metadata = (
-        horizon = horizon,
-        n_draws = n_draws,
-        normalization = typeof(normalization),
-        names = model.names,
-        cumulated_vars = cumulate_syms,
-        scale = fill(T(scale), n),
-        impact_diagonal = impact_diagonal,
-        timestamp = now(),
+        rng::AbstractRNG = Random.default_rng(),
+        kwargs...
     )
-
-    return SignRestrictedIRFResult(
-        irf_median_ax, irf_draws_ax, lower_ax, upper_ax,
-        coverage, rotation_matrices, id, metadata
+    draw_rotation() = rotation_matrix(
+        model, id; max_draws = max_attempts, parallel, verbose = false, rng
     )
+    return _set_identified_irf(draw_rotation, model, id; max_attempts, kwargs...)
 end
 
 """
@@ -464,6 +390,7 @@ structural shocks.
 - `normalization::AbstractNormalization=UnitStd()`: Shock normalization
 - `cumulate::Union{Nothing, Vector{Symbol}, Vector{Int}}=nothing`: Variables to cumulate
 - `scale::Real=1`: Scaling applied to the responses
+- `parallel::Symbol=:none`: Only `:none` is supported; other values throw
 - `rng::AbstractRNG=Random.default_rng()`: Random number generator
 
 Date-based narrative restrictions resolve against the dates stored on the model
@@ -474,24 +401,51 @@ restrictions are interpreted as integer residual-row indices.
 - `SignRestrictedIRFResult`: IRF result with multiple draws and quantile bands
 """
 function irf(
-        model::VARModel{T}, id::NarrativeRestriction;
-        n_draws::Int = 1000,
+        model::VARModel, id::NarrativeRestriction;
         max_attempts::Int = 10000,
+        parallel::Symbol = :none,
+        rng::AbstractRNG = Random.default_rng(),
+        kwargs...
+    )
+    parallel === :none || throw(
+        ArgumentError(
+            "parallel = $(repr(parallel)) is not supported for NarrativeRestriction; use parallel = :none"
+        )
+    )
+    draw_rotation() = rotation_matrix(model, id; max_draws = max_attempts, rng)
+    return _set_identified_irf(draw_rotation, model, id; max_attempts, kwargs...)
+end
+
+"""
+    _set_identified_irf(draw_rotation, model, id; n_draws, max_attempts, horizon,
+                        coverage, normalization, cumulate, scale)
+
+Shared implementation of `irf` for set-identifying schemes. `draw_rotation()`
+returns one impact matrix accepted by the identification `id`; it is called
+`n_draws` times. Returns a `SignRestrictedIRFResult` with the pointwise median
+and quantile bands of the accepted draws.
+"""
+function _set_identified_irf(
+        draw_rotation, model::VARModel{T}, id::AbstractIdentification;
+        n_draws::Int = 1000,
+        max_attempts::Int,
         horizon::Int = 24,
         coverage::Vector{Float64} = [0.68, 0.9, 0.95],
         normalization::AbstractNormalization = UnitStd(),
         cumulate::Union{Nothing, Vector{Symbol}, Vector{Int}} = nothing,
-        scale::Real = 1,
-        rng::AbstractRNG = Random.default_rng()
+        scale::Real = 1
     ) where {T}
+    coverage = _validate_irf_args(horizon, coverage)
+    n_draws > 0 || throw(ArgumentError("n_draws must be positive"))
+    max_attempts > 0 || throw(ArgumentError("max_attempts must be positive"))
     cumulate_idx = _resolve_cumulate(cumulate, model.names)
 
+    n = n_vars(model)
     rotation_matrices = Vector{Matrix{T}}(undef, n_draws)
-    irf_draws_raw = zeros(T, n_draws, n_vars(model), n_vars(model), horizon + 1)
+    irf_draws_raw = zeros(T, n_draws, n, n, horizon + 1)
 
     for i in 1:n_draws
-        P = rotation_matrix(model, id; max_draws = max_attempts, rng = rng)
-        P = normalize(P, normalization)
+        P = normalize(draw_rotation(), normalization)
         rotation_matrices[i] = P
         irf_draws_raw[i, :, :, :] = compute_irf_point(model, P, horizon)
     end
@@ -506,6 +460,7 @@ function irf(
         irf_draws_raw .*= T(scale)
     end
 
+    # Pointwise quantiles of the (possibly cumulated and scaled) draws
     irf_median_raw = dropdims(median(irf_draws_raw; dims = 1); dims = 1)
 
     lower_raw = Vector{Array{T, 3}}(undef, length(coverage))
@@ -530,7 +485,6 @@ function irf(
     lower_ax = [_wrap_irf_3d(lb, names) for lb in lower_raw]
     upper_ax = [_wrap_irf_3d(ub, names) for ub in upper_raw]
 
-    n = n_vars(model)
     cumulate_syms = cumulate_idx === nothing ? nothing : Symbol.(model.names[cumulate_idx])
     metadata = (
         horizon = horizon,

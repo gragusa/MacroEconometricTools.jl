@@ -77,6 +77,110 @@ struct BlockExogeneity <: AbstractConstraint
 end
 
 # ============================================================================
+# Constraint Resolution
+# ============================================================================
+
+# Row of the coefficient matrix `B` ((1 + K p) × K, intercept first, then lag 1
+# of every variable, lag 2, ...) that holds `regressor` at `lag`.
+_coef_row(reg_idx::Int, lag::Int, n_vars::Int) = 1 + (lag - 1) * n_vars + reg_idx
+
+function _constraint_var(name::Symbol, varnames::Vector{Symbol}, role::AbstractString)
+    idx = findfirst(==(name), varnames)
+    idx === nothing && throw(
+        ArgumentError(
+            "constraint $role $(repr(name)) is not a model variable; variables are $(varnames)"
+        )
+    )
+    return idx
+end
+
+function _constraint_lag(lag::Integer, n_lags::Int)
+    1 <= lag <= n_lags ||
+        throw(ArgumentError("constraint lag $lag is outside 1:$n_lags"))
+    return Int(lag)
+end
+
+# (equation, coefficient row, value) for every coefficient `c` restricts.
+function _restricted_cells(c::ZeroConstraint, varnames::Vector{Symbol}, n_lags::Int)
+    n_vars = length(varnames)
+    eq = _constraint_var(c.variable, varnames, "variable")
+    lags = isempty(c.lags) ? (1:n_lags) : c.lags
+    return [
+        (eq, _coef_row(_constraint_var(r, varnames, "regressor"), _constraint_lag(l, n_lags), n_vars), 0.0)
+            for r in c.regressors for l in lags
+    ]
+end
+
+function _restricted_cells(c::FixedConstraint, varnames::Vector{Symbol}, n_lags::Int)
+    eq = _constraint_var(c.variable, varnames, "variable")
+    reg = _constraint_var(c.regressor, varnames, "regressor")
+    return [(eq, _coef_row(reg, _constraint_lag(c.lag, n_lags), length(varnames)), c.value)]
+end
+
+function _restricted_cells(c::BlockExogeneity, varnames::Vector{Symbol}, n_lags::Int)
+    n_vars = length(varnames)
+    from = [_constraint_var(v, varnames, "'from' variable") for v in c.from]
+    to = [_constraint_var(v, varnames, "'to' variable") for v in c.to]
+    return [(eq, _coef_row(reg, l, n_vars), 0.0) for eq in to for reg in from for l in 1:n_lags]
+end
+
+function _restricted_cells(c::AbstractConstraint, ::Vector{Symbol}, ::Int)
+    throw(ArgumentError("unsupported constraint type $(typeof(c))"))
+end
+
+"""
+    _resolve_constraints(constraints, varnames, n_lags) -> (restricted, values)
+
+Resolve `constraints` against the model's variable names and lag order.
+`restricted` is a `(1 + K p) × K` `BitMatrix` in the layout of the coefficient
+matrix `B` (intercept first; column = equation) marking restricted coefficients,
+and `values` holds their restricted values (zero for `ZeroConstraint` and
+`BlockExogeneity`).
+
+Throws `ArgumentError` for an unknown variable name, a lag outside `1:n_lags`,
+or two constraints that restrict the same coefficient to different values.
+"""
+function _resolve_constraints(
+        constraints::AbstractVector{<:AbstractConstraint},
+        varnames::Vector{Symbol}, n_lags::Int
+    )
+    n_vars = length(varnames)
+    n_coef = 1 + n_vars * n_lags
+    restricted = falses(n_coef, n_vars)
+    values = zeros(n_coef, n_vars)
+    for c in constraints, (eq, row, v) in _restricted_cells(c, varnames, n_lags)
+        if restricted[row, eq] && values[row, eq] != v
+            throw(
+                ArgumentError(
+                    "conflicting constraints on the coefficient of $(repr(varnames[eq])) " *
+                        "on row $row of B: $(values[row, eq]) and $v"
+                )
+            )
+        end
+        restricted[row, eq] = true
+        values[row, eq] = v
+    end
+    return (; restricted, values)
+end
+
+"""
+    check_constraints(constraints, varnames, n_lags)
+
+Validate that constraints are well-specified.
+
+# Throws
+- `ArgumentError` if constraints reference non-existent variables or invalid
+  lags, or restrict the same coefficient to different values
+"""
+function check_constraints(
+        constraints::AbstractVector{<:AbstractConstraint},
+        varnames::Vector{Symbol}, n_lags::Int
+    )
+    _resolve_constraints(constraints, varnames, n_lags)
+    return true
+end
+
+# ============================================================================
 # Constraint Application
 # ============================================================================
 
@@ -86,7 +190,8 @@ end
 Apply constraints to coefficient matrix `A` in-place.
 
 # Arguments
-- `A::Matrix`: Coefficient matrix (n_vars  (1 + n_vars * n_lags))
+- `A::AbstractMatrix`: Coefficient matrix (n_vars × (1 + n_vars * n_lags)), one
+  row per equation
 - `constraints::Vector{<:AbstractConstraint}`: Constraints to apply
 - `varnames::Vector{Symbol}`: Variable names
 - `n_lags::Int`: Number of lags
@@ -95,78 +200,22 @@ Apply constraints to coefficient matrix `A` in-place.
 - Modified `A` matrix with constraints applied
 """
 function apply_constraints!(
-        A::Matrix{T}, constraints::Vector{<:AbstractConstraint},
+        A::AbstractMatrix, constraints::AbstractVector{<:AbstractConstraint},
         varnames::Vector{Symbol}, n_lags::Int
-    ) where {T}
+    )
     n_vars = length(varnames)
-
-    for c in constraints
-        if c isa ZeroConstraint
-            apply_zero_constraint!(A, c, varnames, n_lags, n_vars)
-        elseif c isa FixedConstraint
-            apply_fixed_constraint!(A, c, varnames, n_vars)
-        elseif c isa BlockExogeneity
-            apply_block_exogeneity!(A, c, varnames, n_lags, n_vars)
-        end
+    size(A) == (n_vars, 1 + n_vars * n_lags) || throw(
+        DimensionMismatch(
+            "A must be $(n_vars) × $(1 + n_vars * n_lags), got $(size(A))"
+        )
+    )
+    Base.require_one_based_indexing(A)
+    (; restricted, values) = _resolve_constraints(constraints, varnames, n_lags)
+    for I in findall(restricted)
+        row, eq = Tuple(I)
+        A[eq, row] = values[row, eq]
     end
-
     return A
-end
-
-function apply_zero_constraint!(
-        A::Matrix, c::ZeroConstraint, varnames::Vector{Symbol},
-        n_lags::Int, n_vars::Int
-    )
-    # Find equation (row) index
-    row_idx = findfirst(==(c.variable), varnames)
-    row_idx === nothing && throw(ArgumentError("Variable $(c.variable) not found"))
-
-    # Determine which lags to constrain
-    lags_to_constrain = isempty(c.lags) ? (1:n_lags) : c.lags
-
-    # Apply constraint for each regressor and lag
-    for regressor in c.regressors
-        reg_idx = findfirst(==(regressor), varnames)
-        reg_idx === nothing && throw(ArgumentError("Variable $(regressor) not found"))
-
-        for lag in lags_to_constrain
-            (lag < 1 || lag > n_lags) && throw(ArgumentError("Invalid lag: $lag"))
-            # Column index: 1 (intercept) + (lag-1)*n_vars + reg_idx
-            col_idx = 1 + (lag - 1) * n_vars + reg_idx
-            A[row_idx, col_idx] = 0
-        end
-    end
-    return
-end
-
-function apply_fixed_constraint!(
-        A::Matrix, c::FixedConstraint,
-        varnames::Vector{Symbol}, n_vars::Int
-    )
-    row_idx = findfirst(==(c.variable), varnames)
-    row_idx === nothing && throw(ArgumentError("Variable $(c.variable) not found"))
-
-    reg_idx = findfirst(==(c.regressor), varnames)
-    reg_idx === nothing && throw(ArgumentError("Variable $(c.regressor) not found"))
-
-    col_idx = 1 + (c.lag - 1) * n_vars + reg_idx
-    return A[row_idx, col_idx] = c.value
-end
-
-function apply_block_exogeneity!(
-        A::Matrix, c::BlockExogeneity, varnames::Vector{Symbol},
-        n_lags::Int, n_vars::Int
-    )
-    # Create equivalent zero constraints
-    for to_var in c.to
-        for lag in 1:n_lags
-            apply_zero_constraint!(
-                A, ZeroConstraint(to_var, c.from, [lag]),
-                varnames, n_lags, n_vars
-            )
-        end
-    end
-    return
 end
 
 """
@@ -174,110 +223,28 @@ end
 
 Build selection matrix `S` that selects free (unconstrained) parameters.
 
-For restricted estimation:  = S *  where  are the free parameters.
+For restricted estimation: `vec(A) = S * θ`, where `A` is the
+`n_vars × (1 + n_vars * n_lags)` coefficient matrix (one row per equation) and `θ`
+holds the free parameters. Every coefficient restricted by a constraint (zero or
+fixed) is excluded.
 
 # Returns
 - `S::Matrix`: Selection matrix mapping free parameters to full coefficient vector
 - `n_free::Int`: Number of free parameters
 """
 function build_selection_matrix(
-        constraints::Vector{<:AbstractConstraint},
+        constraints::AbstractVector{<:AbstractConstraint},
         varnames::Vector{Symbol}, n_lags::Int
     )
-    n_vars = length(varnames)
-    n_coef = n_vars * (1 + n_vars * n_lags)
+    (; restricted) = _resolve_constraints(constraints, varnames, n_lags)
+    # `restricted` is (1 + K p) × K; `A` is its transpose.
+    free_indices = findall(vec(permutedims(.!restricted)))
+    n_free = length(free_indices)
 
-    # Start with all parameters free
-    is_free = trues(n_coef)
-
-    # Mark constrained parameters as not free
-    for c in constraints
-        if c isa ZeroConstraint
-            mark_zero_constraint!(is_free, c, varnames, n_lags, n_vars)
-        elseif c isa BlockExogeneity
-            for to_var in c.to
-                for lag in 1:n_lags
-                    mark_zero_constraint!(
-                        is_free, ZeroConstraint(to_var, c.from, [lag]),
-                        varnames, n_lags, n_vars
-                    )
-                end
-            end
-        end
-        # Note: FixedConstraint needs different handling (not just selection)
-    end
-
-    n_free = sum(is_free)
-    free_indices = findall(is_free)
-
-    # Build selection matrix
-    S = zeros(n_coef, n_free)
+    S = zeros(length(restricted), n_free)
     for (j, i) in enumerate(free_indices)
         S[i, j] = 1
     end
 
     return S, n_free
-end
-
-function mark_zero_constraint!(
-        is_free::BitVector, c::ZeroConstraint,
-        varnames::Vector{Symbol}, n_lags::Int, n_vars::Int
-    )
-    row_idx = findfirst(==(c.variable), varnames)
-    row_idx === nothing && return
-
-    lags_to_constrain = isempty(c.lags) ? (1:n_lags) : c.lags
-
-    for regressor in c.regressors
-        reg_idx = findfirst(==(regressor), varnames)
-        reg_idx === nothing && continue
-
-        for lag in lags_to_constrain
-            (lag < 1 || lag > n_lags) && continue
-            # Linear index in vectorized form
-            # vec(A) = [col1; col2; ...; coln]
-            # A is n_vars  (1 + n_vars * n_lags)
-            col_idx = 1 + (lag - 1) * n_vars + reg_idx
-            linear_idx = (col_idx - 1) * n_vars + row_idx
-            is_free[linear_idx] = false
-        end
-    end
-    return
-end
-
-"""
-    check_constraints(constraints, varnames, n_lags)
-
-Validate that constraints are well-specified.
-
-# Throws
-- `ArgumentError` if constraints reference non-existent variables or invalid lags
-"""
-function check_constraints(
-        constraints::Vector{<:AbstractConstraint},
-        varnames::Vector{Symbol}, n_lags::Int
-    )
-    for c in constraints
-        if c isa ZeroConstraint
-            c.variable in varnames ||
-                throw(ArgumentError("Unknown variable: $(c.variable)"))
-            all(r -> r in varnames, c.regressors) ||
-                throw(ArgumentError("Unknown regressor in ZeroConstraint"))
-            all(l -> 1 <= l <= n_lags, c.lags) ||
-                throw(ArgumentError("Invalid lag in ZeroConstraint: $(c.lags)"))
-        elseif c isa FixedConstraint
-            c.variable in varnames ||
-                throw(ArgumentError("Unknown variable: $(c.variable)"))
-            c.regressor in varnames ||
-                throw(ArgumentError("Unknown regressor: $(c.regressor)"))
-            1 <= c.lag <= n_lags || throw(ArgumentError("Invalid lag: $(c.lag)"))
-
-        elseif c isa BlockExogeneity
-            all(v -> v in varnames, c.from) ||
-                throw(ArgumentError("Unknown variable in 'from' list"))
-            all(v -> v in varnames, c.to) ||
-                throw(ArgumentError("Unknown variable in 'to' list"))
-        end
-    end
-    return true
 end
