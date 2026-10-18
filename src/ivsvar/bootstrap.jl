@@ -849,20 +849,14 @@ end
 
 # The residual bootstraps refit the VAR on a resampled series without resampling
 # the instrument, so the instrument has no valid alignment with the refitted residuals.
-for B in (:WildBootstrap, :Bootstrap, :BlockBootstrap)
-    @eval function compute_inference_bands(
-            ::VARModel{T}, ::IVIdentification,
-            ::Array{T, 3}, ::$B, ::Vector{Float64}, ::AbstractNormalization,
-            ::AbstractRNG
-        ) where {T}
-        throw(
-            ArgumentError(
-                $(string(B)) * " does not resample the instrument and is not supported " *
-                    "with IVIdentification. Use inference = ProxySVARMBB(reps), which resamples " *
-                    "residuals and instrument jointly."
-            )
+function _check_resamples_instrument(::IVIdentification, inference::_ResidualBootstrap)
+    throw(
+        ArgumentError(
+            "$(nameof(typeof(inference))) does not resample the instrument and is not " *
+                "supported with IVIdentification. Use inference = ProxySVARMBB(reps), " *
+                "which resamples residuals and instrument jointly."
         )
-    end
+    )
 end
 
 # Error guard: ProxySVARMBB requires IVIdentification

@@ -107,7 +107,7 @@ end
     # The default ordering takes the fast Cholesky path; an explicit ordering
     # takes the generic refit path.
     for id in (CholeskyID(), CholeskyID([:output, :price]))
-        draws = bootstrap_irf(model, id, horizon, reps; rng = StableRNG(1))
+        draws = bootstrap_irf(model, id, WildBootstrap(reps); horizon, rng = StableRNG(1))
         @test size(draws) == (reps, n, n, horizon + 1)
         # (draw, variable, shock, horizon): no impact response of variable 1 to shock 2
         @test all(iszero, draws[:, 1, 2, 1])

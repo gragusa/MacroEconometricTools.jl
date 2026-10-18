@@ -3,7 +3,7 @@
 include("../test_basic.jl")
 include("test_constraints.jl")
 include("test_plot_recipes.jl")
-include("../test_bootstrap_parallel.jl")
+include("test_bootstrap_entry_point.jl")
 include("../test_sign_restrictions.jl")
 include("test_set_identified_irf.jl")
 include("test_bootstrap_failures.jl")

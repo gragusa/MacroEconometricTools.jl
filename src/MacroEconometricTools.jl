@@ -53,9 +53,6 @@ include("ivsvar/msw.jl")
 include("simulation.jl")
 include("bootstrap.jl")
 
-# Parallel computing utilities
-include("parallel.jl")
-
 # Plotting recipes (will work when Plots.jl is loaded)
 include("plots_recipes.jl")
 

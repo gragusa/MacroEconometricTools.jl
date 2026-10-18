@@ -1067,69 +1067,18 @@ This function dispatches on the type of `inference_type`:
 """
 function compute_inference_bands end
 
-# Method 1: Wild Bootstrap
+# Methods 1-3: residual bootstraps (wild, standard, block)
 function compute_inference_bands(
         model::VARModel{T},
         identification::AbstractIdentification,
         irf_point::Array{T, 3},
-        inf::WildBootstrap,
+        inf::_ResidualBootstrap,
         coverage::Vector{Float64},
         normalization::AbstractNormalization,
         rng::AbstractRNG
     ) where {T}
     horizon = size(irf_point, 3) - 1
-
-    # Run wild bootstrap
-    draws = bootstrap_irf_wild(
-        model, identification, horizon, inf.reps, rng;
-        normalization, max_failure_rate = inf.max_failure_rate
-    )
-
-    # Compute bands from draws
-    lower, upper = compute_bands_from_draws(irf_point, draws, coverage)
-
-    # Compute stderr from draws
-    stderr = dropdims(std(draws; dims = 1); dims = 1)
-
-    return draws, stderr, lower, upper
-end
-
-# Method 2: Standard Bootstrap
-function compute_inference_bands(
-        model::VARModel{T},
-        identification::AbstractIdentification,
-        irf_point::Array{T, 3},
-        inf::Bootstrap,
-        coverage::Vector{Float64},
-        normalization::AbstractNormalization,
-        rng::AbstractRNG
-    ) where {T}
-    horizon = size(irf_point, 3) - 1
-    draws = bootstrap_irf_standard(
-        model, identification, horizon, inf.reps, rng;
-        normalization, max_failure_rate = inf.max_failure_rate
-    )
-    lower, upper = compute_bands_from_draws(irf_point, draws, coverage)
-    stderr = dropdims(std(draws; dims = 1); dims = 1)
-
-    return draws, stderr, lower, upper
-end
-
-# Method 3: Block Bootstrap
-function compute_inference_bands(
-        model::VARModel{T},
-        identification::AbstractIdentification,
-        irf_point::Array{T, 3},
-        inf::BlockBootstrap,
-        coverage::Vector{Float64},
-        normalization::AbstractNormalization,
-        rng::AbstractRNG
-    ) where {T}
-    horizon = size(irf_point, 3) - 1
-    draws = bootstrap_irf_block(
-        model, identification, horizon, inf.reps,
-        inf.block_length, rng; normalization, max_failure_rate = inf.max_failure_rate
-    )
+    draws = _bootstrap_irf_draws(model, identification, inf, horizon, normalization, rng)
     lower, upper = compute_bands_from_draws(irf_point, draws, coverage)
     stderr = dropdims(std(draws; dims = 1); dims = 1)
 

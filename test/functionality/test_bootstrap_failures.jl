@@ -83,8 +83,8 @@ end
         )
         all_fail = Dict(r => PosDefException(1) for r in 0:5)
         @test_throws "5 / 5 replications failed" bootstrap_irf(
-            model, FlakyCholesky(all_fail), 4, 5; max_failure_rate = 0.99,
-            rng = StableRNG(5)
+            model, FlakyCholesky(all_fail), WildBootstrap(5; max_failure_rate = 0.99);
+            horizon = 4, rng = StableRNG(5)
         )
     end
 
@@ -101,9 +101,6 @@ end
             @test_throws "max_failure_rate must lie in [0, 1)" T(10; max_failure_rate = -0.1)
             @test T(10; max_failure_rate = 0).max_failure_rate == 0
         end
-        @test_throws "max_failure_rate must lie in [0, 1)" bootstrap_irf(
-            model, CholeskyID(), 4, 5; max_failure_rate = 1.5
-        )
     end
 
     @testset "Analytic() requires the default Cholesky identification" begin

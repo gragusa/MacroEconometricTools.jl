@@ -512,6 +512,9 @@ struct BlockBootstrap <: InferenceType
     end
 end
 
+# Bootstraps that resample the VAR residuals and refit the model.
+const _ResidualBootstrap = Union{WildBootstrap, Bootstrap, BlockBootstrap}
+
 """
     ProxySVARMBB <: InferenceType
 

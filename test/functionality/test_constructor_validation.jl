@@ -144,8 +144,8 @@ end
             inference = BlockBootstrap(5; block_length = n_res + 1), rng = StableRNG(1)
         )
         @test_throws "block_length = $(n_res + 1) must lie in 1:$n_res" bootstrap_irf(
-            model, CholeskyID(), 4, 5; method = :block, block_length = n_res + 1,
-            rng = StableRNG(1)
+            model, CholeskyID(), BlockBootstrap(5; block_length = n_res + 1);
+            horizon = 4, rng = StableRNG(1)
         )
         Z = randn(StableRNG(2), n_res)
         @test_throws "block_length = $(n_res + 1) must lie in 1:$n_res" irf(

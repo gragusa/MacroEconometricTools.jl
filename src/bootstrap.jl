@@ -2,11 +2,10 @@
 # Bootstrap Methods for Inference
 # ============================================================================
 #
-# Three bootstrap methods for VAR impulse responses, each dispatched
-# via compute_inference_bands() in var/irfs.jl:
-#   - bootstrap_irf_wild: Rademacher wild bootstrap
-#   - bootstrap_irf_standard: i.i.d. resampling
-#   - bootstrap_irf_block: moving block bootstrap with position-specific centering
+# Residual bootstraps for VAR impulse responses (`WildBootstrap`, `Bootstrap`,
+# `BlockBootstrap`). They differ only in how the residuals are resampled
+# (`_residual_resampler`); one replication loop (`_bootstrap_irf_draws`) serves
+# `bootstrap_irf` and `compute_inference_bands` in var/irfs.jl.
 
 # ============================================================================
 # Failed replications
@@ -113,9 +112,8 @@ end
 """
     _BootstrapWorkspace{T}
 
-Preallocated buffers for the Cholesky-identification fast path used by
-`bootstrap_irf_wild`, `bootstrap_irf_standard`, and `bootstrap_irf_block`.
-One instance is created at the top of each bootstrap function and reused
+Preallocated buffers for the Cholesky-identification fast path of
+`_bootstrap_irf_draws`. One instance is created per bootstrap call and reused
 across every replication. This avoids the per-rep allocation of a full
 VARModel, lagged-X matrix, residuals, Φ array, and IRF array that the
 generic `fit(OLSVAR)` path incurs.
@@ -377,381 +375,254 @@ function _bootstrap_irf_draw!(
     return copyto!(out, compute_irf_point(var_boot, P_boot, horizon))
 end
 
+
 # ============================================================================
-# Wild Bootstrap
+# Residual resampling
 # ============================================================================
+#
+# `_residual_resampler(inference, u)` returns a function `rng -> ū` that fills and
+# returns one resampled residual series shaped like `u`, reusing its buffers
+# across replications.
 
-"""
-    bootstrap_irf_wild(model, identification, horizon, reps, rng)
+_bootstrap_name(::WildBootstrap) = "Wild bootstrap"
+_bootstrap_name(::Bootstrap) = "Standard bootstrap"
+_bootstrap_name(::BlockBootstrap) = "Block bootstrap"
 
-Wild bootstrap for VAR impulse responses.
-
-Returns the IRF draws of the successful replications (see `bootstrap_irf`). For an assembled `IRFResult` with bands, use
-`irf(model, identification; inference=WildBootstrap(...))`, which calls this.
-
-The wild bootstrap resamples residuals by multiplying them with random
-Rademacher weights (±1 with equal probability). This preserves the
-conditional heteroskedasticity structure in the residuals while maintaining
-independence across equations.
-
-# Algorithm
-1. For each bootstrap replication:
-   - Draw Rademacher weights: ω[t] ∼ Uniform({-1, +1})
-   - Create bootstrap residuals: ū[t] = ω[t] * u[t]
-   - Simulate VAR with bootstrap residuals starting from initial observations
-   - Re-estimate VAR and compute IRF
-2. Return all bootstrap IRF draws
-
-# References
-- Liu (1988): "Bootstrap Procedures under Some Non-I.I.D. Models"
-- Gonçalves and Kilian (2004): "Bootstrapping autoregressions with
-  conditional heteroskedasticity of unknown form"
-
-# Note
-The wild bootstrap is robust to conditional heteroskedasticity and preserves
-the cross-equation correlation structure in the residuals.
-"""
-function bootstrap_irf_wild(
-        model::VARModel{T},
-        identification::AbstractIdentification,
-        horizon::Int,
-        reps::Int,
-        rng::AbstractRNG;
-        normalization::AbstractNormalization = UnitStd(),
-        max_failure_rate::Real = 0.1
-    ) where {T}
-    _check_max_failure_rate(max_failure_rate)
-    m = n_vars(model)
-    n_lags_val = n_lags(model)
-
-    # Preallocate output: (reps, n_vars, n_shocks, horizon+1)
-    irf_boot = zeros(T, reps, m, m, horizon + 1)
-
-    # Get residuals and original data
-    u = residuals(model)
-    n_obs = size(u, 1)
-    Y_original = model.Y
-
-    # Pre-allocate reusable buffers
-    ω = Vector{T}(undef, n_obs)
-    ū = Matrix{T}(undef, n_obs, m)
-    Y_boot = Matrix{T}(undef, n_obs, m)
-    intercept_ = model.coefficients.intercept
-    lags_ = model.coefficients.lags
-
-    # Fast path for CholeskyID: reuse a single workspace across all reps
-    # (in-place refit + fused IRF computation). Falls back to the generic
-    # `fit(OLSVAR)` path for other identification types (sign restrictions,
-    # etc.), which can't be handled by the Cholesky-specialised helpers.
-    use_fast = identification isa CholeskyID && identification.ordering === nothing
-    ws = use_fast ? _BootstrapWorkspace{T}(n_obs, m, n_lags_val) : nothing
-
-    ok = falses(reps)
-    for r in 1:reps
-        # Wild bootstrap: Rademacher weights (±1 with equal probability)
+# Wild bootstrap: each period's residual vector is multiplied by a Rademacher
+# weight (±1 with equal probability), which keeps conditional heteroskedasticity
+# and the cross-equation correlation of the residuals.
+function _residual_resampler(::WildBootstrap, u::AbstractMatrix{T}) where {T}
+    ω = similar(u, axes(u, 1))
+    ū = similar(u)
+    return function (rng)
         for i in eachindex(ω)
             ω[i] = rand(rng, Bool) ? one(T) : -one(T)
         end
-
-        # Multiply residuals by weights (broadcasts across columns)
-        @inbounds for j in 1:m, i in 1:n_obs
-
-            ū[i, j] = ω[i] * u[i, j]
-        end
-
-        # Simulate bootstrap VAR into the preallocated buffer.
-        simulate_var!(Y_boot, intercept_, lags_, ū, Y_original)
-
-        ok[r] = _try_draw!(view(irf_boot, r, :, :, :)) do out
-            _bootstrap_irf_draw!(out, ws, model, Y_boot, identification, horizon, normalization)
-        end
+        ū .= ω .* u
+        return ū
     end
-
-    return _successful_draws("Wild bootstrap", irf_boot, ok, max_failure_rate)
 end
 
+# Standard bootstrap: residual vectors resampled i.i.d. with replacement.
+function _residual_resampler(::Bootstrap, u::AbstractMatrix)
+    Base.require_one_based_indexing(u)
+    n_obs = size(u, 1)
+    ū = similar(u)
+    return function (rng)
+        for i in 1:n_obs
+            ū[i, :] .= view(u, rand(rng, 1:n_obs), :)
+        end
+        return ū
+    end
+end
+
+# Moving block bootstrap: N = ⌈T/ℓ⌉ blocks of ℓ consecutive residual vectors,
+# drawn with replacement, concatenated, and trimmed to T rows. Position s within
+# a block is centered by the mean of the residuals at s, s+ℓ, s+2ℓ, ..., so the
+# resampled residuals have mean (approximately) zero and the simulated series
+# does not drift.
+function _residual_resampler(inference::BlockBootstrap, u::AbstractMatrix{T}) where {T}
+    Base.require_one_based_indexing(u)
+    n_obs, m = size(u)
+    ℓ = inference.block_length
+    _check_block_length(ℓ, n_obs)
+    N = cld(n_obs, ℓ)
+    max_start = n_obs - ℓ + 1
+    mean_at_s = [mean(view(u, s:ℓ:(n_obs - ℓ + s), j)) for s in 1:ℓ, j in 1:m]
+    ū_full = Matrix{T}(undef, N * ℓ, m)
+    ū = view(ū_full, 1:n_obs, :)
+    return function (rng)
+        for b in 1:N
+            start = rand(rng, 1:max_start)
+            for s in 1:ℓ, j in 1:m
+                ū_full[ℓ * (b - 1) + s, j] = u[start + s - 1, j] - mean_at_s[s, j]
+            end
+        end
+        return ū
+    end
+end
+
+# Residual bootstraps refit the VAR on a resampled series; identifications that
+# carry data aligned with the residuals (an instrument) refuse them.
+_check_resamples_instrument(::AbstractIdentification, ::_ResidualBootstrap) = nothing
+
 # ============================================================================
-# Standard Bootstrap
+# Replication loop
 # ============================================================================
 
-"""
-    bootstrap_irf_standard(model, identification, horizon, reps, rng)
-
-Standard i.i.d. bootstrap for VAR impulse responses.
-
-Returns the IRF draws of the successful replications (see `bootstrap_irf`). For an assembled `IRFResult` with bands, use
-`irf(model, identification; inference=Bootstrap(...))`, which calls this.
-
-The standard bootstrap resamples residuals with replacement, treating them
-as independent draws from an unknown distribution. This is appropriate when
-residuals can be assumed i.i.d. (homoskedastic and uncorrelated).
-
-# Algorithm
-1. For each bootstrap replication:
-   - Sample row indices with replacement: i[t] ∼ Uniform(1, ..., T)
-   - Create bootstrap residuals: ū[t] = u[i[t], :]
-   - Simulate VAR with bootstrap residuals
-   - Re-estimate VAR and compute IRF
-2. Return all bootstrap IRF draws
-
-# References
-- Efron (1979): "Bootstrap methods: Another look at the jackknife"
-- Freedman (1981): "Bootstrapping regression models"
-
-# Note
-For time series with temporal dependence or heteroskedasticity, wild bootstrap or
-block bootstrap may be more appropriate. The standard bootstrap assumes i.i.d. errors.
-"""
-function bootstrap_irf_standard(
-        model::VARModel{T},
-        identification::AbstractIdentification,
-        horizon::Int,
-        reps::Int,
-        rng::AbstractRNG;
-        normalization::AbstractNormalization = UnitStd(),
-        max_failure_rate::Real = 0.1
+# Bootstrap IRF draws `(n_ok, K, K, horizon+1)` of the successful replications:
+# each replication simulates the VAR from resampled residuals, starting from the
+# observed initial values, and refits it (see `_bootstrap_irf_draw!`). Failed
+# replications are dropped under the rules of `_successful_draws`.
+function _bootstrap_irf_draws(
+        model::VARModel{T}, identification::AbstractIdentification,
+        inference::_ResidualBootstrap, horizon::Integer,
+        normalization::AbstractNormalization, rng::AbstractRNG
     ) where {T}
-    _check_max_failure_rate(max_failure_rate)
-    m = n_vars(model)
-    n_lags_val = n_lags(model)
-    n_obs = size(model.residuals, 1)
-
-    # Preallocate output
-    irf_boot = zeros(T, reps, m, m, horizon + 1)
-
+    _check_resamples_instrument(identification, inference)
     u = residuals(model)
-    Y_original = model.Y
+    n_obs, m = size(u)
+    resample = _residual_resampler(inference, u)
 
-    # Pre-allocate reusable buffers
-    ū = Matrix{T}(undef, n_obs, m)
     Y_boot = Matrix{T}(undef, n_obs, m)
     intercept_ = model.coefficients.intercept
     lags_ = model.coefficients.lags
 
+    # The workspace path handles only CholeskyID in the model's variable order;
+    # other identifications refit through `refit_for_bootstrap`.
     use_fast = identification isa CholeskyID && identification.ordering === nothing
-    ws = use_fast ? _BootstrapWorkspace{T}(n_obs, m, n_lags_val) : nothing
+    ws = use_fast ? _BootstrapWorkspace{T}(n_obs, m, n_lags(model)) : nothing
 
+    reps = inference.reps
+    irf_boot = zeros(T, reps, m, m, horizon + 1)
     ok = falses(reps)
     for r in 1:reps
-        # Standard bootstrap: resample rows with replacement
-        @inbounds for i in 1:n_obs
-            src = rand(rng, 1:n_obs)
-            for j in 1:m
-                ū[i, j] = u[src, j]
-            end
-        end
-
-        # Simulate bootstrap VAR into the preallocated buffer.
-        simulate_var!(Y_boot, intercept_, lags_, ū, Y_original)
-
+        simulate_var!(Y_boot, intercept_, lags_, resample(rng), model.Y)
         ok[r] = _try_draw!(view(irf_boot, r, :, :, :)) do out
             _bootstrap_irf_draw!(out, ws, model, Y_boot, identification, horizon, normalization)
         end
     end
 
-    return _successful_draws("Standard bootstrap", irf_boot, ok, max_failure_rate)
+    return _successful_draws(
+        _bootstrap_name(inference), irf_boot, ok, inference.max_failure_rate
+    )
 end
 
 # ============================================================================
-# Block Bootstrap
+# Entry point
 # ============================================================================
 
 """
-    bootstrap_irf_block(model, identification, horizon, reps, block_length, rng)
+    bootstrap_irf(model, identification, inference; horizon=24, normalization=UnitStd(), rng=Random.default_rng())
 
-Moving block bootstrap for VAR impulse responses.
+Bootstrap draws of the impulse responses of `model` under `identification`.
+`inference` is a `WildBootstrap`, `Bootstrap`, or `BlockBootstrap`; it sets the
+number of replications, the residual resampling scheme, and `max_failure_rate`
+(its `save_draws` field is ignored: the draws are the return value).
 
-Returns the IRF draws of the successful replications (see `bootstrap_irf`). For an assembled `IRFResult` with bands, use
-`irf(model, identification; inference=BlockBootstrap(...))`, which calls this.
+Each replication resamples the residuals, simulates the VAR from the observed
+initial values, refits it, and computes the responses up to `horizon` with the
+impact matrix normalized by `normalization`.
 
-The block bootstrap resamples blocks of consecutive residuals to preserve
-the temporal dependence structure in the data. This is appropriate for time
-series with serial correlation that violates the i.i.d. assumption.
+Returns an array `(n_ok, n_vars, n_shocks, horizon+1)`, where `n_ok ≤ inference.reps`
+counts the successful replications. A replication fails when its refit raises
+`PosDefException`, `SingularException`, `LAPACKException`, or `DomainError`, or
+when its responses are not all finite; any other exception propagates. Failed
+replications are dropped with a warning, and the call throws when more than a
+fraction `inference.max_failure_rate` of them fail.
 
-# Algorithm
-1. Divide the sample into overlapping blocks of length ℓ
-2. For each bootstrap replication:
-   - Randomly select N = ⌈T/ℓ⌉ blocks (with replacement)
-   - Concatenate blocks to form bootstrap residual series of length N*ℓ
-   - Apply position-specific centering: for position s within a block,
-     subtract the mean of all residuals at position s, s+ℓ, s+2ℓ, ...
-   - Trim bootstrap series to original sample size T
-   - Simulate VAR with bootstrap residuals
-   - Re-estimate VAR and compute IRF
-3. Return all bootstrap IRF draws
-
-# Position-Specific Centering
-The key innovation (following Carlstein 1986, Künsch 1989) is centering
-residuals based on their position within the block cycle:
-
-    ū[j * ℓ + s] -= mean(u[s : ℓ : end])
-
-This preserves the block structure while ensuring the resampled residuals
-have (approximately) zero mean, which is critical for VAR simulation. Without
-this adjustment, the bootstrap VAR would drift away from the true mean.
-
-# References
-- Künsch (1989): "The jackknife and the bootstrap for general stationary
-  observations"
-- Carlstein (1986): "The use of subseries values for estimating the variance
-  of a general statistic from a stationary sequence"
-- Paparoditis and Politis (2001): "Tapered block bootstrap"
-
-# Block Length Selection
-Rule of thumb: ℓ ≈ T^(1/3) for moderate dependence
-For stronger persistence, use larger blocks (e.g., ℓ = 10-20 for quarterly data)
+`irf(model, identification; inference)` runs the same bootstrap and returns an
+`IRFResult` with point estimate, standard errors, and bands. For
+`IVIdentification` use `ProxySVARMBB` through `irf` or `proxy_svar_mbb`: the
+residual bootstraps do not resample the instrument and throw an `ArgumentError`.
 
 # Example
 ```julia
-# For T=100 observations with moderate dependence
-irf_boot = bootstrap_irf_block(model, id, 24, 1000, 10, rng)
-
-# For stronger persistence
-irf_boot = bootstrap_irf_block(model, id, 24, 1000, 20, rng)
+model = fit(OLSVAR, Y, 2)
+draws = bootstrap_irf(model, CholeskyID(), BlockBootstrap(1000; block_length = 8);
+    horizon = 24, rng = StableRNG(1))
 ```
 """
-function bootstrap_irf_block(
-        model::VARModel{T},
-        identification::AbstractIdentification,
-        horizon::Int,
-        reps::Int,
-        block_length::Int,
-        rng::AbstractRNG;
+function bootstrap_irf(
+        model::VARModel, identification::AbstractIdentification,
+        inference::_ResidualBootstrap;
+        horizon::Integer = 24,
         normalization::AbstractNormalization = UnitStd(),
-        max_failure_rate::Real = 0.1
-    ) where {T}
-    _check_max_failure_rate(max_failure_rate)
-    m = n_vars(model)
-    n_lags_val = n_lags(model)
-    n_obs = size(model.residuals, 1)  # T
-    ℓ = block_length
-    _check_block_length(ℓ, n_obs)
+        rng::AbstractRNG = Random.default_rng()
+    )
+    horizon > 0 || throw(ArgumentError("horizon must be positive"))
+    return _bootstrap_irf_draws(model, identification, inference, horizon, normalization, rng)
+end
 
-    # Number of blocks needed to cover T observations
-    N = cld(n_obs, ℓ)
-
-    # Preallocate
-    irf_boot = zeros(T, reps, m, m, horizon + 1)
-    u = residuals(model)
-    Y_original = model.Y
-
-    # Preallocate bootstrap residuals (may be longer than T)
-    # We create N*ℓ observations, then trim to T
-    ū_full = zeros(T, N * ℓ, m)
-
-    # Maximum valid starting index for a block
-    max_start = n_obs - ℓ + 1
-
-    # Pre-compute position-specific means for centering
-    mean_at_s = Matrix{T}(undef, ℓ, m)
-    for s in 1:ℓ
-        positions_in_original = s:ℓ:(n_obs - ℓ + s)
-        for j in 1:m
-            mean_at_s[s, j] = mean(view(u, positions_in_original, j))
-        end
-    end
-
-    # Preallocated simulation buffer reused across reps.
-    Y_boot = Matrix{T}(undef, n_obs, m)
-    intercept_ = model.coefficients.intercept
-    lags_ = model.coefficients.lags
-
-    use_fast = identification isa CholeskyID && identification.ordering === nothing
-    ws = use_fast ? _BootstrapWorkspace{T}(n_obs, m, n_lags_val) : nothing
-
-    ok = falses(reps)
-    for r in 1:reps
-        # Step 1: Sample N random blocks
-        for j_blk in 1:N
-            start_idx = rand(rng, 1:max_start)
-            block_start = 1 + ℓ * (j_blk - 1)
-            @inbounds for s in 1:ℓ, j in 1:m
-
-                ū_full[block_start + s - 1, j] = u[start_idx + s - 1, j]
-            end
-        end
-
-        # Step 2: Position-specific centering
-        @inbounds for s in 1:ℓ
-            for j_blk in 0:(N - 1)
-                row = j_blk * ℓ + s
-                for j in 1:m
-                    ū_full[row, j] -= mean_at_s[s, j]
-                end
-            end
-        end
-
-        # Step 3: Trim to original sample size
-        ū = view(ū_full, 1:n_obs, :)
-
-        # Step 4: Simulate bootstrap VAR into the preallocated buffer.
-        simulate_var!(Y_boot, intercept_, lags_, ū, Y_original)
-
-        # Step 5: Re-estimate and compute IRF
-        ok[r] = _try_draw!(view(irf_boot, r, :, :, :)) do out
-            _bootstrap_irf_draw!(out, ws, model, Y_boot, identification, horizon, normalization)
-        end
-    end
-
-    return _successful_draws("Block bootstrap", irf_boot, ok, max_failure_rate)
+function bootstrap_irf(
+        ::VARModel, ::AbstractIdentification, inference::InferenceType; kwargs...
+    )
+    throw(
+        ArgumentError(
+            "bootstrap_irf supports WildBootstrap, Bootstrap, and BlockBootstrap " *
+                "(got $(nameof(typeof(inference)))). For ProxySVARMBB draws use " *
+                "`proxy_svar_mbb`; for Analytic() use `irf`."
+        )
+    )
 end
 
 # ============================================================================
-# Backward-compatible wrapper
+# Deprecated forms
 # ============================================================================
 
-"""
-    bootstrap_irf(model, identification, horizon, reps; method=:wild, block_length=10, max_failure_rate=0.1, rng=...)
-
-Backward-compatible wrapper that dispatches to `bootstrap_irf_wild`,
-`bootstrap_irf_standard`, or `bootstrap_irf_block` based on `method`.
-
-Returns the bootstrap IRF draws `(n_ok, n_vars, n_shocks, horizon+1)`, where
-`n_ok ≤ reps` counts the successful replications. A replication fails when its
-refit raises `PosDefException`, `SingularException`, `LAPACKException`, or
-`DomainError`, or when its responses are not all finite; any other exception
-propagates. Failed replications are dropped with a warning, and the call throws when
-more than a fraction `max_failure_rate` (in `[0, 1)`) of them fail. Most
-users should instead call `irf(model, identification; inference=...)`, which runs
-the same bootstrap internally and returns an `IRFResult` with point estimate,
-standard errors, and confidence bands assembled. This family is the lower-level
-entry point for callers that want the draws themselves.
-
-The `parallel` keyword is deprecated; use Julia's built-in threading
-or Distributed.pmap externally if parallel bootstrap is needed.
-"""
 function bootstrap_irf(
-        model::VARModel{T}, identification::AbstractIdentification,
+        model::VARModel, identification::AbstractIdentification,
         horizon::Int, reps::Int;
         method::Symbol = :wild,
         block_length::Int = 10,
         normalization::AbstractNormalization = UnitStd(),
         max_failure_rate::Real = 0.1,
-        parallel::Symbol = :none,
         rng::AbstractRNG = Random.default_rng()
-    ) where {T}
-    method ∈ [:wild, :standard, :block] ||
+    )
+    inference, spelled = if method === :wild
+        WildBootstrap(reps; max_failure_rate), "WildBootstrap(reps)"
+    elseif method === :standard
+        Bootstrap(reps; max_failure_rate), "Bootstrap(reps)"
+    elseif method === :block
+        BlockBootstrap(reps; block_length, max_failure_rate),
+            "BlockBootstrap(reps; block_length)"
+    else
         throw(ArgumentError("method must be :wild, :standard, or :block"))
-
-    if parallel != :none
-        @warn "parallel keyword is deprecated in bootstrap_irf. " *
-            "Falling back to serial execution."
     end
+    Base.depwarn(
+        "`bootstrap_irf(model, identification, horizon, reps; method = $(repr(method)))` " *
+            "is deprecated; use `bootstrap_irf(model, identification, $spelled; horizon)`.",
+        :bootstrap_irf
+    )
+    return bootstrap_irf(model, identification, inference; horizon, normalization, rng)
+end
 
-    if method == :wild
-        return bootstrap_irf_wild(
-            model, identification, horizon, reps, rng;
-            normalization, max_failure_rate
-        )
-    elseif method == :standard
-        return bootstrap_irf_standard(
-            model, identification, horizon, reps, rng;
-            normalization, max_failure_rate
-        )
-    else  # :block
-        return bootstrap_irf_block(
-            model, identification, horizon, reps, block_length, rng;
-            normalization, max_failure_rate
-        )
-    end
+function bootstrap_irf_wild(
+        model::VARModel, identification::AbstractIdentification,
+        horizon::Int, reps::Int, rng::AbstractRNG;
+        normalization::AbstractNormalization = UnitStd(), max_failure_rate::Real = 0.1
+    )
+    Base.depwarn(
+        "`bootstrap_irf_wild(model, identification, horizon, reps, rng)` is deprecated; " *
+            "use `bootstrap_irf(model, identification, WildBootstrap(reps); horizon, rng)`.",
+        :bootstrap_irf_wild
+    )
+    return bootstrap_irf(
+        model, identification, WildBootstrap(reps; max_failure_rate);
+        horizon, normalization, rng
+    )
+end
+
+function bootstrap_irf_standard(
+        model::VARModel, identification::AbstractIdentification,
+        horizon::Int, reps::Int, rng::AbstractRNG;
+        normalization::AbstractNormalization = UnitStd(), max_failure_rate::Real = 0.1
+    )
+    Base.depwarn(
+        "`bootstrap_irf_standard(model, identification, horizon, reps, rng)` is " *
+            "deprecated; use `bootstrap_irf(model, identification, Bootstrap(reps); " *
+            "horizon, rng)`.",
+        :bootstrap_irf_standard
+    )
+    return bootstrap_irf(
+        model, identification, Bootstrap(reps; max_failure_rate);
+        horizon, normalization, rng
+    )
+end
+
+function bootstrap_irf_block(
+        model::VARModel, identification::AbstractIdentification,
+        horizon::Int, reps::Int, block_length::Int, rng::AbstractRNG;
+        normalization::AbstractNormalization = UnitStd(), max_failure_rate::Real = 0.1
+    )
+    Base.depwarn(
+        "`bootstrap_irf_block(model, identification, horizon, reps, block_length, rng)` " *
+            "is deprecated; use `bootstrap_irf(model, identification, " *
+            "BlockBootstrap(reps; block_length); horizon, rng)`.",
+        :bootstrap_irf_block
+    )
+    return bootstrap_irf(
+        model, identification, BlockBootstrap(reps; block_length, max_failure_rate);
+        horizon, normalization, rng
+    )
 end

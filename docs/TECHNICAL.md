@@ -503,13 +503,13 @@ end
 ### IRF Bootstrap Procedure
 
 ```julia
-function bootstrap_irf(model, identification, horizon, reps; method=:wild)
+function bootstrap_irf(model, identification, inference::WildBootstrap; horizon)
     # Storage
-    irf_draws = zeros(horizon+1, n_vars, n_vars, reps)
+    irf_draws = zeros(inference.reps, n_vars, n_vars, horizon+1)
 
-    for b in 1:reps
+    for b in 1:inference.reps
         # 1. Resample residuals
-        ε_boot = resample_residuals(model.residuals, method)
+        ε_boot = resample_residuals(model.residuals, inference)
 
         # 2. Simulate VAR with bootstrap residuals
         Y_boot = simulate_var(model, ε_boot, Y_init)
@@ -521,7 +521,7 @@ function bootstrap_irf(model, identification, horizon, reps; method=:wild)
         P_boot = rotation_matrix(model_boot, identification)
 
         # 5. Compute IRF
-        irf_draws[:,:,:,b] = compute_irf_point(model_boot, P_boot, horizon)
+        irf_draws[b,:,:,:] = compute_irf_point(model_boot, P_boot, horizon)
     end
 
     return irf_draws

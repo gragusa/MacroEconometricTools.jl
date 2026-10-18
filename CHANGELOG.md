@@ -45,6 +45,10 @@ backward-compatible).
   exported by BayesianVAR.jl and LocalProjections.jl, which define their own.
   The shared result types `BayesianIRFResult` and `LocalProjectionIRFResult`
   remain.
+- The `parallel` keyword of `bootstrap_irf`. It ran serially with a warning
+  for every value; the bootstrap has no parallel option. `parallel` remains
+  for the sign-restriction search (`rotation_matrix`, `irf` with
+  `SignRestriction`).
 
 ### Deprecated
 
@@ -58,6 +62,15 @@ backward-compatible).
 - `normalize(P, norm)` and `normalize!(P, norm)`; use `normalize_impact` and
   `normalize_impact!`. The deprecated names are no longer exported, so they no
   longer clash with `LinearAlgebra.normalize`.
+- `bootstrap_irf(model, identification, horizon, reps; method, block_length,
+  max_failure_rate)`, `bootstrap_irf_wild`, `bootstrap_irf_standard`, and
+  `bootstrap_irf_block`. Use `bootstrap_irf(model, identification, inference;
+  horizon, normalization, rng)` with `inference` a `WildBootstrap`,
+  `Bootstrap`, or `BlockBootstrap`, which carries the number of replications,
+  the block length, and `max_failure_rate`. The same inference objects drive
+  `irf(model, identification; inference)`, and both return the same draws for
+  the same `rng`. `bootstrap_irf` throws an `ArgumentError` for other
+  inference types and for `IVIdentification`.
 
 ### Changed (breaking)
 
