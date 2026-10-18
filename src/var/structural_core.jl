@@ -70,7 +70,8 @@ coefficient matrix `B`, using the recursion `Φ_h = Σₖ A_k Φ_{h-k}`.
 
 This is O(n³p·h), avoiding the O(n³p³) cost of forming and powering the
 companion matrix. `temp` is an `(n_vars, n_vars)` work buffer. `Φ` must be
-`(n_vars, n_vars, horizon+1)`; `Φ[:, :, 1]` is set to the identity.
+`(n_vars, n_vars, H)` with `H ≥ horizon+1`; slices `1:horizon+1` are written,
+with `Φ[:, :, 1]` set to the identity.
 
 See the file header for the `B` layout.
 """
@@ -78,14 +79,26 @@ function compute_ma_matrices_from_B!(
         Φ::Array{T, 3}, B::AbstractMatrix{T}, temp::Matrix{T},
         horizon::Int, n_vars::Int, n_lags::Int
     ) where {T}
+    Base.require_one_based_indexing(B)
+    horizon >= 0 || throw(ArgumentError("horizon must be non-negative, got $horizon"))
+    size(B) == (1 + n_vars * n_lags, n_vars) || throw(
+        DimensionMismatch(
+            "B must be $(1 + n_vars * n_lags)×$n_vars for n_vars=$n_vars, n_lags=$n_lags; got $(size(B))"
+        )
+    )
+    (size(Φ, 1), size(Φ, 2)) == (n_vars, n_vars) && size(Φ, 3) > horizon || throw(
+        DimensionMismatch(
+            "Φ must be $n_vars×$n_vars×H with H ≥ $(horizon + 1); got $(size(Φ))"
+        )
+    )
+    size(temp) == (n_vars, n_vars) || throw(
+        DimensionMismatch("temp must be $n_vars×$n_vars; got $(size(temp))")
+    )
+
     @inbounds for j in 1:n_vars
         for i in 1:n_vars
             Φ[i, j, 1] = i == j ? one(T) : zero(T)
         end
-    end
-
-    if n_lags == 0
-        return Φ
     end
 
     @inbounds for h in 1:horizon
@@ -156,14 +169,26 @@ end
     check_sign_restrictions(P, restrictions, Φ, horizon) -> Bool
 
 Check whether impact matrix `P` satisfies sign restrictions, given precomputed
-MA matrices `Φ` (`(n_vars, n_vars, horizon+1)`). Restrictions are `+1`/`-1`/`0`
-on `[response, shock]`; impact (h=0) is `P` itself, later horizons are `Φ_h P`.
+MA matrices `Φ` (`(n_vars, n_vars, H)` with `H ≥ horizon+1`). Restrictions are
+`+1`/`-1`/`0` on `[response, shock]`; impact (h=0) is `P` itself, later horizons
+are `Φ_h P`.
 """
 function check_sign_restrictions(
         P::AbstractMatrix{T}, restrictions::Matrix{Int},
         Φ::Array{T, 3}, horizon::Int
     ) where {T}
-    n_vars = size(P, 1)
+    Base.require_one_based_indexing(P)
+    n_vars = LinearAlgebra.checksquare(P)
+    size(restrictions) == (n_vars, n_vars) || throw(
+        DimensionMismatch(
+            "restrictions must be $n_vars×$n_vars; got $(size(restrictions))"
+        )
+    )
+    size(Φ, 3) > horizon || throw(
+        DimensionMismatch(
+            "Φ holds horizons 0:$(size(Φ, 3) - 1); restrictions need 0:$horizon"
+        )
+    )
 
     for i in 1:n_vars
         for j in 1:n_vars
@@ -176,7 +201,7 @@ function check_sign_restrictions(
     end
 
     if horizon > 0
-        for h in 1:min(horizon, size(Φ, 3) - 1)
+        for h in 1:horizon
             IRF_h = Φ[:, :, h + 1] * P
             for i in 1:n_vars
                 for j in 1:n_vars
@@ -252,23 +277,41 @@ end
 # ----------------------------------------------------------------------------
 
 """
-    structural_impact(Σ_L, id::CholeskyID; ordering_idx=nothing) -> P
+    structural_impact(Σ_L, id::CholeskyID; ordering_idx=id.ordering) -> P
 
 Cholesky impact matrix from an already-computed lower Cholesky factor `Σ_L`
-(where `Σ = Σ_L Σ_L'`). Without `ordering_idx`, returns `Σ_L` itself.
+(where `Σ = Σ_L Σ_L'`). Without an ordering, returns `Σ_L` itself.
 
-With `ordering_idx`, a permutation of the variables, returns the lower Cholesky
+With an ordering, a permutation of the variables, returns the lower Cholesky
 factor of `Σ[ordering_idx, ordering_idx]` with its rows and columns mapped back
 to the original variable order, so that column `j` is the shock of variable `j`
-and `P * P' ≈ Σ`. This matches `rotation_matrix(model, CholeskyID(ordering))`.
+and `P * P' ≈ Σ`.
 
-This is the matrix-level counterpart to `rotation_matrix(model, ::CholeskyID)`;
-it takes the stored factor directly and decomposes only when reordering.
+`ordering_idx` defaults to an integer `id.ordering`. A `Symbol` ordering needs
+the variable names, so callers resolve it to indices and pass `ordering_idx`;
+an integer `id.ordering` that differs from `ordering_idx` is an error.
+
+`rotation_matrix(model, ::CholeskyID)` delegates here with `Σ_L` from the
+model's residual covariance.
 """
 function structural_impact(
-        Σ_L::AbstractMatrix{T}, ::CholeskyID;
-        ordering_idx::Union{Nothing, AbstractVector{Int}} = nothing
+        Σ_L::AbstractMatrix{T}, id::CholeskyID;
+        ordering_idx::Union{Nothing, AbstractVector{Int}} = _ordering_index(id)
     ) where {T}
+    if id.ordering isa Vector{Int} && ordering_idx != id.ordering
+        throw(
+            ArgumentError(
+                "ordering_idx = $(ordering_idx) contradicts CholeskyID ordering $(id.ordering)"
+            )
+        )
+    end
+    if id.ordering isa Vector{Symbol} && ordering_idx === nothing
+        throw(
+            ArgumentError(
+                "CholeskyID ordering $(id.ordering) is given by name; pass ordering_idx with the matching variable indices"
+            )
+        )
+    end
     ordering_idx === nothing && return Σ_L
     Base.require_one_based_indexing(Σ_L, ordering_idx)
     n = LinearAlgebra.checksquare(Σ_L)
@@ -282,3 +325,5 @@ function structural_impact(
     P_ordered = cholesky(Symmetric(L_rows * L_rows')).L
     return P_ordered[inv_perm, inv_perm]
 end
+
+_ordering_index(id::CholeskyID) = id.ordering isa Vector{Int} ? id.ordering : nothing

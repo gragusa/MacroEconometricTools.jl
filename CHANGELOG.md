@@ -120,9 +120,30 @@ backward-compatible).
   `normalization = UnitEffect()`, a non-unit `scale`, and rescaled results)
   and no variable is cumulated.
 - Julia 1.13 or later is required.
+- Model-level and matrix-level structural identification share one
+  implementation. `rotation_matrix(model, ::CholeskyID)` calls
+  `structural_impact`; `compute_ma_matrices` and the model-level
+  `check_sign_restrictions` use `compute_ma_matrices_from_B!`;
+  `generate_random_orthogonal`, `estimate_proxy_svar`, and
+  `proxy_svar_dynamics` call their in-place forms. Results agree with the
+  previous ones to rounding error; random draws are unchanged for a given RNG.
+- `structural_impact(Σ_L, id)` applies an integer `id.ordering` when
+  `ordering_idx` is not given. It throws an `ArgumentError` when
+  `ordering_idx` contradicts an integer `id.ordering`, or when `id.ordering`
+  is given by variable name and `ordering_idx` is missing.
+- The matrix-level `check_sign_restrictions` throws a `DimensionMismatch` when
+  `Φ` covers fewer horizons than the restrictions; `compute_ma_matrices_from_B!`
+  checks the sizes of `Φ`, `B`, and `temp`.
+- The proxy-SVAR estimator (`estimate_proxy_svar`, used by `ProxySVARMBB`)
+  solves the least-squares step by Householder QR with preallocated LAPACK
+  workspaces (FastLapackInterface.jl) instead of the normal equations, and
+  throws `SingularException` for a numerically rank-deficient design. It
+  accepts `Float32` and `Float64` data.
 
 ### Fixed
 
+- `compute_ma_matrices_from_B!` with `n_lags = 0` left `Φ[:, :, 2:end]`
+  unset; these slices are now zero.
 - `variance_decomposition` read the IRF array as horizon-first while it is
   stored variable-first, so it returned wrong shares without an error.
 

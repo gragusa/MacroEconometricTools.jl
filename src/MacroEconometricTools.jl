@@ -13,7 +13,8 @@ module MacroEconometricTools
 
 using LinearAlgebra: LinearAlgebra, Diagonal, I, Symmetric, cholesky, cholesky!,
     diag, dot, eigen, eigvals, ldiv!, logdet, mul!, pinv, qr,
-    transpose!
+    transpose!, LAPACK, SingularException
+using FastLapackInterface: FastLapackInterface, QRWs, QROrmWs
 using Statistics: Statistics
 using Random: Random, AbstractRNG, randn!
 using Dates: Dates, now

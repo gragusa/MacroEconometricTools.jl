@@ -42,80 +42,9 @@ function proxy_svar_dynamics(
         Σ_um::AbstractVector{T}, H1::AbstractVector{T},
         p::Int, norm_scale::Float64, n_imp::Int, target::Int
     ) where {T}
-    K = length(H1)
-
-    # Companion matrix
-    comp = zeros(T, K * p, K * p)
-    if p == 1
-        comp[:, :] .= A_est[:, 2:(K + 1)]
-    else
-        comp[1:K, :] .= A_est[:, 2:(K * p + 1)]
-        comp[(K + 1):(K * p), 1:(K * (p - 1))] .= I(K * (p - 1))
-    end
-
-    # Storage
-    irf_out = zeros(T, K, n_imp)
-    irf_norm = zeros(T, K, n_imp)
-    fevd = zeros(T, K, n_imp)
-    svma = zeros(T, K, n_imp)
-
-    # Horizon 0
-    irf_out[:, 1] .= H1
-    for k in 1:K
-        fevd[k, 1] = H1[k]^2 / Σ_uu[k, k]
-    end
-    svma[:, 1] .= Σ_um
-
-    # Normalized IRF at horizon 0 (normalize by impact on target variable)
-    inv_H1_t = norm_scale / H1[target]
-    for k in 1:K
-        irf_norm[k, 1] = inv_H1_t * H1[k]
-    end
-
-    # Higher horizons
-    Kp = K * p
-    comp_power = Matrix{T}(I, Kp, Kp)
-    comp_power_buf = similar(comp_power)
-    numer = zeros(T, K)
-    @inbounds for k in 1:K
-        numer[k] = H1[k]^2
-    end
-    denom = copy(Σ_uu)
-
-    # Pre-allocate temporaries
-    irf_h = Vector{T}(undef, K)
-    Φ_Σ = Matrix{T}(undef, K, K)
-
-    for h in 2:n_imp
-        mul!(comp_power_buf, comp_power, comp)
-        comp_power, comp_power_buf = comp_power_buf, comp_power
-        Φ_h = view(comp_power, 1:K, 1:K)
-
-        # IRF
-        mul!(irf_h, Φ_h, H1)
-        irf_out[:, h] .= irf_h
-
-        # Normalized IRF
-        @inbounds for k in 1:K
-            irf_norm[k, h] = inv_H1_t * irf_h[k]
-        end
-
-        # FEVD
-        @inbounds for k in 1:K
-            numer[k] += irf_h[k]^2
-        end
-        mul!(Φ_Σ, Φ_h, Σ_uu)
-        # denom += Φ_h * Σ_uu * Φ_h'
-        mul!(denom, Φ_Σ, Φ_h', one(T), one(T))
-        @inbounds for k in 1:K
-            fevd[k, h] = numer[k] / denom[k, k]
-        end
-
-        # Structural VMA
-        mul!(view(svma, :, h), Φ_h, Σ_um)
-    end
-
-    return (irf = irf_out, irf_norm = irf_norm, fevd = fevd, svma = svma)
+    buf = ProxyDynamicsBuffers{T}(length(H1), p, n_imp)
+    proxy_svar_dynamics!(buf, A_est, Σ_uu, Σ_um, H1, p, norm_scale, n_imp, target)
+    return (irf = buf.irf, irf_norm = buf.irf_norm, fevd = buf.fevd, svma = buf.svma)
 end
 
 """
@@ -167,8 +96,20 @@ function proxy_svar_dynamics!(
         Σ_um::AbstractVector{T}, H1::AbstractVector{T},
         p::Int, norm_scale::Float64, n_imp::Int, target::Int
     ) where {T}
+    Base.require_one_based_indexing(A_est, Σ_uu, Σ_um, H1)
     K = length(H1)
     Kp = K * p
+    size(buf.irf) == (K, n_imp) && size(buf.comp) == (Kp, Kp) || throw(
+        DimensionMismatch(
+            "buffers sized for K=$(size(buf.irf, 1)), K*p=$(size(buf.comp, 1)), n_imp=$(size(buf.irf, 2)); got K=$K, p=$p, n_imp=$n_imp"
+        )
+    )
+    size(A_est) == (K, 1 + Kp) && size(Σ_uu) == (K, K) && length(Σ_um) == K || throw(
+        DimensionMismatch(
+            "expected A_est $(K)×$(1 + Kp), Σ_uu $(K)×$K, Σ_um of length $K; got $(size(A_est)), $(size(Σ_uu)), $(length(Σ_um))"
+        )
+    )
+    1 <= target <= K || throw(ArgumentError("target must lie in 1:$K, got $target"))
 
     # Companion matrix (reset to zero; reused buffer)
     fill!(buf.comp, zero(T))
@@ -253,6 +194,8 @@ Estimate proxy-SVAR using the Jentsch & Lunsford (2022) formula:
   φ = √(Σ_um' Σ_uu⁻¹ Σ_um)
   H1 = Σ_um / φ
 
+Allocating form of [`estimate_proxy_svar!`](@ref).
+
 Returns: (A_est, U_est, Σ_uu, Σ_um, H1)
 - A_est: (K, 1+K*p) coefficient matrix (row = equation)
 - U_est: (T_eff, K) residuals
@@ -264,50 +207,41 @@ function estimate_proxy_svar(
         yy::AbstractMatrix{T},
         xx::AbstractMatrix{T},
         mm::AbstractVector{T}
-    ) where {T}
-    TT, KK = size(yy)
-
-    # OLS: A = (X'X)⁻¹ X'Y
-    A_est_raw = xx \ yy  # (1+K*p, K)
-
-    # Residuals
-    U_est = yy - xx * A_est_raw
-
-    # Covariance matrices (no df correction)
-    Σ_uu = (U_est' * U_est) ./ TT
-    Σ_um = vec((U_est' * mm) ./ TT)
-
-    # Identification: H1 = Σ_um / φ
-    φ² = dot(Σ_um, Σ_uu \ Σ_um)
-    φ = sqrt(φ²)
-    H1 = Σ_um ./ φ
-
-    # Transpose A to (K, 1+K*p) — row = equation
-    A_est = A_est_raw'
-
-    return A_est, U_est, Σ_uu, Σ_um, H1
+    ) where {T <: Union{Float32, Float64}}
+    buf = ProxySvarBuffers{T}(size(yy, 1), size(yy, 2), size(xx, 2))
+    return estimate_proxy_svar!(buf, yy, xx, mm)
 end
 
 """
     ProxySvarBuffers{T}
 
 Pre-allocated workspace for `estimate_proxy_svar!`. Reused across bootstrap
-draws to avoid per-draw allocations.
+draws to avoid per-draw allocations. `T` must be a LAPACK real type
+(`Float32` or `Float64`).
 """
-struct ProxySvarBuffers{T}
+struct ProxySvarBuffers{T <: Union{Float32, Float64}}
     A_raw::Matrix{T}      # (d, K)  — raw coefficients (d = 1 + K*p)
     A_est::Matrix{T}      # (K, d)  — transposed
     U_est::Matrix{T}      # (TT, K) — residuals
     Σ_uu::Matrix{T}       # (K, K)
     Σ_um::Vector{T}       # (K,)
     H1::Vector{T}         # (K,)
-    XtX::Matrix{T}        # (d, d) — normal equations LHS
-    XtY::Matrix{T}        # (d, K) — normal equations RHS
+    X_qr::Matrix{T}       # (TT, d) — overwritten by the QR factors of X
+    Y_qr::Matrix{T}       # (TT, K) — overwritten by Q'Y
+    qr_ws::QRWs{T}        # LAPACK geqrf workspace
+    orm_ws::QROrmWs{T}    # LAPACK ormqr workspace (shares τ with qr_ws)
     Σ_uu_work::Matrix{T}  # (K, K) — scratch for factorization
     Σ_um_work::Vector{T}  # (K,)   — scratch for `Σ_uu \ Σ_um`
 end
 
-function ProxySvarBuffers{T}(TT::Int, KK::Int, d::Int) where {T}
+function ProxySvarBuffers{T}(TT::Int, KK::Int, d::Int) where {T <: Union{Float32, Float64}}
+    TT >= d || throw(
+        ArgumentError("need at least as many observations as regressors; got TT=$TT, d=$d")
+    )
+    X_qr = Matrix{T}(undef, TT, d)
+    Y_qr = Matrix{T}(undef, TT, KK)
+    qr_ws = QRWs(X_qr)
+    orm_ws = QROrmWs(qr_ws, 'L', 'T', X_qr, Y_qr)
     return ProxySvarBuffers{T}(
         Matrix{T}(undef, d, KK),
         Matrix{T}(undef, KK, d),
@@ -315,8 +249,10 @@ function ProxySvarBuffers{T}(TT::Int, KK::Int, d::Int) where {T}
         Matrix{T}(undef, KK, KK),
         Vector{T}(undef, KK),
         Vector{T}(undef, KK),
-        Matrix{T}(undef, d, d),
-        Matrix{T}(undef, d, KK),
+        X_qr,
+        Y_qr,
+        qr_ws,
+        orm_ws,
         Matrix{T}(undef, KK, KK),
         Vector{T}(undef, KK)
     )
@@ -326,25 +262,43 @@ end
     estimate_proxy_svar!(buf, yy, xx, mm) -> (A_est, U_est, Σ_uu, Σ_um, H1)
 
 In-place proxy-SVAR estimation using pre-allocated `buf::ProxySvarBuffers`.
+The OLS step uses a Householder QR of `xx` (no normal equations), so accuracy
+does not degrade with the squared condition number of `xx`.
 Returns views/aliases into `buf` — do not retain across bootstrap iterations.
-Throws `PosDefException` or `SingularException` on rank-deficient inputs; the
-caller is expected to catch these and record a failed draw.
+Throws `SingularException` when `xx` is numerically rank deficient (a diagonal
+entry of its R factor is below `max(TT, d) * eps * max|R[i, i]|`) and
+`PosDefException` when the residual covariance is not positive definite.
 """
 function estimate_proxy_svar!(
         buf::ProxySvarBuffers{T},
         yy::AbstractMatrix{T}, xx::AbstractMatrix{T},
         mm::AbstractVector{T}
     ) where {T}
+    Base.require_one_based_indexing(yy, xx, mm)
+    size(xx) == size(buf.X_qr) && size(yy) == size(buf.Y_qr) && length(mm) == size(yy, 1) ||
+        throw(
+        DimensionMismatch(
+            "buffers sized for xx $(size(buf.X_qr)), yy $(size(buf.Y_qr)); got xx $(size(xx)), yy $(size(yy)), mm of length $(length(mm))"
+        )
+    )
     TT, KK = size(yy)
     d = size(xx, 2)
 
-    # Normal equations: (X'X) A = X'Y  →  solve via Cholesky (X'X is SPD in
-    # non-degenerate bootstrap samples; rank deficiency throws → caught upstream).
-    mul!(buf.XtX, xx', xx)
-    mul!(buf.XtY, xx', yy)
-    F = cholesky!(Symmetric(buf.XtX))  # in-place factorization
-    copyto!(buf.A_raw, buf.XtY)
-    ldiv!(F, buf.A_raw)                # A_raw = (X'X) \ (X'Y)
+    # OLS by QR: X = QR  ⇒  A_raw = R \ (Q'Y)[1:d, :]
+    copyto!(buf.X_qr, xx)
+    copyto!(buf.Y_qr, yy)
+    LAPACK.geqrf!(buf.qr_ws, buf.X_qr)
+    LAPACK.ormqr!(buf.orm_ws, 'L', 'T', buf.X_qr, buf.Y_qr)
+    R = view(buf.X_qr, 1:d, 1:d)
+    # Numerically rank-deficient X: a pivot this small turns into coefficients
+    # of order 1/eps instead of an error.
+    tol = max(TT, d) * eps(T) * maximum(i -> abs(R[i, i]), 1:d)
+    for i in 1:d
+        abs(R[i, i]) > tol || throw(SingularException(i))
+    end
+    QtY = view(buf.Y_qr, 1:d, :)
+    LAPACK.trtrs!('U', 'N', 'N', R, QtY)
+    copyto!(buf.A_raw, QtY)
 
     # Residuals: U = Y - X * A_raw
     copyto!(buf.U_est, yy)
@@ -363,7 +317,7 @@ function estimate_proxy_svar!(
     ldiv!(Fuu, buf.Σ_um_work)          # Σ_um_work = Σ_uu \ Σ_um
     φ² = dot(buf.Σ_um, buf.Σ_um_work)
     φ = sqrt(φ²)
-    @inbounds for k in 1:KK
+    for k in 1:KK
         buf.H1[k] = buf.Σ_um[k] / φ
     end
 

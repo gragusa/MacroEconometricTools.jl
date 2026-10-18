@@ -50,26 +50,14 @@ Computes lower-triangular Cholesky factor: Σ = P*P'
 - `id::CholeskyID`: Cholesky identification with optional variable ordering
 
 # Returns
-- Lower-triangular rotation matrix
+- Rotation matrix `P` with `P * P' ≈ Σ`; lower triangular in the data ordering
+  when `id.ordering` is `nothing`. Computed by [`structural_impact`](@ref).
 """
 function rotation_matrix(model::VARModel{T}, id::CholeskyID) where {T}
-    Σ = vcov(model)
-
-    # Handle variable ordering
-    if id.ordering !== nothing
-        perm = get_permutation(model.names, id.ordering)
-        Σ_ordered = Σ[perm, perm]
-        P_ordered = Matrix(cholesky(Σ_ordered).L)
-
-        # Permute back to original ordering
-        inv_perm = invperm(perm)
-        P = P_ordered[inv_perm, inv_perm]
-    else
-        # Use data ordering
-        P = Matrix(cholesky(Σ).L)
-    end
-
-    return P
+    Σ_L = Matrix(cholesky(vcov(model)).L)
+    ordering_idx = id.ordering === nothing ? nothing :
+        get_permutation(model.names, id.ordering)
+    return structural_impact(Σ_L, id; ordering_idx)
 end
 
 """
@@ -166,6 +154,7 @@ function identify_sign_serial(
 
     # Cholesky as starting point
     P_chol = Matrix(cholesky(Σ).L)
+    Φ = compute_ma_matrices(model.companion, id.horizon, n_vars_val, n_lags(model))
 
     # Search for valid rotation
     for iter in 1:max_draws
@@ -176,7 +165,7 @@ function identify_sign_serial(
         P_candidate = P_chol * Q
 
         # Check sign restrictions on impact or IRFs
-        if check_sign_restrictions(P_candidate, id.restrictions, model, id.horizon)
+        if check_sign_restrictions(P_candidate, id.restrictions, Φ, id.horizon)
             if verbose
                 println("Found valid rotation at attempt $iter")
             end
@@ -220,6 +209,7 @@ function identify_sign_distributed(
     n_vars_val = n_vars(model)
     Σ = vcov(model)
     P_chol = Matrix(cholesky(Σ).L)
+    Φ = compute_ma_matrices(model.companion, id.horizon, n_vars_val, n_lags(model))
 
     # Function to search for valid rotation (returns nothing if not found)
     # Takes (n_attempts, worker_id, base_seed) for independent streams
@@ -234,7 +224,7 @@ function identify_sign_distributed(
             Q = generate_random_orthogonal(n_vars_val, rng_local)
             P_candidate = P_chol * Q
 
-            if check_sign_restrictions(P_candidate, id.restrictions, model, id.horizon)
+            if check_sign_restrictions(P_candidate, id.restrictions, Φ, id.horizon)
                 return (found = true, P = P_candidate, attempt = attempt)
             end
         end
@@ -283,71 +273,31 @@ end
 """
     generate_random_orthogonal(n::Int, rng::AbstractRNG)
 
-Generate random orthogonal matrix via QR decomposition of random normal matrix.
+Allocating form of [`generate_random_orthogonal!`](@ref): an `n × n` random
+orthogonal `Float64` matrix.
 """
 function generate_random_orthogonal(n::Int, rng::AbstractRNG)
-    X = randn(rng, n, n)
-    Q, R = qr(X)
-    # Normalize to ensure det(Q) = 1
-    D = Diagonal(sign.(diag(R)))
-    return Matrix(Q * D)
+    return generate_random_orthogonal!(
+        Matrix{Float64}(undef, n, n), Matrix{Float64}(undef, n, n), rng
+    )
 end
 
 generate_random_orthogonal(n::Int) = generate_random_orthogonal(n, Random.default_rng())
 
 """
-    check_sign_restrictions(P, restrictions, model, horizon)
+    check_sign_restrictions(P, restrictions, model::VARModel, horizon) -> Bool
 
-Check if impact matrix satisfies sign restrictions.
-
-# Arguments
-- `P::Matrix`: Candidate impact matrix
-- `restrictions::Matrix{Int}`: Sign restriction matrix (+1, -1, 0 for no restriction)
-- `model::VARModel`: VAR model
-- `horizon::Int`: Horizon over which restrictions apply
-
-# Returns
-- `true` if restrictions are satisfied
+Check whether impact matrix `P` satisfies sign restrictions, computing the MA
+matrices from `model`. Delegates to the matrix-level method
+`check_sign_restrictions(P, restrictions, Φ, horizon)`; when checking many
+candidates against one model, compute `Φ` once and call that method directly.
 """
 function check_sign_restrictions(
-        P::Matrix{T}, restrictions::Matrix{Int},
+        P::AbstractMatrix, restrictions::Matrix{Int},
         model::VARModel, horizon::Int
-    ) where {T}
-    n_vars_val = size(P, 1)
-
-    # Check impact (horizon 0)
-    for i in 1:n_vars_val
-        for j in 1:n_vars_val
-            if restrictions[i, j] == 1 && P[i, j] < 0
-                return false
-            elseif restrictions[i, j] == -1 && P[i, j] > 0
-                return false
-            end
-        end
-    end
-
-    # Check restrictions on IRFs up to horizon if horizon > 0
-    if horizon > 0
-        # Compute IRFs
-        F = model.companion
-        n_lags_val = n_lags(model)
-        Φ = compute_ma_matrices(F, horizon, n_vars_val, n_lags_val)
-
-        for h in 1:horizon
-            IRF_h = Φ[:, :, h + 1] * P
-            for i in 1:n_vars_val
-                for j in 1:n_vars_val
-                    if restrictions[i, j] == 1 && IRF_h[i, j] < 0
-                        return false
-                    elseif restrictions[i, j] == -1 && IRF_h[i, j] > 0
-                        return false
-                    end
-                end
-            end
-        end
-    end
-
-    return true
+    )
+    Φ = compute_ma_matrices(model.companion, horizon, n_vars(model), n_lags(model))
+    return check_sign_restrictions(P, restrictions, Φ, horizon)
 end
 
 # ============================================================================
@@ -474,39 +424,32 @@ normalize(P::Matrix, norm::AbstractNormalization) = normalize!(copy(P), norm)
 # ============================================================================
 
 """
-    compute_ma_matrices(F::Matrix, horizon::Int, n_vars::Int, n_lags::Int)
+    compute_ma_matrices(F::AbstractMatrix, horizon::Int, n_vars::Int, n_lags::Int)
 
-Compute moving average (MA) representation matrices Φ_h = F^h.
+Moving-average matrices `Φ_h` (the top-left `n_vars × n_vars` block of `F^h`)
+from the companion matrix `F`, for `h = 0, …, horizon`. Only the first
+`n_vars` rows of `F` (`[A_1 … A_p]`) are read; the recursion is
+[`compute_ma_matrices_from_B!`](@ref).
 
 # Returns
-- Array of size (n_vars, n_vars, horizon+1) with MA coefficients
+- Array of size (n_vars, n_vars, horizon+1) with `Φ[:, :, 1] = I`
 """
-function compute_ma_matrices(F::Matrix{T}, horizon::Int, n_vars::Int, n_lags::Int) where {T}
+function compute_ma_matrices(
+        F::AbstractMatrix{T}, horizon::Int, n_vars::Int, n_lags::Int
+    ) where {T}
+    Base.require_one_based_indexing(F)
     n_comp = n_vars * n_lags
-
-    # Preallocate
-    Φ = zeros(T, n_vars, n_vars, horizon + 1)
-
-    # Φ_0 = I
-    for i in 1:n_vars
-        Φ[i, i, 1] = one(T)
+    size(F) == (n_comp, n_comp) || throw(
+        DimensionMismatch(
+            "companion matrix must be $(n_comp)×$(n_comp) for n_vars=$n_vars, n_lags=$n_lags; got $(size(F))"
+        )
+    )
+    B = zeros(T, 1 + n_comp, n_vars)
+    if n_comp > 0
+        B[2:end, :] .= transpose(view(F, 1:n_vars, :))
     end
-
-    # Since J selects the first n_vars rows and J' selects the first n_vars columns,
-    # Φ_h = F_power[1:n_vars, 1:n_vars]. No need to form J explicitly.
-    F_power = copy(F)
-    F_power_buf = similar(F)
-
-    for h in 1:horizon
-        # Extract Φ_h = F^h[1:n_vars, 1:n_vars]
-        @inbounds for j in 1:n_vars, i in 1:n_vars
-
-            Φ[i, j, h + 1] = F_power[i, j]
-        end
-        # F_power <- F_power * F  (in-place via buffer swap)
-        mul!(F_power_buf, F_power, F)
-        F_power, F_power_buf = F_power_buf, F_power
-    end
-
-    return Φ
+    Φ = Array{T, 3}(undef, n_vars, n_vars, horizon + 1)
+    return compute_ma_matrices_from_B!(
+        Φ, B, Matrix{T}(undef, n_vars, n_vars), horizon, n_vars, n_lags
+    )
 end
