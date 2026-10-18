@@ -349,9 +349,9 @@ end
 
 SVAR-IV identification via external instruments (Stock & Watson 2018).
 
-When `id` carries an instrument, 2SLS identification is performed on the model's
-residuals. When `id` has no instrument (backward compat `IVIdentification()`),
-the structural impact matrix is extracted from an IVSVAR model's metadata.
+The impact column of the target shock is estimated by 2SLS on the model's
+residuals. The deprecated `IVIdentification()` (no instrument) takes the
+instrument from a model fitted with `fit(IVSVAR, ...)`.
 """
 function rotation_matrix(model::VARModel{T}, id::IVIdentification) where {T}
     resolved = _resolve_iv(model, id)

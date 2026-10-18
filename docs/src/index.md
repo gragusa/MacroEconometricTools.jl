@@ -34,9 +34,7 @@ result = irf(model, CholeskyID();
     coverage = [0.68, 0.90, 0.95])
 
 # IV-SVAR with external instrument
-instrument = ExternalInstrument(proxy, 1)
-iv_model = fit(IVSVAR, Y, 4; instrument=instrument)
-iv_result = irf(iv_model, IVIdentification();
+iv_result = irf(model, IVIdentification(proxy, 1);
     horizon = 20,
     inference = ProxySVARMBB(2000; block_length=4))
 ```

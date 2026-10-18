@@ -162,7 +162,7 @@ export VARModel, VARCoefficients
 export VAR
 export AbstractConstraint, ZeroConstraint, FixedConstraint, BlockExogeneity
 export AbstractIdentification, CholeskyID, SignRestriction, IVIdentification
-export AbstractInstrument, ExternalInstrument, ProxyIV
+export AbstractInstrument, ExternalInstrument
 export AbstractIRFResult, IRFResult, SignRestrictedIRFResult
 export BayesianIRFResult, LocalProjectionIRFResult
 export NarrativeShockRestriction, NarrativeRestriction

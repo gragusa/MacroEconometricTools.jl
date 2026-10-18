@@ -132,10 +132,10 @@ end
     p = 2
     K = 2
     Z_proxy = reshape(proxy[(p + 1):end], :, 1)
-    instrument = ExternalInstrument(Z_proxy, 1)
-    model = fit(IVSVAR, Y, p; instrument = instrument, names = [:Y1, :Y2])
+    id = IVIdentification(Z_proxy, 1)
+    model = fit(OLSVAR, Y, p; names = [:Y1, :Y2])
 
-    mbb = proxy_svar_mbb(model, 20, ProxySVARMBB(200; block_length = 4);
+    mbb = proxy_svar_mbb(model, id, 20, ProxySVARMBB(200; block_length = 4);
         rng = Random.Xoshiro(999))
 
     @testset "68% CI is narrower than 95% CI" begin
@@ -170,10 +170,10 @@ end
     p = 2
     K = 2
     Z_proxy = reshape(proxy[(p + 1):end], :, 1)
-    instrument = ExternalInstrument(Z_proxy, 1)
-    model = fit(IVSVAR, Y, p; instrument = instrument, names = [:Y1, :Y2])
+    id = IVIdentification(Z_proxy, 1)
+    model = fit(OLSVAR, Y, p; names = [:Y1, :Y2])
 
-    mbb = proxy_svar_mbb(model, 20, ProxySVARMBB(500; block_length = 4);
+    mbb = proxy_svar_mbb(model, id, 20, ProxySVARMBB(500; block_length = 4);
         rng = Random.Xoshiro(42))
 
     @testset "All CIs are finite" begin
@@ -200,10 +200,10 @@ end
     p = 2
     K = 2
     Z_proxy = reshape(proxy[(p + 1):end], :, 1)
-    instrument = ExternalInstrument(Z_proxy, 1)
-    model = fit(IVSVAR, Y, p; instrument = instrument, names = [:Y1, :Y2])
+    id = IVIdentification(Z_proxy, 1)
+    model = fit(OLSVAR, Y, p; names = [:Y1, :Y2])
 
-    mbb = proxy_svar_mbb(model, 10, ProxySVARMBB(100; block_length = 4);
+    mbb = proxy_svar_mbb(model, id, 10, ProxySVARMBB(100; block_length = 4);
         rng = Random.Xoshiro(123))
 
     # Hall's formula: lower = 2θ̂ - upper_pctile, upper = 2θ̂ - lower_pctile
@@ -225,11 +225,11 @@ end
     p = 2
     K = 2
     Z_proxy = reshape(proxy[(p + 1):end], :, 1)
-    instrument = ExternalInstrument(Z_proxy, 1)
-    model = fit(IVSVAR, Y, p; instrument = instrument, names = [:Y1, :Y2])
+    id = IVIdentification(Z_proxy, 1)
+    model = fit(OLSVAR, Y, p; names = [:Y1, :Y2])
 
     ar_grid = collect(range(-3.0, 3.0; length = 61))
-    mbb = proxy_svar_mbb(model,
+    mbb = proxy_svar_mbb(model, id,
         10,
         ProxySVARMBB(200; block_length = 4,
             compute_ar = true, ar_grid = ar_grid, norm_scale = -1.0);
@@ -268,10 +268,10 @@ end
     p = 2
     K = 2
     Z_proxy = reshape(proxy[(p + 1):end], :, 1)
-    instrument = ExternalInstrument(Z_proxy, 1)
-    model = fit(IVSVAR, Y, p; instrument = instrument, names = [:Y1, :Y2])
+    id = IVIdentification(Z_proxy, 1)
+    model = fit(OLSVAR, Y, p; names = [:Y1, :Y2])
 
-    msw = msw_confidence_set(model; norm_scale = -1.0, horizon = 20)
+    msw = msw_confidence_set(model, id; norm_scale = -1.0, horizon = 20)
 
     @testset "Wald statistic is positive" begin
         @test msw.wald_stat > 0
@@ -310,10 +310,10 @@ end
     p = 2
     K = 2
     Z_proxy = reshape(proxy[(p + 1):end], :, 1)
-    instrument = ExternalInstrument(Z_proxy, 1)
-    model = fit(IVSVAR, Y, p; instrument = instrument, names = [:Y1, :Y2])
+    id = IVIdentification(Z_proxy, 1)
+    model = fit(OLSVAR, Y, p; names = [:Y1, :Y2])
 
-    result = irf(model, IVIdentification(); horizon = 10,
+    result = irf(model, id; horizon = 10,
         inference = ProxySVARMBB(50; block_length = 4))
 
     @test result isa IRFResult

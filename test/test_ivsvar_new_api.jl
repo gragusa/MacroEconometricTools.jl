@@ -51,12 +51,15 @@ Y, ε = simulate_var_dgp(T_sim, [A1], H_true; rng = StableRNG(2024))
 # ============================================================================
 # Test 1: New API matches old API exactly
 # ============================================================================
-@testset "New API matches old API" begin
-    # Old API
+@testset "Deprecated fit(IVSVAR) matches OLSVAR + IVIdentification" begin
+    # Deprecated API
     Z_trimmed = reshape(ε[(p_lag + 1):end, 1], :, 1)
-    model_old = fit(IVSVAR, Y, p_lag;
+    model_old = @test_deprecated r"fit\(IVSVAR" fit(IVSVAR, Y, p_lag;
         instrument = ExternalInstrument(Z_trimmed, 1), names = [:Y1, :Y2, :Y3])
-    irf_old = irf(model_old, IVIdentification(); horizon = 10)
+    id_empty = @test_deprecated r"IVIdentification\(\)" IVIdentification()
+    @test id_empty.instrument === nothing
+    irf_old = irf(model_old, id_empty; horizon = 10)
+    @test Array(irf(model_old; horizon = 10).irf) ≈ Array(irf_old.irf)
 
     # New API
     model_new = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
@@ -88,11 +91,11 @@ end
     F = first_stage_F(model, id)
     @test F > 1000  # perfect instrument
 
-    # Compare with old API
-    model_old = fit(IVSVAR, Y, p_lag;
+    # Compare with the deprecated API
+    model_old = @test_deprecated fit(IVSVAR, Y, p_lag;
         instrument = ExternalInstrument(ε[:, 1], 1), names = [:Y1, :Y2, :Y3])
-    F_old = first_stage_F(model_old)
-    @test F ≈ F_old atol=1e-10
+    @test first_stage_F(model_old) ≈ F atol=1e-10
+    @test model_old.metadata.first_stage_F ≈ F atol=1e-10
 
     # iv_summary should not error
     old_stdout = stdout
@@ -108,29 +111,14 @@ end
 # ============================================================================
 # Test 4: irf with various inference types
 # ============================================================================
-@testset "irf with WildBootstrap + IVIdentification" begin
+@testset "WildBootstrap and Bootstrap reject IVIdentification" begin
     model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
     id = IVIdentification(ε[:, 1], 1)
 
-    result = irf(model, id; horizon = 10,
-        inference = WildBootstrap(50; save_draws = false),
-        rng = Random.Xoshiro(42))
-
-    @test size(result.irf) == (K, K, 11)
-    @test length(result.lower) == 3  # 68%, 90%, 95%
-    @test all(isfinite, Array(result.irf))
-end
-
-@testset "irf with Bootstrap + IVIdentification" begin
-    model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
-    id = IVIdentification(ε[:, 1], 1)
-
-    result = irf(model, id; horizon = 10,
-        inference = Bootstrap(50),
-        rng = Random.Xoshiro(42))
-
-    @test size(result.irf) == (K, K, 11)
-    @test length(result.lower) == 3
+    @test_throws "WildBootstrap does not resample the instrument" irf(model, id;
+        horizon = 10, inference = WildBootstrap(50), rng = Random.Xoshiro(42))
+    @test_throws "Bootstrap does not resample the instrument" irf(model, id;
+        horizon = 10, inference = Bootstrap(50), rng = Random.Xoshiro(42))
 end
 
 @testset "irf with BlockBootstrap + IVIdentification" begin
@@ -311,8 +299,8 @@ end
     @test msw.wald_stat > 0
     @test msw.bounded68  # strong instrument → bounded
 
-    # Compare with old API
-    model_old = fit(IVSVAR, Y, p_lag;
+    # Compare with the deprecated API
+    model_old = @test_deprecated fit(IVSVAR, Y, p_lag;
         instrument = ExternalInstrument(ε[:, 1], 1), names = [:Y1, :Y2, :Y3])
     msw_old = msw_confidence_set(model_old; horizon = 10)
 
@@ -329,18 +317,26 @@ end
     @test id1.instrument isa ExternalInstrument
     @test id1.instrument.target_shock == 1
 
-    # Matrix
-    id2 = IVIdentification(randn(100, 2), 1; method = :liml)
-    @test id2.instrument.method == :liml
+    # Matrix, Symbol target, keyword form
+    id2 = IVIdentification(randn(100, 2), :Y2)
+    @test id2.instrument.target_shock === :Y2
+    @test size(id2.instrument.Z) == (100, 2)
+    @test IVIdentification(randn(100); target_shock = 3).instrument.target_shock == 3
+
+    # Integer data is stored as floating point
+    @test IVIdentification(collect(1:100), 1).instrument.Z isa Matrix{Float64}
+
+    @test_throws "target_shock must be positive" IVIdentification(randn(100), 0)
 
     # ExternalInstrument
     inst = ExternalInstrument(randn(100), 2)
     id3 = IVIdentification(inst)
     @test id3.instrument.target_shock == 2
 
-    # Empty (backward compat)
-    id4 = IVIdentification()
-    @test id4.instrument === nothing
+    # Empty (deprecated): needs a model from the deprecated fit(IVSVAR, ...)
+    id4 = @test_deprecated IVIdentification()
+    model = fit(OLSVAR, Y, p_lag; names = [:Y1, :Y2, :Y3])
+    @test_throws "IVIdentification requires an instrument" irf(model, id4)
 end
 
 # ============================================================================
@@ -507,11 +503,9 @@ end
     r_idx = irf(model, id_idx; horizon = 8)
     @test Array(r_sym.irf) ≈ Array(r_idx.irf) atol=1e-12
 
-    # ProxyIV by symbol ≡ by index
-    id_proxy_sym = IVIdentification(ProxyIV(ε[:, 1]; target_shock = :Y3))
-    id_proxy_idx = IVIdentification(ProxyIV(ε[:, 1]; target_shock = 3))
-    r_psym = irf(model, id_proxy_sym; horizon = 8)
-    r_pidx = irf(model, id_proxy_idx; horizon = 8)
+    # Positional Symbol target ≡ index
+    r_psym = irf(model, IVIdentification(ε[:, 1], :Y3); horizon = 8)
+    r_pidx = irf(model, IVIdentification(ε[:, 1], 3); horizon = 8)
     @test Array(r_psym.irf) ≈ Array(r_pidx.irf) atol=1e-12
 
     # Non-existent name should throw at estimation time
@@ -520,20 +514,8 @@ end
 end
 
 # ============================================================================
-# ProxyIV keyword / positional constructors
+# ProxyIV is a deprecated name for ExternalInstrument
 # ============================================================================
-@testset "ProxyIV constructors" begin
-    z = randn(100)
-    # Keyword
-    p1 = ProxyIV(z; target_shock = 2)
-    @test p1.target_shock == 2
-    # Positional (backward compat)
-    p2 = ProxyIV(z, 2)
-    @test p2.target_shock == 2
-    # Symbol
-    p3 = ProxyIV(z; target_shock = :GDP)
-    @test p3.target_shock == :GDP
-    # Default
-    p4 = ProxyIV(z)
-    @test p4.target_shock == 1
+@testset "ProxyIV deprecated binding" begin
+    @test Base.isdeprecated(MacroEconometricTools, :ProxyIV)
 end

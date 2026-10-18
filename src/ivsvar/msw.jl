@@ -37,7 +37,7 @@ function msw_confidence_set(model::VARModel{T}, id::IVIdentification;
     return _msw_impl(model, vec(Z), target; norm_scale = norm_scale, horizon = horizon)
 end
 
-# Backward compat: instrument in model
+# Deprecated `IVSVAR` models carry the instrument in the spec.
 function msw_confidence_set(model::VARModel{T, <:IVSVAR};
         norm_scale::Float64 = -1.0,
         horizon::Int = 20) where {T}

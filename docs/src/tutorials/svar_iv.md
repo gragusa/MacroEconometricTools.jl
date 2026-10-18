@@ -66,38 +66,21 @@ proxy = epsilon[:, 1] .+ 0.5 .* randn(rng, T + p)
 
 ### Creating the Instrument
 
-The proxy should cover the same sample as the data Y. When you pass a proxy with $T$ rows (same as Y), the first $p$ rows are dropped automatically to align with the VAR residuals. There is no need to trim manually.
+The proxy must have either as many rows as the data Y (the first $p$ rows are then dropped to align with the VAR residuals) or as many rows as the residuals ($T - p$). Any other length is an error.
 
 ```julia
-# Create instrument from full-length proxy: identify shock 1
-instrument = ExternalInstrument(proxy, 1)
+# Identify shock 1 with the full-length proxy
+id = IVIdentification(proxy, 1)
 ```
 
-The first argument is the proxy (vector or matrix), the second is the index of the target shock. A vector is automatically reshaped to a $T \times 1$ matrix.
+The first argument is the proxy (vector or matrix), the second is the target shock, given as an index or a variable name (`IVIdentification(proxy, :Y1)`). A vector is reshaped to a one-column matrix.
 
-**Alternative**: `ProxyIV` provides an additional relevance threshold check:
+### Fitting the Reduced-Form VAR
+
+The instrument is not needed at estimation time: fit the reduced-form VAR by OLS. The 2SLS step on the residuals runs when the identification is used.
 
 ```julia
-# ProxyIV with relevance threshold (warns if F < threshold)
-instrument = ProxyIV(proxy, 1; relevance_threshold=10.0)
-```
-
-### Fitting the IV-SVAR
-
-The instrument is passed at estimation time. Internally, `fit` runs OLS on the VAR, then performs 2SLS on the residuals using the proxy.
-
-```julia
-model = fit(IVSVAR, Y, p;
-    instrument = ExternalInstrument(proxy, 1),
-    names = [:Y1, :Y2])
-```
-
-Output:
-```
-VARModel{Float64,IVSVAR{ExternalInstrument{Float64}}}
-  Variables: Y1, Y2
-  Observations: 198 (200 total)
-  Lags: 2
+model = fit(OLSVAR, Y, p; names = [:Y1, :Y2])
 ```
 
 ---
@@ -109,7 +92,7 @@ VARModel{Float64,IVSVAR{ExternalInstrument{Float64}}}
 The first-stage F-statistic tests whether the proxy is sufficiently correlated with the target reduced-form residual. The conventional threshold is $F > 10$ (Stock, Wright & Yogo 2002).
 
 ```julia
-F = first_stage_F(model)
+F = first_stage_F(model, id)
 println("First-stage F = $(round(F; digits=2))")
 ```
 
@@ -121,12 +104,12 @@ First-stage F = 85.23
 A value well above 10 indicates a strong instrument. For a full summary:
 
 ```julia
-iv_summary(model)
+iv_summary(model, id)
 ```
 
 Output:
 ```
-Proxy-SVAR Identification Summary
+SVAR-IV Identification Summary
 ==================================================
 Target shock: variable Y1 (index 1)
 First-stage F-statistic: 85.23  ✓
@@ -145,7 +128,7 @@ If $F < 10$, the instrument is considered weak. Standard bootstrap CIs may be un
 ### Point Estimates
 
 ```julia
-result = irf(model, IVIdentification(); horizon=20)
+result = irf(model, id; horizon=20)
 
 println("IRF dimensions: ", size(result.irf))
 # (21, 2, 2) = (horizons, variables, shocks)
@@ -177,7 +160,7 @@ Jentsch & Lunsford (2022) propose a moving block bootstrap (MBB) that jointly re
 #### High-Level Interface via `irf()`
 
 ```julia
-result_mbb = irf(model, IVIdentification();
+result_mbb = irf(model, id;
     horizon = 20,
     inference = ProxySVARMBB(2000; block_length=4),
     coverage = [0.68, 0.90, 0.95])
@@ -192,7 +175,7 @@ upper_90 = result_mbb.upper[2]  # 90% upper bounds: (21, 2, 2)
 The `proxy_svar_mbb()` function returns a richer result with percentile CIs, Hall's bias-corrected CIs, and FEVD CIs:
 
 ```julia
-mbb = proxy_svar_mbb(model, 20,
+mbb = proxy_svar_mbb(model, id, 20,
     ProxySVARMBB(2000; block_length=4, norm_scale=-1.0);
     rng = Random.Xoshiro(123))
 ```
@@ -239,7 +222,7 @@ The block length $\ell$ controls the trade-off between capturing serial dependen
 ```julia
 # Try different block lengths
 for bl in [3, 4, 6, 8]
-    m = proxy_svar_mbb(model, 20, ProxySVARMBB(1000; block_length=bl);
+    m = proxy_svar_mbb(model, id, 20, ProxySVARMBB(1000; block_length=bl);
         rng = Random.Xoshiro(42))
     w95 = m.ci95_irf_norm[2, 1, 2] - m.ci95_irf_norm[1, 1, 2]  # Y2 impact width
     println("  block_length=$bl: 95% CI width at impact = $(round(w95; digits=4))")
@@ -255,7 +238,7 @@ Anderson-Rubin (AR) confidence sets are robust to weak instruments. They are con
 ```julia
 ar_grid = collect(range(-3.0, 3.0; length=601))
 
-mbb_ar = proxy_svar_mbb(model, 20,
+mbb_ar = proxy_svar_mbb(model, id, 20,
     ProxySVARMBB(2000;
         block_length = 4,
         compute_ar = true,
@@ -304,7 +287,7 @@ end
 Montiel Olea, Stock & Watson (2021) provide analytic confidence sets that are robust to weak instruments. No bootstrap is required, making them very fast to compute.
 
 ```julia
-msw = msw_confidence_set(model; norm_scale=-1.0, horizon=20)
+msw = msw_confidence_set(model, id; norm_scale=-1.0, horizon=20)
 ```
 
 **Output fields**:
@@ -372,11 +355,11 @@ println("95% set bounded: $(msw.bounded95)")
 
 ```julia
 # All three methods on the same model
-mbb = proxy_svar_mbb(model, 20,
+mbb = proxy_svar_mbb(model, id, 20,
     ProxySVARMBB(2000; block_length=4, compute_ar=true,
         ar_grid=collect(range(-3.0, 3.0; length=301)), norm_scale=-1.0);
     rng=Random.Xoshiro(42))
-msw = msw_confidence_set(model; norm_scale=-1.0, horizon=20)
+msw = msw_confidence_set(model, id; norm_scale=-1.0, horizon=20)
 
 h = 6; k = 2  # Y2 at horizon 5
 println("Y2 at h=5:")
@@ -403,7 +386,7 @@ end
 The MBB also produces bootstrap CIs for the forecast error variance decomposition:
 
 ```julia
-mbb = proxy_svar_mbb(model, 20,
+mbb = proxy_svar_mbb(model, id, 20,
     ProxySVARMBB(2000; block_length=4, norm_scale=-1.0);
     rng=Random.Xoshiro(42))
 
@@ -421,11 +404,11 @@ The `norm_scale` parameter controls how normalized IRFs are scaled. The default 
 
 ```julia
 # Negative one-unit shock (default)
-mbb_neg = proxy_svar_mbb(model, 20, ProxySVARMBB(500; norm_scale=-1.0);
+mbb_neg = proxy_svar_mbb(model, id, 20, ProxySVARMBB(500; norm_scale=-1.0);
     rng=Random.Xoshiro(1))
 
 # Positive one-unit shock
-mbb_pos = proxy_svar_mbb(model, 20, ProxySVARMBB(500; norm_scale=1.0);
+mbb_pos = proxy_svar_mbb(model, id, 20, ProxySVARMBB(500; norm_scale=1.0);
     rng=Random.Xoshiro(1))
 
 # They are mirror images
@@ -438,13 +421,10 @@ mbb_pos = proxy_svar_mbb(model, 20, ProxySVARMBB(500; norm_scale=1.0);
 
 ```julia
 Z_matrix = hcat(proxy1, proxy2)  # Two instruments for one shock
-instrument = ExternalInstrument(Z_matrix, 1; method=:tsls)
+id = IVIdentification(Z_matrix, 1)
 ```
 
-The `method` keyword controls the estimation approach:
-- `:tsls` (default) — two-stage least squares
-- `:liml` — limited information maximum likelihood
-- `:fuller` — Fuller's modified LIML
+The impact column is estimated by two-stage least squares.
 
 ---
 

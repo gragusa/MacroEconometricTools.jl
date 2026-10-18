@@ -317,11 +317,12 @@ impulse_response = irf
 """
     irf(model::VARModel{T, <:IVSVAR}; kwargs...)
 
-Convenience method for IVSVAR models — defaults to `IVIdentification()` using
-the instrument stored in the model. Equivalent to `irf(model, IVIdentification(); kwargs...)`.
+IRFs of a model from the deprecated `fit(IVSVAR, ...)`, identified with the
+instrument stored in the model. Equivalent to
+`irf(model, IVIdentification(model.spec.instrument); kwargs...)`.
 """
 function irf(model::VARModel{T, <:IVSVAR}; kwargs...) where {T}
-    irf(model, IVIdentification(); kwargs...)
+    irf(model, IVIdentification(model.spec.instrument); kwargs...)
 end
 
 """

@@ -82,11 +82,10 @@ lag(x::Vector{Float64}, 1)  # Returns Vector{Float64}, not Vector{Union{Missing,
 ```
 AbstractVARSpec
 ├── OLSVAR (empty struct, pure dispatch)
-└── IVSVAR{I<:AbstractInstrument}
+└── IVSVAR{I<:AbstractInstrument} (deprecated; use OLSVAR + IVIdentification)
 
 AbstractInstrument
-├── ExternalInstrument{T}
-└── ProxyIV{T}
+└── ExternalInstrument{T,S}
 
 AbstractConstraint
 ├── ZeroConstraint

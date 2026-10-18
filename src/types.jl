@@ -18,7 +18,8 @@ Abstract type for VAR model specifications.
 
 Concrete subtypes include:
 - `OLSVAR`: Ordinary least squares estimation
-- `IVSVAR`: Instrumental variable structural VAR
+- `IVSVAR`: Instrumental variable structural VAR (deprecated; use `OLSVAR`
+  with `IVIdentification`)
 """
 abstract type AbstractVARSpec end
 
@@ -32,7 +33,8 @@ struct OLSVAR <: AbstractVARSpec end
 """
     IVSVAR{I} <: AbstractVARSpec
 
-Instrumental Variable Structural VAR specification.
+Instrumental Variable Structural VAR specification. Deprecated: fit the model
+with `OLSVAR` and pass the instrument to `IVIdentification`.
 
 # Fields
 - `instrument::I`: Instrument specification (external, proxy, high-frequency)
@@ -48,75 +50,39 @@ end
 """
     ExternalInstrument{T, S} <: AbstractInstrument
 
-External instrumental variable for identification.
+External instrument (proxy) for one structural shock, used by `IVIdentification`
+(Stock & Watson 2018, Mertens & Ravn 2013). The impact column is estimated by
+two-stage least squares on the VAR residuals.
 
 # Fields
-- `Z::Matrix{T}`: Instrument matrix (T × k)
+- `Z::Matrix{T}`: Instrument matrix (rows are time periods, columns are instruments)
 - `target_shock::S`: Shock to identify — `Int` (index) or `Symbol` (variable name)
-- `method::Symbol`: Estimation method (`:tsls`, `:liml`, `:fuller`)
 
 # Constructors
 ```julia
-ExternalInstrument(Z)                           # default: target_shock=1
-ExternalInstrument(Z, target_shock=:logIP)      # by variable name
-ExternalInstrument(Z, target_shock=4)           # by index
-ExternalInstrument(Z, 4)                        # positional (backward compat)
+ExternalInstrument(Z)                           # target_shock = 1
+ExternalInstrument(Z; target_shock = :logIP)    # by variable name
+ExternalInstrument(Z, 4)                        # by index
+ExternalInstrument(Z, :logIP)                   # by variable name
 ```
 
-Accepts vectors or matrices for `Z` (vectors are auto-reshaped to T×1 matrices).
-The `Symbol` target is resolved against `model.names` at estimation time.
+`Z` may be a vector (one instrument) or a matrix. A `Symbol` target is resolved
+against the model's variable names when the instrument is used.
+
+# Row alignment
+`Z` must have either as many rows as the data `Y` the VAR was fitted on (the first
+`n_lags` rows are then dropped so that `Z` lines up with the residuals) or as many
+rows as the residuals. Any other length throws a `DimensionMismatch`.
 """
 struct ExternalInstrument{T <: AbstractFloat, S <: Union{Int, Symbol}} <: AbstractInstrument
     Z::Matrix{T}
     target_shock::S
-    method::Symbol
 
-    function ExternalInstrument(Z::Matrix{T}, target_shock::Union{Int, Symbol};
-            method::Symbol = :tsls) where {T}
-        method ∈ [:tsls, :liml, :fuller] ||
-            throw(ArgumentError("method must be :tsls, :liml, or :fuller"))
-        if target_shock isa Int
+    function ExternalInstrument{T, S}(Z, target_shock) where {T, S}
+        if target_shock isa Integer
             target_shock > 0 || throw(ArgumentError("target_shock must be positive"))
         end
-        return new{T, typeof(target_shock)}(Z, target_shock, method)
-    end
-end
-
-"""
-    ProxyIV{T, S} <: AbstractInstrument
-
-Proxy instrumental variable for identification (Mertens-Ravn, Stock-Watson).
-
-Currently only single-shock identification is supported.
-
-# Fields
-- `proxies::Matrix{T}`: Proxy variables (T × k)
-- `target_shock::S`: Index (`Int`) or name (`Symbol`) of the shock to identify
-- `relevance_threshold::Float64`: Threshold for weak instrument testing
-
-# Constructors
-```julia
-ProxyIV(proxies)                                # default: target_shock=1
-ProxyIV(proxies, target_shock=:logIP)           # by variable name
-ProxyIV(proxies, target_shock=2)                # by index
-ProxyIV(proxies, 2)                             # positional (backward compat)
-```
-
-Accepts vectors or matrices for `proxies` (vectors are auto-reshaped to T×1 matrices).
-"""
-struct ProxyIV{T <: AbstractFloat, S <: Union{Int, Symbol}} <: AbstractInstrument
-    proxies::Matrix{T}
-    target_shock::S
-    relevance_threshold::Float64
-
-    function ProxyIV(proxies::Matrix{T}, target_shock::Union{Int, Symbol};
-            relevance_threshold::Float64 = 10.0) where {T}
-        if target_shock isa Int
-            target_shock > 0 || throw(ArgumentError("target_shock must be positive"))
-        end
-        relevance_threshold > 0 ||
-            throw(ArgumentError("relevance_threshold must be positive"))
-        return new{T, typeof(target_shock)}(proxies, target_shock, relevance_threshold)
+        return new{T, S}(Z, target_shock)
     end
 end
 
@@ -249,43 +215,37 @@ end
 Identification via external instruments, also known as SVAR-IV or proxy SVAR
 (Stock & Watson 2018, Mertens & Ravn 2013 — same estimator, different names).
 
-The instrument can be passed directly to `IVIdentification`:
-
 ```julia
 id = IVIdentification(proxy_vector, target_shock)
 result = irf(model, id; horizon=20)
 ```
 
-For backward compatibility, `IVIdentification()` (no instrument) is accepted
-when the model was estimated with `fit(IVSVAR, ...)`.
-
 # Constructors
-- `IVIdentification(Z, target_shock; method=:tsls)` — Z is a vector or matrix
-- `IVIdentification(instrument::AbstractInstrument)` — wrap an ExternalInstrument or ProxyIV
-- `IVIdentification()` — backward compat (requires IVSVAR model)
+- `IVIdentification(Z, target_shock)` — `Z` is a vector or matrix; `target_shock`
+  is an index or a variable name
+- `IVIdentification(Z; target_shock = 1)`
+- `IVIdentification(instrument::ExternalInstrument)`
+
+See [`ExternalInstrument`](@ref) for the row-alignment rule on `Z`.
+`IVIdentification()` (no instrument, taking it from a model fitted with
+`fit(IVSVAR, ...)`) is deprecated.
 """
 struct IVIdentification{I <: Union{Nothing, AbstractInstrument}} <: AbstractIdentification
     instrument::I
 end
 
-IVIdentification() = IVIdentification{Nothing}(nothing)
-
-# Keyword-based constructors (new API)
-function IVIdentification(Z::AbstractVecOrMat{T};
-        target_shock::Union{Int, Symbol} = 1,
-        method::Symbol = :tsls) where {T <: AbstractFloat}
-    IVIdentification(ExternalInstrument(Z; target_shock = target_shock, method = method))
+function IVIdentification()
+    Base.depwarn("`IVIdentification()` is deprecated; pass the instrument, " *
+                 "as in `IVIdentification(Z, target_shock)`.", :IVIdentification)
+    return IVIdentification{Nothing}(nothing)
 end
 
-# Positional backward compat
-function IVIdentification(Z::AbstractVector{T}, target::Int;
-        method::Symbol = :tsls) where {T <: AbstractFloat}
-    IVIdentification(ExternalInstrument(Z, target; method = method))
+function IVIdentification(Z::AbstractVecOrMat; target_shock::Union{Integer, Symbol} = 1)
+    IVIdentification(ExternalInstrument(Z, target_shock))
 end
 
-function IVIdentification(Z::AbstractMatrix{T}, target::Int;
-        method::Symbol = :tsls) where {T <: AbstractFloat}
-    IVIdentification(ExternalInstrument(Z, target; method = method))
+function IVIdentification(Z::AbstractVecOrMat, target_shock::Union{Integer, Symbol})
+    IVIdentification(ExternalInstrument(Z, target_shock))
 end
 
 IVIdentification(inst::AbstractInstrument) = IVIdentification{typeof(inst)}(inst)
@@ -461,8 +421,8 @@ via grid-based test inversion.
 
 # Example
 ```julia
-model = fit(IVSVAR, Y, p; instrument=Z)
-result = irf(model, IVIdentification();
+model = fit(OLSVAR, Y, p)
+result = irf(model, IVIdentification(Z, 1);
     inference=ProxySVARMBB(2000; block_length=4))
 ```
 """

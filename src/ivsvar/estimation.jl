@@ -17,44 +17,26 @@
 """
     StatsBase.fit(::Type{IVSVAR}, Y, n_lags; instrument, kwargs...)
 
-Fit a proxy-SVAR model following Stock & Watson (2018).
+Deprecated. Fit the reduced form with `fit(OLSVAR, Y, n_lags)` and pass the
+instrument to `IVIdentification`:
 
-# Algorithm
-1. Estimate reduced-form VAR(p) by OLS (with optional constraints)
-2. Extract VAR residuals ν_t
-3. Regress ν₁_t on Z_t (first stage → relevance)
-4. Regress ν_{i,t} on ν̂₁_t for i=2,...,n (second stage → impact coefficients)
-5. Construct full structural impact matrix P
-
-# Arguments
-- `::Type{IVSVAR}`: Specification type
-- `Y::AbstractMatrix{T}`: Data matrix (T_total × n_vars). The variable in column
-  `instrument.target_shock` is the "policy variable" whose structural shock is
-  identified.
-- `n_lags::Int`: VAR lag order
-
-# Keyword Arguments
-- `instrument::AbstractInstrument`: External instrument.  Z can have the same
-  number of rows as Y (T_total); the first `n_lags` rows are dropped
-  automatically.  Pre-trimmed Z (T_total - n_lags rows) also accepted.
-- `constraints::Vector{<:AbstractConstraint}`: VAR coefficient constraints
-- `names::Union{Nothing,Vector{Symbol}}`: Variable names
-- `demean::Bool=false`: Demean data before estimation
-
-# Returns
-- `VARModel{T, IVSVAR{I}}` with metadata fields:
-  - `structural_impact::Matrix{T}` — full n×n impact matrix (first column identified)
-  - `first_stage_F::Float64` — first-stage F-statistic
-  - `target_shock::Int` — index of the identified shock
-
-# Example
 ```julia
-Z = ExternalInstrument(proxy_data, 1)  # proxy for shock 1
-model = fit(IVSVAR, Y, 4; instrument=Z)
-result = irf(model, IVIdentification(); horizon=48)
+model = fit(OLSVAR, Y, 4)
+result = irf(model, IVIdentification(proxy_data, 1); horizon=48)
+first_stage_F(model, IVIdentification(proxy_data, 1))
 ```
+
+Returns a `VARModel{T, IVSVAR{I}}` whose `metadata` holds `structural_impact`,
+`first_stage_F`, `first_stage_coef`, `target_shock`, and `iv_coefficients`.
 """
 function StatsBase.fit(::Type{IVSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
+        instrument::AbstractInstrument, kwargs...) where {T <: AbstractFloat}
+    Base.depwarn("`fit(IVSVAR, Y, n_lags; instrument)` is deprecated; use " *
+                 "`fit(OLSVAR, Y, n_lags)` and `IVIdentification(instrument)`.", :fit)
+    return _fit_ivsvar(Y, n_lags; instrument, kwargs...)
+end
+
+function _fit_ivsvar(Y::AbstractMatrix{T}, n_lags::Int;
         instrument::AbstractInstrument,
         constraints::Vector{<:AbstractConstraint} = AbstractConstraint[],
         names::Union{Nothing, Vector{Symbol}} = nothing,
@@ -102,32 +84,18 @@ end
 """
     _resize_instrument(instrument::ExternalInstrument, n_obs) -> ExternalInstrument
 
-Trim or pad instrument to match a different residual count (used in bootstrap).
+Keep the first `n_obs` rows of the instrument (used when refitting a deprecated
+`IVSVAR` model on bootstrap data).
 """
-function _resize_instrument(instrument::ExternalInstrument{T, S}, n_obs::Int) where {T, S}
+function _resize_instrument(instrument::ExternalInstrument, n_obs::Int)
     Z = instrument.Z
     n_orig = size(Z, 1)
     if n_orig == n_obs
         return instrument
     elseif n_orig > n_obs
-        # Trim from the end (most common case in bootstrap)
-        return ExternalInstrument(Z[1:n_obs, :], instrument.target_shock;
-            method = instrument.method)
+        return ExternalInstrument(Z[1:n_obs, :], instrument.target_shock)
     else
-        error("Cannot expand instrument from $n_orig to $n_obs rows")
-    end
-end
-
-function _resize_instrument(instrument::ProxyIV{T, S}, n_obs::Int) where {T, S}
-    Z = instrument.proxies
-    n_orig = size(Z, 1)
-    if n_orig == n_obs
-        return instrument
-    elseif n_orig > n_obs
-        return ProxyIV(Z[1:n_obs, :], instrument.target_shock;
-            relevance_threshold = instrument.relevance_threshold)
-    else
-        error("Cannot expand proxy from $n_orig to $n_obs rows")
+        throw(DimensionMismatch("Cannot expand instrument from $n_orig to $n_obs rows"))
     end
 end
 
@@ -193,7 +161,7 @@ end
     _resolve_iv(model::VARModel, id::IVIdentification) -> IVIdentification
 
 Ensure the identification object has an instrument. If `id.instrument` is `nothing`
-(backward compat with `IVIdentification()`), extract the instrument from an IVSVAR model.
+(the deprecated `IVIdentification()`), take the instrument from an `IVSVAR` model.
 """
 function _resolve_iv(model::VARModel, id::IVIdentification)
     if id.instrument !== nothing
@@ -213,12 +181,11 @@ end
 """
     _extract_instrument(instrument, n_obs, n_lags, names) -> (Z, target::Int)
 
-Extract instrument matrix and target shock index, trimming if needed.
-Resolves `Symbol` target shocks against `names`.
+Return the instrument rows aligned with the `n_obs` VAR residuals and the target
+shock index (a `Symbol` target is resolved against `names`).
 
-Z should have the same number of rows as the original data Y.  Internally, rows
-are dropped from the start so that Z aligns with VAR residuals (`n_obs` rows).
-If Z already has `n_obs` rows it is used as-is.
+`Z` must have `n_obs + n_lags` rows (same length as the data `Y`; the first
+`n_lags` rows are dropped) or `n_obs` rows (already aligned with the residuals).
 """
 function _extract_instrument(instrument::ExternalInstrument,
         n_obs::Int, n_lags::Int, names::Vector{Symbol})
@@ -227,29 +194,12 @@ function _extract_instrument(instrument::ExternalInstrument,
     target = _resolve_target(instrument.target_shock, names)
     if n_z == n_obs
         return Z, target
-    elseif n_z > n_obs
-        # Trim from the start: keep last n_obs rows
-        return Z[(n_z - n_obs + 1):end, :], target
+    elseif n_z == n_obs + n_lags
+        return Z[(n_lags + 1):end, :], target
     else
         throw(DimensionMismatch(
-            "Instrument has $n_z rows but needs at least $n_obs. " *
-            "Z should have the same number of rows as Y."))
-    end
-end
-
-function _extract_instrument(instrument::ProxyIV{T, S},
-        n_obs::Int, n_lags::Int, names::Vector{Symbol}) where {T, S}
-    Z = instrument.proxies
-    n_z = size(Z, 1)
-    target = _resolve_target(instrument.target_shock, names)
-    if n_z == n_obs
-        return Z, target
-    elseif n_z > n_obs
-        return Z[(n_z - n_obs + 1):end, :], target
-    else
-        throw(DimensionMismatch(
-            "Proxy has $n_z rows but needs at least $n_obs. " *
-            "Proxy should have the same number of rows as Y."))
+            "Instrument has $n_z rows; expected $(n_obs + n_lags) (the number of rows of Y) " *
+            "or $n_obs (the number of VAR residuals, Y without its first $n_lags rows)."))
     end
 end
 
@@ -363,8 +313,8 @@ function refit_for_bootstrap(model::VARModel{T, <:IVSVAR}, Y_boot::Matrix{T},
     n_resid_boot = size(Y_boot, 1) - n_lags_val
     instrument = _resize_instrument(model.spec.instrument, n_resid_boot)
 
-    return fit(IVSVAR, Y_boot, n_lags_val;
-        instrument = instrument,
+    return _fit_ivsvar(Y_boot, n_lags_val;
+        instrument,
         constraints = constraints_arg,
         names = model.names)
 end

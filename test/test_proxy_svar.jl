@@ -71,11 +71,10 @@ end
     n_resid = T - p
     Z_perfect = reshape(ε[(p + 1):end, 1], :, 1)
 
-    instrument = ExternalInstrument(Z_perfect, 1)
-    model = fit(IVSVAR, Y, p; instrument = instrument,
-        names = [:Y1, :Y2, :Y3])
+    id = IVIdentification(Z_perfect, 1)
+    model = fit(OLSVAR, Y, p; names = [:Y1, :Y2, :Y3])
 
-    θ_est = model.metadata.iv_coefficients
+    θ_est = rotation_matrix(model, id)[:, 1]
     θ_true = H_true[:, 1]
 
     @testset "Point estimates close to truth" begin
@@ -85,12 +84,12 @@ end
     end
 
     @testset "First-stage F-statistic is very large" begin
-        F = first_stage_F(model)
+        F = first_stage_F(model, id)
         @test F > 1000  # perfect instrument → extremely strong first stage
     end
 
     @testset "IRFs match structural MA coefficients" begin
-        irf_result = irf(model, IVIdentification(); horizon = 10)
+        irf_result = irf(model, id; horizon = 10)
         irf_data = Array(irf_result.irf)  # (variable, shock, horizon)
 
         # Impact response = first column of H
@@ -125,31 +124,36 @@ end
 
     p = 1
 
-    # Pre-trimmed Z (T-p rows) — the old way
-    Z_trimmed = reshape(ε[(p + 1):end, 1], :, 1)
-    model_trimmed = fit(IVSVAR, Y, p;
-        instrument = ExternalInstrument(Z_trimmed, 1), names = [:Y1, :Y2, :Y3])
+    model = fit(OLSVAR, Y, p; names = [:Y1, :Y2, :Y3])
 
-    # Full-length Z (T rows, same as Y) — the new way
-    Z_full = reshape(ε[:, 1], :, 1)
-    model_full = fit(IVSVAR, Y, p;
-        instrument = ExternalInstrument(Z_full, 1), names = [:Y1, :Y2, :Y3])
+    # Z aligned with the residuals (T-p rows)
+    id_trimmed = IVIdentification(reshape(ε[(p + 1):end, 1], :, 1), 1)
+
+    # Z with the same number of rows as Y (T rows)
+    id_full = IVIdentification(reshape(ε[:, 1], :, 1), 1)
 
     @testset "Coefficients match" begin
-        @test model_full.metadata.iv_coefficients ≈ model_trimmed.metadata.iv_coefficients atol=1e-12
-        @test first_stage_F(model_full) ≈ first_stage_F(model_trimmed) atol=1e-10
+        @test rotation_matrix(model, id_full) ≈ rotation_matrix(model, id_trimmed) atol=1e-12
+        @test first_stage_F(model, id_full) ≈ first_stage_F(model, id_trimmed) atol=1e-10
     end
 
     @testset "IRFs match" begin
-        irf_t = irf(model_trimmed, IVIdentification(); horizon = 10)
-        irf_f = irf(model_full, IVIdentification(); horizon = 10)
+        irf_t = irf(model, id_trimmed; horizon = 10)
+        irf_f = irf(model, id_full; horizon = 10)
         @test Array(irf_t.irf) ≈ Array(irf_f.irf) atol=1e-12
     end
 
     @testset "Also works with vector input" begin
-        model_vec = fit(IVSVAR, Y, p;
-            instrument = ExternalInstrument(vec(ε[:, 1]), 1), names = [:Y1, :Y2, :Y3])
-        @test model_vec.metadata.iv_coefficients ≈ model_trimmed.metadata.iv_coefficients atol=1e-12
+        id_vec = IVIdentification(vec(ε[:, 1]), 1)
+        @test rotation_matrix(model, id_vec) ≈ rotation_matrix(model, id_trimmed) atol=1e-12
+    end
+
+    @testset "Other instrument lengths are rejected" begin
+        for n_z in (T - p - 1, T + 1, 2T)
+            id_bad = IVIdentification(randn(rng, n_z), 1)
+            @test_throws "expected $T (the number of rows of Y) or $(T - p)" rotation_matrix(
+                model, id_bad)
+        end
     end
 end
 
@@ -180,10 +184,8 @@ end
 
     # Proxy-SVAR with Z = ε₁ (perfect instrument for clean comparison)
     Z = reshape(ε[(p + 1):end, 1], :, 1)
-    instrument = ExternalInstrument(Z, 1)
+    id = IVIdentification(Z, 1)
 
-    model_iv = fit(IVSVAR, Y, p; instrument = instrument,
-        names = [:Y1, :Y2, :Y3])
     model_ols = fit(OLSVAR, Y, p; names = [:Y1, :Y2, :Y3])
 
     # Cholesky first column (from OLS VAR)
@@ -192,7 +194,7 @@ end
     chol_col1 = L_chol[:, 1]
 
     # Proxy-SVAR first column (unit effect normalization: θ[1] = 1)
-    iv_col1 = model_iv.metadata.iv_coefficients
+    iv_col1 = rotation_matrix(model_ols, id)[:, 1]
 
     # Both should identify the same structural shock up to scale.
     # Under unit effect normalization: iv_col1[1] = 1.0
@@ -207,7 +209,7 @@ end
     end
 
     @testset "IRF first columns match (horizon 0-5)" begin
-        irf_iv = irf(model_iv, IVIdentification(); horizon = 5)
+        irf_iv = irf(model_ols, id; horizon = 5)
         irf_chol = irf(model_ols, CholeskyID(); horizon = 5)
         irf_iv_data = Array(irf_iv.irf)     # (variable, shock, horizon)
         irf_chol_data = Array(irf_chol.irf) # (variable, shock, horizon)
@@ -250,44 +252,25 @@ end
     noise = randn(rng, n_resid)
     Z_proxy = ψ .* ε[(p + 1):end, 1] .+ noise
 
-    instrument = ExternalInstrument(reshape(Z_proxy, :, 1), 1)
-
-    @testset "fit produces correct model type" begin
-        model = fit(IVSVAR, Y, p; instrument = instrument, names = [:Y1, :Y2])
-        @test model isa VARModel{Float64, <:IVSVAR}
-        @test n_vars(model) == K
-        @test n_lags(model) == p
-    end
-
-    @testset "Metadata contains required fields" begin
-        model = fit(IVSVAR, Y, p; instrument = instrument, names = [:Y1, :Y2])
-        @test haskey(model.metadata, :structural_impact)
-        @test haskey(model.metadata, :first_stage_F)
-        @test haskey(model.metadata, :target_shock)
-        @test haskey(model.metadata, :iv_coefficients)
-        @test model.metadata.target_shock == 1
-    end
+    id = IVIdentification(reshape(Z_proxy, :, 1), 1)
+    model = fit(OLSVAR, Y, p; names = [:Y1, :Y2])
 
     @testset "Unit effect normalization" begin
-        model = fit(IVSVAR, Y, p; instrument = instrument, names = [:Y1, :Y2])
-        @test model.metadata.iv_coefficients[1] == 1.0  # exact by construction
+        @test rotation_matrix(model, id)[1, 1] == 1.0  # exact by construction
     end
 
     @testset "First-stage F > 0 with valid instrument" begin
-        model = fit(IVSVAR, Y, p; instrument = instrument, names = [:Y1, :Y2])
-        @test first_stage_F(model) > 0
+        @test first_stage_F(model, id) > 0
     end
 
     @testset "Impact matrix is full rank" begin
-        model = fit(IVSVAR, Y, p; instrument = instrument, names = [:Y1, :Y2])
-        P = model.metadata.structural_impact
+        P = rotation_matrix(model, id)
         @test size(P) == (K, K)
         @test rank(P) == K
     end
 
     @testset "IRF computation succeeds" begin
-        model = fit(IVSVAR, Y, p; instrument = instrument, names = [:Y1, :Y2])
-        result = irf(model, IVIdentification(); horizon = 20)
+        result = irf(model, id; horizon = 20)
         @test size(result.irf) == (K, K, 21)  # (variable, shock, horizon)
         @test Array(result.irf)[1, 1, 1] ≈ 1.0 atol=1e-10  # unit effect
     end
@@ -295,18 +278,14 @@ end
     @testset "Constraints are supported" begin
         # A₁₁ = 0: Y1 has no own lags (as in our MPS specification)
         constraints = [BlockExogeneity([:Y1], [:Y1])]
-        model = fit(IVSVAR, Y, p; instrument = instrument,
-            names = [:Y1, :Y2], constraints = constraints)
-        @test is_stable(model) || true  # may not be stable with constraints, but should not error
-        @test model isa VARModel
+        model_c = fit(OLSVAR, Y, p; names = [:Y1, :Y2], constraints = constraints)
+        @test size(rotation_matrix(model_c, id)) == (K, K)
     end
 
     @testset "Dimension mismatch errors" begin
         # Instrument with too few rows
         Z_bad = reshape(randn(rng, n_resid - 5), :, 1)
-        instrument_bad = ExternalInstrument(Z_bad, 1)
-        @test_throws DimensionMismatch fit(IVSVAR, Y, p;
-            instrument = instrument_bad, names = [:Y1, :Y2])
+        @test_throws DimensionMismatch rotation_matrix(model, IVIdentification(Z_bad, 1))
     end
 end
 
@@ -339,10 +318,10 @@ end
     noise = randn(rng, n_resid)
     Z_proxy = ψ .* ε[(p + 1):end, 1] .+ noise
 
-    instrument = ExternalInstrument(reshape(Z_proxy, :, 1), 1)
-    model = fit(IVSVAR, Y, p; instrument = instrument, names = [:Y1, :Y2])
+    id = IVIdentification(reshape(Z_proxy, :, 1), 1)
+    model = fit(OLSVAR, Y, p; names = [:Y1, :Y2])
 
-    θ_est = model.metadata.iv_coefficients
+    θ_est = rotation_matrix(model, id)[:, 1]
     H1_true = H_true[:, 1]
     H1_true_norm = H1_true ./ H1_true[1]  # unit effect normalization
 

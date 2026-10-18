@@ -32,7 +32,33 @@ backward-compatible).
   The shared result types `BayesianIRFResult` and `LocalProjectionIRFResult`
   remain.
 
+### Deprecated
+
+- `fit(IVSVAR, Y, p; instrument)`, the `IVSVAR` specification, and
+  `IVIdentification()` without an instrument. Fit the reduced form with
+  `fit(OLSVAR, Y, p)` and pass the instrument to the identification:
+  `irf(model, IVIdentification(Z, target_shock))`,
+  `first_stage_F(model, id)`, `iv_summary(model, id)`.
+- `ProxyIV` is a deprecated name for `ExternalInstrument`.
+
 ### Changed (breaking)
+
+- One instrument type, `ExternalInstrument{T, S}` with fields `Z` and
+  `target_shock`. `ProxyIV` (field `proxies`) is merged into it.
+- The `method` keyword (`:tsls`, `:liml`, `:fuller`) of `ExternalInstrument`
+  and `IVIdentification`, and the `relevance_threshold` keyword of `ProxyIV`,
+  are removed: they were accepted but had no effect (the estimator is always
+  2SLS). `iv_summary` reports the first-stage F and flags F < 10.
+- An instrument must have as many rows as the data `Y` (the first `n_lags`
+  rows are dropped) or as many rows as the VAR residuals; any other length
+  throws a `DimensionMismatch`. Previously a longer instrument was silently cut
+  to its last rows.
+- `WildBootstrap` and `Bootstrap` inference with `IVIdentification` throw an
+  `ArgumentError` pointing to `ProxySVARMBB`: they do not resample the
+  instrument.
+- `ExternalInstrument(Z, :name)` and `IVIdentification(Z, :name)` accept a
+  `Symbol` target positionally, for vector and matrix `Z`; integer-valued `Z`
+  is converted to floating point.
 
 - `get_draws` throws an `ArgumentError` for results without draws: an
   `IRFResult` computed without a bootstrap (previously returned `nothing`) and

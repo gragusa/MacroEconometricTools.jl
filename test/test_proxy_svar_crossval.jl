@@ -45,12 +45,11 @@ const DATADIR = joinpath(@__DIR__, "data")
     # ── Julia estimation ──────────────────────────────────────────────────
     # Proxy aligned with VAR residuals (drop first p observations)
     Z_proxy = reshape(proxy_py[(p + 1):end], :, 1)
-    instrument = ExternalInstrument(Z_proxy, 1)
+    id = IVIdentification(Z_proxy, 1)
 
-    model = fit(IVSVAR, Y_py, p;
-        instrument = instrument, names = [:Y1, :Y2])
+    model = fit(OLSVAR, Y_py, p; names = [:Y1, :Y2])
 
-    θ_julia = model.metadata.iv_coefficients
+    θ_julia = rotation_matrix(model, id)[:, 1]
     ν_julia = residuals(model)
 
     # ── Test 1: VAR coefficients match ────────────────────────────────────
@@ -126,7 +125,7 @@ const DATADIR = joinpath(@__DIR__, "data")
     # ── Test 5: IRFs match ────────────────────────────────────────────────
     @testset "IRFs match Python (normalized)" begin
         n_imp = Int(params["n_imp"])
-        irf_result = irf(model, IVIdentification(); horizon = n_imp-1)
+        irf_result = irf(model, id; horizon = n_imp-1)
 
         # Python IRF is in H1 scale (φ-normalized)
         # Julia IRF is in unit-effect scale (θ[1]=1)

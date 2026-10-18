@@ -412,7 +412,7 @@ function proxy_svar_mbb(model::VARModel{T}, id::IVIdentification,
         rng = rng, block_indices = block_indices)
 end
 
-# Backward compat: instrument in model
+# Deprecated `IVSVAR` models carry the instrument in the spec.
 function proxy_svar_mbb(model::VARModel{T, <:IVSVAR},
         horizon::Int, inf::ProxySVARMBB;
         rng::AbstractRNG = Random.default_rng(),
@@ -913,6 +913,19 @@ function compute_inference_bands(
         save_draws = inf.save_draws)
     return compute_inference_bands(
         model, identification, irf_point, proxy_inf, coverage, normalization, rng)
+end
+
+# The residual bootstraps refit the VAR on a resampled series without resampling
+# the instrument, so the instrument has no valid alignment with the refitted residuals.
+for B in (:WildBootstrap, :Bootstrap)
+    @eval function compute_inference_bands(::VARModel{T}, ::IVIdentification,
+            ::Array{T, 3}, ::$B, ::Vector{Float64}, ::AbstractNormalization,
+            ::AbstractRNG) where {T}
+        throw(ArgumentError(
+            $(string(B)) * " does not resample the instrument and is not supported " *
+            "with IVIdentification. Use inference = ProxySVARMBB(reps), which resamples " *
+            "residuals and instrument jointly."))
+    end
 end
 
 # Error guard: ProxySVARMBB requires IVIdentification
