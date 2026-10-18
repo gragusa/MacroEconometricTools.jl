@@ -126,14 +126,14 @@ const IRFResult = MacroEconometricTools.IRFResult
         A = [
             [0.35 0.08; -0.05 0.3],
             [0.1 -0.04; 0.03 0.08],
-            [-0.05 0.02; 0.01 -0.04],
+            [-0.05 0.02; 0.01 -0.04]
         ]
         innovation_factor = [1.0 0.0; 0.3 0.8]
         Y_large = zeros(n_obs + burn_in, 2)
         for t in 4:size(Y_large, 1)
             innovation = innovation_factor * randn(rng, 2)
             Y_large[t, :] = sum(A[lag] * Y_large[t - lag, :] for lag in 1:3) +
-                innovation
+                            innovation
         end
         Y_large = Y_large[(burn_in + 1):end, :]
 
@@ -151,7 +151,7 @@ const IRFResult = MacroEconometricTools.IRFResult
 
         # With a large sample and a stable, low-persistence DGP, the delta-method
         # and bootstrap estimates of sampling uncertainty should be close.
-        @test analytic_se ≈ bootstrap_se rtol = 0.2 atol = 0.002
+        @test analytic_se≈bootstrap_se rtol=0.2 atol=0.002
     end
 
     @testset "Delta Method Jacobian Matrices" begin

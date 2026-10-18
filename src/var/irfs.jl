@@ -70,7 +70,7 @@ instead of O(n log n) for a full sort.
 function _quantile_along_dim1!(
         lo::Array{T, 3}, hi::Array{T, 3},
         draws::Array{T, 4}, α_lower::Float64, α_upper::Float64
-    ) where {T}
+) where {T}
     reps = size(draws, 1)
     buf = Vector{T}(undef, reps)
     idx_lo = clamp(round(Int, α_lower * reps), 1, reps)
@@ -148,12 +148,12 @@ function _apply_cumulation(
         draws::Union{Nothing, Array{T, 4}},
         coverage::Vector{Float64},
         idx::Vector{Int}
-    ) where {T}
+) where {T}
     draws === nothing && throw(
         ArgumentError(
-            "Cumulation requires bootstrap draws. " *
-                "Use a bootstrap inference method (e.g., WildBootstrap(reps=1000))."
-        )
+        "Cumulation requires bootstrap draws. " *
+        "Use a bootstrap inference method (e.g., WildBootstrap(reps=1000))."
+    )
     )
 
     # Cumulate point estimate
@@ -243,7 +243,7 @@ function irf(
         cumulate::Union{Nothing, Vector{Symbol}, Vector{Int}} = nothing,
         scale::Union{Nothing, Real} = nothing,
         rng::AbstractRNG = Random.default_rng()
-    ) where {T}
+) where {T}
     coverage = _validate_irf_args(horizon, coverage)
 
     # Resolve cumulation indices
@@ -253,10 +253,10 @@ function irf(
     if cumulate_idx !== nothing && inference isa Analytic
         throw(
             ArgumentError(
-                "Cumulation of IRFs is incompatible with Analytic() inference. " *
-                    "The delta method does not apply to cumulated IRFs. " *
-                    "Use a bootstrap method (e.g., WildBootstrap(reps=1000)) instead."
-            )
+            "Cumulation of IRFs is incompatible with Analytic() inference. " *
+            "The delta method does not apply to cumulated IRFs. " *
+            "Use a bootstrap method (e.g., WildBootstrap(reps=1000)) instead."
+        )
         )
     end
     cumulate_idx === nothing || _check_cumulable(inference)
@@ -269,15 +269,15 @@ function irf(
 
     # Dispatch on inference type - NO if-statements!
     draws, stderr,
-        lower,
-        upper = compute_inference_bands(
+    lower,
+    upper = compute_inference_bands(
         model, identification, irf_point, inference, coverage, normalization, rng
     )
 
     # Apply cumulation if requested (before wrapping)
     if cumulate_idx !== nothing
         irf_point, draws, stderr,
-            lower, upper = _apply_cumulation(
+        lower, upper = _apply_cumulation(
             irf_point, draws, coverage, cumulate_idx
         )
     end
@@ -304,7 +304,7 @@ function irf(
         cumulated_vars = cumulate_syms,
         scale = ones(T, n),
         impact_diagonal = impact_diagonal,
-        timestamp = now(),
+        timestamp = now()
     )
 
     result = IRFResult(
@@ -355,7 +355,7 @@ function irf(
         parallel::Symbol = :none,
         rng::AbstractRNG = Random.default_rng(),
         kwargs...
-    )
+)
     draw_rotation() = rotation_matrix(
         model, id; max_draws = max_attempts, parallel, verbose = false, rng
     )
@@ -396,11 +396,11 @@ function irf(
         parallel::Symbol = :none,
         rng::AbstractRNG = Random.default_rng(),
         kwargs...
-    )
+)
     parallel === :none || throw(
         ArgumentError(
-            "parallel = $(repr(parallel)) is not supported for NarrativeRestriction; use parallel = :none"
-        )
+        "parallel = $(repr(parallel)) is not supported for NarrativeRestriction; use parallel = :none"
+    )
     )
     draw_rotation() = rotation_matrix(model, id; max_draws = max_attempts, rng)
     return _set_identified_irf(draw_rotation, model, id; max_attempts, kwargs...)
@@ -425,13 +425,13 @@ function _set_identified_irf(
         cumulate::Union{Nothing, Vector{Symbol}, Vector{Int}} = nothing,
         scale::Union{Nothing, Real} = nothing,
         inference = nothing
-    ) where {T}
+) where {T}
     inference === nothing || throw(
         ArgumentError(
-            "$(nameof(typeof(id))) is set-identifying and takes no `inference` keyword; " *
-                "the bands of the returned SignRestrictedIRFResult are quantiles across " *
-                "accepted rotations (control them with `n_draws` and `coverage`)"
-        )
+        "$(nameof(typeof(id))) is set-identifying and takes no `inference` keyword; " *
+        "the bands of the returned SignRestrictedIRFResult are quantiles across " *
+        "accepted rotations (control them with `n_draws` and `coverage`)"
+    )
     )
     coverage = _validate_irf_args(horizon, coverage)
     n_draws > 0 || throw(ArgumentError("n_draws must be positive"))
@@ -475,7 +475,7 @@ function _set_identified_irf(
         cumulated_vars = cumulate_syms,
         scale = ones(T, n),
         impact_diagonal = impact_diagonal,
-        timestamp = now(),
+        timestamp = now()
     )
 
     result = SignRestrictedIRFResult(
@@ -527,7 +527,8 @@ function Base.show(io::IO, irf::IRFResult{T}) where {T}
     if !isempty(irf.coverage)
         println(io, "  Coverage: ", join(irf.coverage .* 100, "%, "), "%")
     end
-    return if haskey(irf.metadata, :cumulated_vars) && irf.metadata.cumulated_vars !== nothing
+    return if haskey(irf.metadata, :cumulated_vars) &&
+              irf.metadata.cumulated_vars !== nothing
         println(io, "  Cumulated: ", join(irf.metadata.cumulated_vars, ", "))
     end
 end
@@ -553,7 +554,8 @@ function Base.show(io::IO, irf::SignRestrictedIRFResult{T}) where {T}
     if !isempty(irf.coverage)
         println(io, "  Coverage: ", join(irf.coverage .* 100, "%, "), "%")
     end
-    return if haskey(irf.metadata, :cumulated_vars) && irf.metadata.cumulated_vars !== nothing
+    return if haskey(irf.metadata, :cumulated_vars) &&
+              irf.metadata.cumulated_vars !== nothing
         println(io, "  Cumulated: ", join(irf.metadata.cumulated_vars, ", "))
     end
 end
@@ -569,13 +571,14 @@ end
 # Anderson-Rubin bands are confidence sets for the uncumulated responses; a
 # cumulated response would need its own test statistic.
 function _check_cumulable(inference)
-    inference isa ProxySVARMBB && inference.compute_ar && throw(
-        ArgumentError(
+    inference isa ProxySVARMBB && inference.compute_ar &&
+        throw(
+            ArgumentError(
             "Cumulation is not supported with Anderson-Rubin bands " *
-                "(ProxySVARMBB(compute_ar = true)); use ProxySVARMBB(reps) for " *
-                "percentile bands of the cumulated responses."
+            "(ProxySVARMBB(compute_ar = true)); use ProxySVARMBB(reps) for " *
+            "percentile bands of the cumulated responses."
         )
-    )
+        )
     return nothing
 end
 
@@ -615,16 +618,16 @@ already cumulated.
 function cumulative_irf(irf::IRFResult; vars = nothing)
     has_draws(irf) || throw(
         ArgumentError(
-            "cumulative_irf requires stored bootstrap draws to recompute the bands; use " *
-                "an inference method with save_draws = true, or irf(...; cumulate = vars)."
-        )
+        "cumulative_irf requires stored bootstrap draws to recompute the bands; use " *
+        "an inference method with save_draws = true, or irf(...; cumulate = vars)."
+    )
     )
     _check_cumulable(irf.inference)
     cumulate_idx, cumulated_vars = _post_hoc_cumulate(irf, vars)
     cumulate_idx === nothing && return irf
 
     cum_point, cum_draws, cum_stderr, lower_raw,
-        upper_raw = _apply_cumulation(
+    upper_raw = _apply_cumulation(
         _unwrap_irf_3d(irf.irf), _unwrap_irf_4d(irf.bootstrap_draws),
         irf.coverage, cumulate_idx
     )
@@ -712,7 +715,7 @@ Shocks not mentioned get factor 1.
 function _build_shock_factors(
         names::Vector{Symbol}, ::Type{T},
         pairs::Tuple{Vararg{Pair{Symbol, <:Real}}}
-    ) where {T}
+) where {T}
     factors = ones(T, length(names))
     for (nm, val) in pairs
         idx = findfirst(==(nm), names)
@@ -739,6 +742,7 @@ function _scale_bands(lower::Vector, upper::Vector, factors::AbstractVector)
     lo = [_scale_shocks(l, factors, 2) for l in lower]
     hi = [_scale_shocks(u, factors, 2) for u in upper]
     for k in eachindex(lo, hi), j in eachindex(factors)
+
         factors[j] < 0 || continue
         l, u = copy(lo[k][:, j, :]), copy(hi[k][:, j, :])
         lo[k][:, j, :] = u
@@ -778,7 +782,7 @@ result_pct = rescale(result, 100)
 """
 function rescale(
         irf::Union{IRFResult, SignRestrictedIRFResult}, pairs::Pair{Symbol, <:Real}...
-    )
+)
     T = eltype(point_estimate(irf))
     return _rescale(irf, _build_shock_factors(shocknames(irf), T, pairs))
 end
@@ -789,10 +793,11 @@ function rescale(irf::Union{IRFResult, SignRestrictedIRFResult}, factor::Real)
 end
 
 function _rescale(irf::IRFResult, factors::Vector)
-    all(isfinite, factors) || throw(ArgumentError("scale factors must be finite, got $factors"))
+    all(isfinite, factors) ||
+        throw(ArgumentError("scale factors must be finite, got $factors"))
     lower, upper = _scale_bands(irf.lower, irf.upper, factors)
     draws = irf.bootstrap_draws === nothing ? nothing :
-        _scale_shocks(irf.bootstrap_draws, factors, 3)
+            _scale_shocks(irf.bootstrap_draws, factors, 3)
     return IRFResult(
         _scale_shocks(irf.irf, factors, 2), _scale_shocks(irf.stderr, abs.(factors), 2),
         draws, lower, upper, irf.coverage, irf.identification, irf.inference,
@@ -801,7 +806,8 @@ function _rescale(irf::IRFResult, factors::Vector)
 end
 
 function _rescale(irf::SignRestrictedIRFResult, factors::Vector)
-    all(isfinite, factors) || throw(ArgumentError("scale factors must be finite, got $factors"))
+    all(isfinite, factors) ||
+        throw(ArgumentError("scale factors must be finite, got $factors"))
     lower, upper = _scale_bands(irf.lower, irf.upper, factors)
     return SignRestrictedIRFResult(
         _scale_shocks(irf.irf_median, factors, 2), _scale_shocks(irf.irf_draws, factors, 3),
@@ -833,9 +839,9 @@ should_save_draws(::Nothing, ::Nothing) = nothing
 should_save_draws(::Analytic, ::Nothing) = nothing
 function should_save_draws(
         inf::Union{
-            WildBootstrap, Bootstrap, BlockBootstrap, ProxySVARMBB,
+            WildBootstrap, Bootstrap, BlockBootstrap, ProxySVARMBB
         }, draws
-    )
+)
     return inf.save_draws ? draws : nothing
 end
 
@@ -869,7 +875,7 @@ function compute_inference_bands(
         coverage::Vector{Float64},
         normalization::AbstractNormalization,
         rng::AbstractRNG
-    ) where {T}
+) where {T}
     horizon = size(irf_point, 3) - 1
     draws = _bootstrap_irf_draws(model, identification, inf, horizon, normalization, rng)
     lower, upper = compute_bands_from_draws(irf_point, draws, coverage)
@@ -883,15 +889,15 @@ end
 function _require_default_cholesky(identification::AbstractIdentification)
     identification isa CholeskyID && identification.ordering === nothing && return nothing
     got = identification isa CholeskyID ?
-        "CholeskyID with ordering $(identification.ordering)" :
-        string(nameof(typeof(identification)))
+          "CholeskyID with ordering $(identification.ordering)" :
+          string(nameof(typeof(identification)))
     throw(
         ArgumentError(
-            "Analytic() inference is valid only for CholeskyID() with the model's " *
-                "variable order (got $got). Use a bootstrap " *
-                "(WildBootstrap, Bootstrap, BlockBootstrap), or reorder the variables " *
-                "when fitting the model."
-        )
+        "Analytic() inference is valid only for CholeskyID() with the model's " *
+        "variable order (got $got). Use a bootstrap " *
+        "(WildBootstrap, Bootstrap, BlockBootstrap), or reorder the variables " *
+        "when fitting the model."
+    )
     )
 end
 
@@ -904,8 +910,7 @@ function compute_inference_bands(
         coverage::Vector{Float64},
         normalization::AbstractNormalization,
         rng::AbstractRNG  # Not used, but keep signature consistent
-    ) where {T}
-
+) where {T}
     _require_default_cholesky(identification)
 
     # Delta method doesn't produce draws
@@ -931,7 +936,7 @@ function compute_inference_bands(
         coverage::Vector{Float64},
         ::AbstractNormalization,
         rng::AbstractRNG
-    ) where {T}
+) where {T}
     draws = nothing
     stderr = zeros(T, size(irf_point))
     lower = [zeros(T, size(irf_point)) for _ in coverage]
@@ -956,14 +961,14 @@ Compute confidence bands from bootstrap IRF draws using percentile method.
 function compute_bands_from_draws(
         irf_point::Array{T, 3}, draws::Array{T, 4},
         coverage::Vector{Float64}
-    ) where {T}
+) where {T}
     lower = Vector{Array{T, 3}}(undef, length(coverage))
     upper = Vector{Array{T, 3}}(undef, length(coverage))
 
     # Compute centered bootstrap draws: draws - mean(draws) + irf_point
     draws_mean = dropdims(mean(draws; dims = 1); dims = 1)
     draws_centered = draws .- reshape(draws_mean, (1, size(draws_mean)...)) .+
-        reshape(irf_point, (1, size(irf_point)...))
+                     reshape(irf_point, (1, size(irf_point)...))
 
     sz3 = size(draws_centered)[2:4]
     for (i, α) in enumerate(coverage)
@@ -996,7 +1001,7 @@ Compute confidence bands from standard errors using normal approximation.
 function compute_bands_from_stderr(
         irf_point::Array{T, 3}, stderr::Array{T, 3},
         coverage::Vector{Float64}
-    ) where {T}
+) where {T}
     lower = Vector{Array{T, 3}}(undef, length(coverage))
     upper = Vector{Array{T, 3}}(undef, length(coverage))
 
@@ -1035,21 +1040,22 @@ irf2 = confidence_bands(irf1; coverage = [0.75, 0.85, 0.95])
 function confidence_bands(
         irf::IRFResult{T};
         coverage::Vector{Float64} = [0.68, 0.9, 0.95]
-    ) where {T}
+) where {T}
     isnothing(irf.bootstrap_draws) && throw(
         ArgumentError(
-            "the IRFResult has no saved bootstrap draws; compute it with " *
-                "save_draws = true (e.g. inference = WildBootstrap(reps; save_draws = true))."
-        )
+        "the IRFResult has no saved bootstrap draws; compute it with " *
+        "save_draws = true (e.g. inference = WildBootstrap(reps; save_draws = true))."
     )
-    irf.inference isa ProxySVARMBB && irf.inference.compute_ar && throw(
-        ArgumentError(
+    )
+    irf.inference isa ProxySVARMBB && irf.inference.compute_ar &&
+        throw(
+            ArgumentError(
             "the bands of this IRFResult are Anderson-Rubin confidence sets " *
-                "(ProxySVARMBB(compute_ar = true)), not percentile bands of the draws; " *
-                "call irf(model, id; inference = ProxySVARMBB(...; compute_ar = true), " *
-                "coverage) to compute them at other levels."
+            "(ProxySVARMBB(compute_ar = true)), not percentile bands of the draws; " *
+            "call irf(model, id; inference = ProxySVARMBB(...; compute_ar = true), " *
+            "coverage) to compute them at other levels."
         )
-    )
+        )
     all(0 .< coverage .< 1) || throw(ArgumentError("coverage levels must be in (0, 1)"))
     coverage = sort(coverage)
 
@@ -1070,10 +1076,10 @@ end
 function confidence_bands(
         irf::IRFResult, ::Type{<:_ResidualBootstrap};
         coverage::Vector{Float64} = [0.68, 0.9, 0.95]
-    )
+)
     Base.depwarn(
         "`confidence_bands(irf, InferenceType; coverage)` is deprecated; " *
-            "use `confidence_bands(irf; coverage)`.", :confidence_bands
+        "use `confidence_bands(irf; coverage)`.", :confidence_bands
     )
     return confidence_bands(irf; coverage)
 end
@@ -1083,10 +1089,10 @@ function confidence_bands(
         inf::InferenceType;
         coverage::Vector{Float64} = [0.68, 0.9, 0.95],
         rng::AbstractRNG = Random.default_rng()
-    )
+)
     Base.depwarn(
         "`confidence_bands(irf, model, identification, inference)` is deprecated; " *
-            "use `irf(model, identification; horizon, inference, coverage, normalization, rng)`.",
+        "use `irf(model, identification; horizon, inference, coverage, normalization, rng)`.",
         :confidence_bands
     )
     # `irf` recomputes the result from the model; it cannot reproduce a later
@@ -1095,9 +1101,9 @@ function confidence_bands(
     scale = get(result.metadata, :scale, nothing)
     cumulated === nothing && (scale === nothing || all(isone, scale)) || throw(
         ArgumentError(
-            "the IRFResult was rescaled or cumulated; call irf(model, identification; " *
-                "inference, coverage, ...) and apply rescale/cumulative_irf to the new result."
-        )
+        "the IRFResult was rescaled or cumulated; call irf(model, identification; " *
+        "inference, coverage, ...) and apply rescale/cumulative_irf to the new result."
+    )
     )
     return irf(
         model, identification;

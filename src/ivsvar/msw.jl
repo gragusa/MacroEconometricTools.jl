@@ -40,12 +40,12 @@ function msw_confidence_set(
         coverage::AbstractVector{<:Real} = [0.68, 0.9, 0.95],
         norm_scale::Float64 = -1.0,
         horizon::Int = 20
-    ) where {T}
+) where {T}
     coverage = collect(Float64, _validate_irf_args(horizon, coverage))
     resolved = _resolve_iv(model, id)
     ν = model.residuals
     Z,
-        target = _extract_instrument(resolved.instrument, size(ν, 1), n_lags(model), model.names)
+    target = _extract_instrument(resolved.instrument, size(ν, 1), n_lags(model), model.names)
     return _msw_impl(
         model, vec(_require_observed(Z, "msw_confidence_set")),
         target, coverage; norm_scale, horizon
@@ -58,7 +58,7 @@ function msw_confidence_set(
         coverage::AbstractVector{<:Real} = [0.68, 0.9, 0.95],
         norm_scale::Float64 = -1.0,
         horizon::Int = 20
-    ) where {T}
+) where {T}
     return msw_confidence_set(
         model, IVIdentification(model.spec.instrument);
         coverage, norm_scale, horizon
@@ -69,7 +69,7 @@ function _msw_impl(
         model::VARModel{T}, proxy::Vector{T}, target::Int, coverage::Vector{Float64};
         norm_scale::Float64 = -1.0,
         horizon::Int = 20
-    ) where {T}
+) where {T}
     ν = model.residuals
     TT, KK = size(ν)
     p_val = n_lags(model)
@@ -179,6 +179,7 @@ function _msw_impl(
     cs = [fill(T(NaN), bnd ? 2 : 4, KK, n_imp) for bnd in bounded]
 
     for h in 1:n_imp, k in 1:KK
+
         Φ_h = bigA[1:KK, 1:KK, h]'
 
         # Kronecker product for variance computation
@@ -190,13 +191,13 @@ function _msw_impl(
         # b coefficient
         bpart1 = -TT * temp1 * γ_est[target]
         bpart2 = (temp2 * V31[target:target, :]')[1] +
-            (Φ_h[k:k, :] * V33[:, target:target])[1]
+                 (Φ_h[k:k, :] * V33[:, target:target])[1]
 
         # c coefficient
         cpart1 = TT * temp1^2
         cpart2 = (temp2 * V11 * temp2')[1] +
-            2 * (temp2 * V31' * Φ_h[k:k, :]')[1] +
-            (Φ_h[k:k, :] * V33 * Φ_h[k:k, :]')[1]
+                 2 * (temp2 * V31' * Φ_h[k:k, :]')[1] +
+                 (Φ_h[k:k, :] * V33 * Φ_h[k:k, :]')[1]
 
         for i in eachindex(crit)
             bb = 2 * s * (bpart1 + crit[i] * bpart2)
@@ -216,7 +217,7 @@ function _msw_impl(
         cs_irf_norm = cs,
         bounded = bounded,
         vcv_matrix = V,
-        wald_stat = wald,
+        wald_stat = wald
     )
 end
 
@@ -229,7 +230,7 @@ function _solve_msw_quadratic!(
         cs::Array{T, 3},
         aa::T, bb::T, cc::T,
         k::Int, h::Int, bounded::Bool
-    ) where {T}
+) where {T}
     disc = bb^2 - 4 * aa * cc
 
     return if bounded

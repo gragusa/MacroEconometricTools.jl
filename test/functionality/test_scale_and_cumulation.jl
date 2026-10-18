@@ -30,7 +30,7 @@ using StableRNGs: StableRNG
             @test Array(scaled.irf)[:, j, :] ≈ f[j] .* Array(result.irf)[:, j, :]
             @test Array(scaled.stderr)[:, j, :] ≈ abs(f[j]) .* Array(result.stderr)[:, j, :]
             @test Array(get_draws(scaled))[:, :, j, :] ≈
-                f[j] .* Array(get_draws(result))[:, :, j, :]
+                  f[j] .* Array(get_draws(result))[:, :, j, :]
         end
         # A negative factor swaps lower and upper.
         for k in eachindex(result.coverage)

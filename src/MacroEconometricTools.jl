@@ -12,8 +12,8 @@ A modern Julia package for macroeconometric analysis, featuring:
 module MacroEconometricTools
 
 using LinearAlgebra: LinearAlgebra, Diagonal, I, Symmetric, cholesky, cholesky!,
-    diag, dot, eigen, eigvals, ldiv!, logdet, mul!, pinv, qr,
-    transpose!, LAPACK, SingularException
+                     diag, dot, eigen, eigvals, ldiv!, logdet, mul!, pinv, qr,
+                     transpose!, LAPACK, SingularException
 using FastLapackInterface: FastLapackInterface, QRWs, QROrmWs
 using Statistics: Statistics
 using Random: Random, AbstractRNG, randn!
@@ -206,14 +206,14 @@ export first_stage_F, iv_summary
 # Matrix-level structural core: operates on raw (B, Σ_L) matrices rather than a
 # fitted VARModel, for loops over reduced-form draws (e.g. posterior draws).
 public structural_impact, compute_ma_matrices_from_B!, compute_ma_matrices,
-    generate_random_orthogonal!, check_sign_restrictions, compute_structural_shocks,
-    check_narrative_restrictions, compute_irf_point, n_shocks
+       generate_random_orthogonal!, check_sign_restrictions, compute_structural_shocks,
+       check_narrative_restrictions, compute_irf_point, n_shocks
 public iv_impact, iv_instrument, estimate_proxy_svar, proxy_svar_dynamics
 public bootstrap_irf, refit_for_bootstrap, proxy_svar_mbb, msw_confidence_set
 public lag, create_lags!, companion_form
 public apply_constraints!, build_selection_matrix, check_constraints
 public coefficient_covariance, sigma_covariance, irf_jacobian_matrices,
-    irf_effect_covariance, irf_asymptotic_stderror
+       irf_effect_covariance, irf_asymptotic_stderror
 public duplication_matrix, elimination_matrix, commutation_matrix
 public simulate_var, simulate_structural
 

@@ -66,18 +66,18 @@ See the file header for the `B` layout.
 function compute_ma_matrices_from_B!(
         Φ::Array{T, 3}, B::AbstractMatrix{T}, temp::Matrix{T},
         horizon::Int, n_vars::Int, n_lags::Int
-    ) where {T}
+) where {T}
     Base.require_one_based_indexing(B)
     horizon >= 0 || throw(ArgumentError("horizon must be non-negative, got $horizon"))
     size(B) == (1 + n_vars * n_lags, n_vars) || throw(
         DimensionMismatch(
-            "B must be $(1 + n_vars * n_lags)×$n_vars for n_vars=$n_vars, n_lags=$n_lags; got $(size(B))"
-        )
+        "B must be $(1 + n_vars * n_lags)×$n_vars for n_vars=$n_vars, n_lags=$n_lags; got $(size(B))"
+    )
     )
     (size(Φ, 1), size(Φ, 2)) == (n_vars, n_vars) && size(Φ, 3) > horizon || throw(
         DimensionMismatch(
-            "Φ must be $n_vars×$n_vars×H with H ≥ $(horizon + 1); got $(size(Φ))"
-        )
+        "Φ must be $n_vars×$n_vars×H with H ≥ $(horizon + 1); got $(size(Φ))"
+    )
     )
     size(temp) == (n_vars, n_vars) || throw(
         DimensionMismatch("temp must be $n_vars×$n_vars; got $(size(temp))")
@@ -136,7 +136,7 @@ diagonal so the mapping from the normal draw to `Q` is deterministic.
 function generate_random_orthogonal!(
         Q_out::AbstractMatrix{T}, X_buffer::AbstractMatrix{T},
         rng::AbstractRNG
-    ) where {T}
+) where {T}
     n = size(Q_out, 1)
     randn!(rng, X_buffer)
     qr_fact = qr(X_buffer)
@@ -164,18 +164,18 @@ are `Φ_h P`.
 function check_sign_restrictions(
         P::AbstractMatrix{T}, restrictions::Matrix{Int},
         Φ::Array{T, 3}, horizon::Int
-    ) where {T}
+) where {T}
     Base.require_one_based_indexing(P)
     n_vars = LinearAlgebra.checksquare(P)
     size(restrictions) == (n_vars, n_vars) || throw(
         DimensionMismatch(
-            "restrictions must be $n_vars×$n_vars; got $(size(restrictions))"
-        )
+        "restrictions must be $n_vars×$n_vars; got $(size(restrictions))"
+    )
     )
     size(Φ, 3) > horizon || throw(
         DimensionMismatch(
-            "Φ holds horizons 0:$(size(Φ, 3) - 1); restrictions need 0:$horizon"
-        )
+        "Φ holds horizons 0:$(size(Φ, 3) - 1); restrictions need 0:$horizon"
+    )
     )
 
     for i in 1:n_vars
@@ -228,7 +228,7 @@ function check_narrative_restrictions(
         ε::AbstractMatrix{T},
         narrative_shocks::Vector{<:NarrativeShockRestriction},
         dates = nothing
-    ) where {T}
+) where {T}
     for nr in narrative_shocks
         date_idx = _resolve_narrative_date(nr, dates)
         shock_value = ε[date_idx, nr.shock]
@@ -252,20 +252,20 @@ _resolve_narrative_date(nr::NarrativeShockRestriction{Int}, dates) = nr.date
 function _resolve_narrative_date(
         nr::NarrativeShockRestriction{D},
         dates
-    ) where {D <: Dates.TimeType}
+) where {D <: Dates.TimeType}
     dates === nothing &&
         throw(
-        ArgumentError(
+            ArgumentError(
             "narrative restriction dated $(nr.date) needs a model fitted with `dates`; " *
-                "fit with `dates = ...` or give the date as a row index"
+            "fit with `dates = ...` or give the date as a row index"
         )
-    )
+        )
     idx = findfirst(==(nr.date), dates)
     idx === nothing && throw(
         ArgumentError(
-            "narrative restriction date $(nr.date) not found in the model dates " *
-                "($(first(dates)) to $(last(dates)))"
-        )
+        "narrative restriction date $(nr.date) not found in the model dates " *
+        "($(first(dates)) to $(last(dates)))"
+    )
     )
     return idx
 end
@@ -295,19 +295,19 @@ model's residual covariance.
 function structural_impact(
         Σ_L::AbstractMatrix{T}, id::CholeskyID;
         ordering_idx::Union{Nothing, AbstractVector{Int}} = _ordering_index(id)
-    ) where {T}
+) where {T}
     if id.ordering isa Vector{Int} && ordering_idx != id.ordering
         throw(
             ArgumentError(
-                "ordering_idx = $(ordering_idx) contradicts CholeskyID ordering $(id.ordering)"
-            )
+            "ordering_idx = $(ordering_idx) contradicts CholeskyID ordering $(id.ordering)"
+        )
         )
     end
     if id.ordering isa Vector{Symbol} && ordering_idx === nothing
         throw(
             ArgumentError(
-                "CholeskyID ordering $(id.ordering) is given by name; pass ordering_idx with the matching variable indices"
-            )
+            "CholeskyID ordering $(id.ordering) is given by name; pass ordering_idx with the matching variable indices"
+        )
         )
     end
     ordering_idx === nothing && return Σ_L
@@ -315,8 +315,8 @@ function structural_impact(
     n = LinearAlgebra.checksquare(Σ_L)
     length(ordering_idx) == n || throw(
         ArgumentError(
-            "ordering_idx must be a permutation of 1:$n; got $(ordering_idx)"
-        )
+        "ordering_idx must be a permutation of 1:$n; got $(ordering_idx)"
+    )
     )
     inv_perm = invperm(ordering_idx)
     L_rows = Σ_L[ordering_idx, :]

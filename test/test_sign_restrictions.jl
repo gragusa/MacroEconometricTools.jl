@@ -182,7 +182,7 @@ end
 
 @testset "Narrative Restriction Identification" begin
     using MacroEconometricTools: NarrativeRestriction, NarrativeShockRestriction,
-        compute_structural_shocks
+                                 compute_structural_shocks
 
     Random.seed!(456)
     T = 100
@@ -274,7 +274,7 @@ end
             sign_restrictions,
             [
                 NarrativeShockRestriction(1, row_idx, 1),
-                NarrativeShockRestriction(1, row_idx, -1),
+                NarrativeShockRestriction(1, row_idx, -1)
             ]; horizon = 0
         )
 
@@ -319,16 +319,16 @@ end
         cum_draws = Array(cum.irf_draws)
         @test all(
             cum_draws[r, 1, :, :] ≈ cumsum(plain_draws[r, 1, :, :]; dims = 2)
-                for r in axes(plain_draws, 1)
+        for r in axes(plain_draws, 1)
         )
         # Non-cumulated variables are untouched.
         @test all(
             cum_draws[r, 2, :, :] ≈ plain_draws[r, 2, :, :]
-                for r in axes(plain_draws, 1)
+        for r in axes(plain_draws, 1)
         )
         @test all(
             cum_draws[r, 3, :, :] ≈ plain_draws[r, 3, :, :]
-                for r in axes(plain_draws, 1)
+        for r in axes(plain_draws, 1)
         )
     end
 
@@ -352,11 +352,11 @@ end
         cum_draws = Array(cum.irf_draws)
         @test all(
             cum_draws[r, 1, :, :] ≈ cumsum(plain_draws[r, 1, :, :]; dims = 2)
-                for r in axes(plain_draws, 1)
+        for r in axes(plain_draws, 1)
         )
         @test all(
             cum_draws[r, 2, :, :] ≈ plain_draws[r, 2, :, :]
-                for r in axes(plain_draws, 1)
+        for r in axes(plain_draws, 1)
         )
     end
 

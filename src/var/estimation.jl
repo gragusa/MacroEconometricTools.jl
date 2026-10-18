@@ -42,7 +42,7 @@ function StatsBase.fit(
         names::Union{Nothing, Vector{Symbol}} = nothing,
         demean::Bool = false,
         dates = nothing
-    ) where {T <: AbstractFloat}
+) where {T <: AbstractFloat}
     n_obs_total, n_vars = size(Y)
     n_lags > 0 || throw(ArgumentError("n_lags must be positive"))
     n_obs_total > n_lags || throw(ArgumentError("Not enough observations for $n_lags lags"))
@@ -98,7 +98,7 @@ function StatsBase.fit(
     lags_matrix = Array(reshape(A[2:end, :]', (n_vars, n_vars, n_lags)))
     coefs = VARCoefficients(
         intercept, lags_matrix, isempty(constraints) ? nothing :
-            constraints
+                                constraints
     )
 
     # Companion form
@@ -112,7 +112,7 @@ function StatsBase.fit(
         n_obs_total = n_obs_total,
         n_obs_used = n_eff,
         demean = demean,
-        timestamp = now(),
+        timestamp = now()
     )
 
     return VARModel(
@@ -146,14 +146,14 @@ function constrained_ols(
         X::AbstractMatrix{T}, Y::AbstractMatrix{T},
         constraints::AbstractVector{<:AbstractConstraint},
         names::Vector{Symbol}, n_lags::Int, n_vars::Int
-    ) where {T}
+) where {T}
     length(names) == n_vars ||
         throw(DimensionMismatch("expected $n_vars names, got $(length(names))"))
     n_coef = 1 + n_vars * n_lags
     size(X, 2) == n_coef && size(Y, 2) == n_vars && size(X, 1) == size(Y, 1) || throw(
         DimensionMismatch(
-            "X must be T × $n_coef and Y T × $n_vars with the same T; got $(size(X)) and $(size(Y))"
-        )
+        "X must be T × $n_coef and Y T × $n_vars with the same T; got $(size(X)) and $(size(Y))"
+    )
     )
     Base.require_one_based_indexing(X, Y)
     (; restricted, values) = _resolve_constraints(constraints, names, n_lags)

@@ -51,18 +51,23 @@ using Test
 
     @testset "specification equality and hashing" begin
         cases = [
-            (ZeroConstraint(:a, [:b], [1, 2]), ZeroConstraint(:a, [:b], [1, 2]), ZeroConstraint(:a, [:b], [1])),
-            (FixedConstraint(:a, :b, 1, 0.5), FixedConstraint(:a, :b, 1, 0.5), FixedConstraint(:a, :b, 1, 0.25)),
-            (BlockExogeneity([:a], [:b, :c]), BlockExogeneity([:a], [:b, :c]), BlockExogeneity([:a], [:c])),
+            (ZeroConstraint(:a, [:b], [1, 2]),
+                ZeroConstraint(:a, [:b], [1, 2]), ZeroConstraint(:a, [:b], [1])),
+            (FixedConstraint(:a, :b, 1, 0.5), FixedConstraint(:a, :b, 1, 0.5),
+                FixedConstraint(:a, :b, 1, 0.25)),
+            (BlockExogeneity([:a], [:b, :c]),
+                BlockExogeneity([:a], [:b, :c]), BlockExogeneity([:a], [:c])),
             (CholeskyID([2, 1, 3]), CholeskyID([2, 1, 3]), CholeskyID([1, 2, 3])),
             (CholeskyID([:y, :x]), CholeskyID([:y, :x]), CholeskyID([:x, :y])),
-            (SignRestriction([1 0; 0 -1], 3), SignRestriction([1 0; 0 -1], 3), SignRestriction([1 0; 0 -1], 2)),
-            (NarrativeShockRestriction(1, 50, 1), NarrativeShockRestriction(1, 50, 1), NarrativeShockRestriction(1, 50, -1)),
+            (SignRestriction([1 0; 0 -1], 3), SignRestriction([1 0; 0 -1], 3),
+                SignRestriction([1 0; 0 -1], 2)),
+            (NarrativeShockRestriction(1, 50, 1), NarrativeShockRestriction(1, 50, 1),
+                NarrativeShockRestriction(1, 50, -1)),
             (
                 NarrativeRestriction([1 0; 0 1], [NarrativeShockRestriction(1, 50, 1)], 2),
                 NarrativeRestriction([1 0; 0 1], [NarrativeShockRestriction(1, 50, 1)], 2),
-                NarrativeRestriction([1 0; 0 1], [NarrativeShockRestriction(1, 51, 1)], 2),
-            ),
+                NarrativeRestriction([1 0; 0 1], [NarrativeShockRestriction(1, 51, 1)], 2)
+            )
         ]
         for (a, b, c) in cases
             @test a == b

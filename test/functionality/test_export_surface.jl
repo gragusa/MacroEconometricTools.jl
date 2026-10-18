@@ -20,7 +20,7 @@ const METX = MacroEconometricTools
             :build_selection_matrix, :check_constraints, :coefficient_covariance,
             :sigma_covariance, :irf_jacobian_matrices, :irf_effect_covariance,
             :irf_asymptotic_stderror, :duplication_matrix, :elimination_matrix,
-            :commutation_matrix, :simulate_var, :simulate_structural,
+            :commutation_matrix, :simulate_var, :simulate_structural
         ]
         for name in spoke_api
             @test Base.ispublic(METX, name)
@@ -30,9 +30,9 @@ const METX = MacroEconometricTools
 
     @testset "StatsAPI functions" begin
         for name in (
-                :coef, :vcov, :stderror, :confint, :nobs, :dof, :dof_residual,
-                :loglikelihood, :aic, :bic,
-            )
+            :coef, :vcov, :stderror, :confint, :nobs, :dof, :dof_residual,
+            :loglikelihood, :aic, :bic
+        )
             @test Base.isexported(METX, name)
             @test getfield(METX, name) === getfield(METX.StatsBase, name)
         end
@@ -40,10 +40,10 @@ const METX = MacroEconometricTools
 
     @testset "deprecated names are not exported" begin
         for name in (
-                :IVSVAR, :ProxyIV, :impulse_response, :effective_obs, :log_likelihood,
-                :bootstrap_irf_wild, :bootstrap_irf_standard, :bootstrap_irf_block,
-                :normalize, :normalize!,
-            )
+            :IVSVAR, :ProxyIV, :impulse_response, :effective_obs, :log_likelihood,
+            :bootstrap_irf_wild, :bootstrap_irf_standard, :bootstrap_irf_block,
+            :normalize, :normalize!
+        )
             @test isdefined(METX, name)
             @test !Base.isexported(METX, name)
         end

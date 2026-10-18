@@ -54,7 +54,7 @@ end
 
     result = irf(model, CholeskyID(); horizon, inference = Analytic())
     actual = permutedims(Array(result.stderr), (3, 1, 2))
-    @test actual ≈ expected rtol = 2.0e-5 atol = 2.0e-8
+    @test actual≈expected rtol=2.0e-5 atol=2.0e-8
     @test all(diag(actual[1, :, :]) .> 0)
     @test actual[1, 2, 1] > 0
     @test actual[1, 1, 2] == 0
@@ -113,6 +113,6 @@ end
         # (draw, variable, shock, horizon): no impact response of variable 1 to shock 2
         @test all(iszero, draws[:, 1, 2, 1])
         @test all(>(0), draws[:, 2, 2, 1])
-        @test dropdims(mean(draws; dims = 1); dims = 1) ≈ point rtol = 0.5 atol = 0.05
+        @test dropdims(mean(draws; dims = 1); dims = 1)≈point rtol=0.5 atol=0.05
     end
 end

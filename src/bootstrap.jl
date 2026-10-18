@@ -16,7 +16,7 @@
 # of these is a failed draw; every other exception propagates.
 const _DrawFailure = Union{
     LinearAlgebra.PosDefException, LinearAlgebra.SingularException,
-    LinearAlgebra.LAPACKException, DomainError,
+    LinearAlgebra.LAPACKException, DomainError
 }
 
 """
@@ -39,8 +39,8 @@ end
 function _check_block_length(block_length::Integer, n_obs::Integer)
     1 <= block_length <= n_obs || throw(
         ArgumentError(
-            "block_length = $block_length must lie in 1:$n_obs (the number of residual periods)"
-        )
+        "block_length = $block_length must lie in 1:$n_obs (the number of residual periods)"
+    )
     )
     return nothing
 end
@@ -54,19 +54,19 @@ failed replications from every statistic computed from the draws.
 """
 function _check_failure_rate(
         method_name::String, n_failed::Integer, reps::Integer, max_failure_rate::Real
-    )
+)
     n_failed == 0 && return nothing
     pct = round(100 * n_failed / reps; digits = 1)
     if n_failed == reps || n_failed > max_failure_rate * reps
         error(
             "$method_name: $n_failed / $reps replications failed ($pct%), more than " *
-                "max_failure_rate = $max_failure_rate. Failed replications raise a " *
-                "singular or non-positive-definite matrix, or produce non-finite " *
-                "responses; check the stability of the model and the sample size."
+            "max_failure_rate = $max_failure_rate. Failed replications raise a " *
+            "singular or non-positive-definite matrix, or produce non-finite " *
+            "responses; check the stability of the model and the sample size."
         )
     end
     @warn "$method_name: $n_failed / $reps replications failed ($pct%). They are " *
-        "excluded; bands and standard errors use the remaining $(reps - n_failed)."
+          "excluded; bands and standard errors use the remaining $(reps - n_failed)."
     return nothing
 end
 
@@ -78,7 +78,7 @@ Apply `_check_failure_rate` and return the draws (first dimension) marked in `ok
 function _successful_draws(
         method_name::String, draws::AbstractArray{T, 4}, ok::AbstractVector{Bool},
         max_failure_rate::Real
-    ) where {T}
+) where {T}
     n_failed = count(!, ok)
     _check_failure_rate(method_name, n_failed, length(ok), max_failure_rate)
     return n_failed == 0 ? draws : draws[ok, :, :, :]
@@ -170,7 +170,7 @@ end
 @inline function _fill_X_from_Y!(
         X::AbstractMatrix{T}, Y::AbstractMatrix{T},
         n_obs::Int, n_vars_val::Int, n_lags_val::Int
-    ) where {T}
+) where {T}
     n_eff = n_obs - n_lags_val
     @inbounds for t in 1:n_eff
         # t-th row of X corresponds to time index (t + n_lags) in Y.
@@ -200,7 +200,7 @@ function _fast_refit_ols!(
         Y_boot::AbstractMatrix{T},
         n_vars_val::Int,
         n_lags_val::Int
-    ) where {T}
+) where {T}
     n_obs = size(Y_boot, 1)
     n_eff = n_obs - n_lags_val
 
@@ -293,7 +293,7 @@ function _fast_cholesky_irf!(
         ws::_BootstrapWorkspace{T},
         horizon::Int;
         normalization::AbstractNormalization = UnitStd()
-    ) where {T}
+) where {T}
     K = size(ws.Σ, 1)
     # Apply normalization to produce the identification matrix P.
     # For UnitStd, P = L (no change). For UnitEffect, divide columns by P[k,k].
@@ -361,20 +361,19 @@ end
 # default Cholesky (`ws` given), through `refit_for_bootstrap` otherwise.
 function _bootstrap_irf_draw!(
         out, ws::_BootstrapWorkspace, model, Y_boot, identification, horizon, normalization
-    )
+)
     _fast_refit_ols!(ws, Y_boot, n_vars(model), n_lags(model))
     return _fast_cholesky_irf!(out, ws, horizon; normalization)
 end
 
 function _bootstrap_irf_draw!(
         out, ::Nothing, model, Y_boot, identification, horizon, normalization
-    )
+)
     var_boot = refit_for_bootstrap(model, Y_boot, n_lags(model))
     P_boot = rotation_matrix(var_boot, identification)
     normalize_impact!(P_boot, normalization)
     return copyto!(out, compute_irf_point(var_boot, P_boot, horizon))
 end
-
 
 # ============================================================================
 # Residual resampling
@@ -435,6 +434,7 @@ function _residual_resampler(inference::BlockBootstrap, u::AbstractMatrix{T}) wh
         for b in 1:N
             start = rand(rng, 1:max_start)
             for s in 1:ℓ, j in 1:m
+
                 ū_full[ℓ * (b - 1) + s, j] = u[start + s - 1, j] - mean_at_s[s, j]
             end
         end
@@ -458,7 +458,7 @@ function _bootstrap_irf_draws(
         model::VARModel{T}, identification::AbstractIdentification,
         inference::_ResidualBootstrap, horizon::Integer,
         normalization::AbstractNormalization, rng::AbstractRNG
-    ) where {T}
+) where {T}
     _check_resamples_instrument(identification, inference)
     u = residuals(model)
     n_obs, m = size(u)
@@ -479,7 +479,8 @@ function _bootstrap_irf_draws(
     for r in 1:reps
         simulate_var!(Y_boot, intercept_, lags_, resample(rng), model.Y)
         ok[r] = _try_draw!(view(irf_boot, r, :, :, :)) do out
-            _bootstrap_irf_draw!(out, ws, model, Y_boot, identification, horizon, normalization)
+            _bootstrap_irf_draw!(
+                out, ws, model, Y_boot, identification, horizon, normalization)
         end
     end
 
@@ -529,20 +530,21 @@ function bootstrap_irf(
         horizon::Integer = 24,
         normalization::AbstractNormalization = UnitStd(),
         rng::AbstractRNG = Random.default_rng()
-    )
+)
     horizon > 0 || throw(ArgumentError("horizon must be positive"))
-    return _bootstrap_irf_draws(model, identification, inference, horizon, normalization, rng)
+    return _bootstrap_irf_draws(
+        model, identification, inference, horizon, normalization, rng)
 end
 
 function bootstrap_irf(
         ::VARModel, ::AbstractIdentification, inference::InferenceType; kwargs...
-    )
+)
     throw(
         ArgumentError(
-            "bootstrap_irf supports WildBootstrap, Bootstrap, and BlockBootstrap " *
-                "(got $(nameof(typeof(inference)))). For ProxySVARMBB draws use " *
-                "`proxy_svar_mbb`; for Analytic() use `irf`."
-        )
+        "bootstrap_irf supports WildBootstrap, Bootstrap, and BlockBootstrap " *
+        "(got $(nameof(typeof(inference)))). For ProxySVARMBB draws use " *
+        "`proxy_svar_mbb`; for Analytic() use `irf`."
+    )
     )
 end
 
@@ -558,20 +560,20 @@ function bootstrap_irf(
         normalization::AbstractNormalization = UnitStd(),
         max_failure_rate::Real = 0.1,
         rng::AbstractRNG = Random.default_rng()
-    )
+)
     inference, spelled = if method === :wild
         WildBootstrap(reps; max_failure_rate), "WildBootstrap(reps)"
     elseif method === :standard
         Bootstrap(reps; max_failure_rate), "Bootstrap(reps)"
     elseif method === :block
         BlockBootstrap(reps; block_length, max_failure_rate),
-            "BlockBootstrap(reps; block_length)"
+        "BlockBootstrap(reps; block_length)"
     else
         throw(ArgumentError("method must be :wild, :standard, or :block"))
     end
     Base.depwarn(
         "`bootstrap_irf(model, identification, horizon, reps; method = $(repr(method)))` " *
-            "is deprecated; use `bootstrap_irf(model, identification, $spelled; horizon)`.",
+        "is deprecated; use `bootstrap_irf(model, identification, $spelled; horizon)`.",
         :bootstrap_irf
     )
     return bootstrap_irf(model, identification, inference; horizon, normalization, rng)
@@ -581,10 +583,10 @@ function bootstrap_irf_wild(
         model::VARModel, identification::AbstractIdentification,
         horizon::Int, reps::Int, rng::AbstractRNG;
         normalization::AbstractNormalization = UnitStd(), max_failure_rate::Real = 0.1
-    )
+)
     Base.depwarn(
         "`bootstrap_irf_wild(model, identification, horizon, reps, rng)` is deprecated; " *
-            "use `bootstrap_irf(model, identification, WildBootstrap(reps); horizon, rng)`.",
+        "use `bootstrap_irf(model, identification, WildBootstrap(reps); horizon, rng)`.",
         :bootstrap_irf_wild
     )
     return bootstrap_irf(
@@ -597,11 +599,11 @@ function bootstrap_irf_standard(
         model::VARModel, identification::AbstractIdentification,
         horizon::Int, reps::Int, rng::AbstractRNG;
         normalization::AbstractNormalization = UnitStd(), max_failure_rate::Real = 0.1
-    )
+)
     Base.depwarn(
         "`bootstrap_irf_standard(model, identification, horizon, reps, rng)` is " *
-            "deprecated; use `bootstrap_irf(model, identification, Bootstrap(reps); " *
-            "horizon, rng)`.",
+        "deprecated; use `bootstrap_irf(model, identification, Bootstrap(reps); " *
+        "horizon, rng)`.",
         :bootstrap_irf_standard
     )
     return bootstrap_irf(
@@ -614,11 +616,11 @@ function bootstrap_irf_block(
         model::VARModel, identification::AbstractIdentification,
         horizon::Int, reps::Int, block_length::Int, rng::AbstractRNG;
         normalization::AbstractNormalization = UnitStd(), max_failure_rate::Real = 0.1
-    )
+)
     Base.depwarn(
         "`bootstrap_irf_block(model, identification, horizon, reps, block_length, rng)` " *
-            "is deprecated; use `bootstrap_irf(model, identification, " *
-            "BlockBootstrap(reps; block_length); horizon, rng)`.",
+        "is deprecated; use `bootstrap_irf(model, identification, " *
+        "BlockBootstrap(reps; block_length); horizon, rng)`.",
         :bootstrap_irf_block
     )
     return bootstrap_irf(

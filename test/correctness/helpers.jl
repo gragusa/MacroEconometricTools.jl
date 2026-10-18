@@ -11,7 +11,7 @@ function correctness_fixture(; n_obs = 600, burn_in = 100)
     Y = zeros(n_obs + burn_in, 2)
     for t in 3:size(Y, 1)
         Y[t, :] = intercept + lags[:, :, 1] * Y[t - 1, :] +
-            lags[:, :, 2] * Y[t - 2, :] + impact * randn(rng, 2)
+                  lags[:, :, 2] * Y[t - 2, :] + impact * randn(rng, 2)
     end
     sample = Y[(burn_in + 1):end, :]
     return (; sample, model = fit(OLSVAR, sample, 2; names = [:output, :price]))
@@ -50,9 +50,9 @@ function reference_irf(alpha, sigma_half, n, p, horizon)
     if p > 1
         companion[(n + 1):end, 1:(n * (p - 1))] = Matrix{eltype(alpha)}(
             I, n * (p - 1), n *
-                (
+                            (
                 p -
-                    1
+                1
             )
         )
     end

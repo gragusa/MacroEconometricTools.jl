@@ -94,11 +94,11 @@ struct ExternalInstrument{T <: AbstractFloat, S <: Union{Int, Symbol}} <: Abstra
         end
         all(z -> ismissing(z) || isfinite(z), Z) ||
             throw(
-            ArgumentError(
+                ArgumentError(
                 "instrument contains NaN or Inf; mark periods " *
-                    "without an instrument value with `missing`"
+                "without an instrument value with `missing`"
             )
-        )
+            )
         return new{T, S}(Z, target_shock)
     end
 end
@@ -139,7 +139,7 @@ end
 function VARCoefficients(
         intercept::AbstractVector, lags::AbstractArray{<:Any, 3},
         constraints = nothing
-    )
+)
     T = promote_type(eltype(intercept), eltype(lags))
     return VARCoefficients{T}(intercept, lags, constraints)
 end
@@ -172,8 +172,8 @@ Vector Autoregression model.
   `n_obs_total`, `n_obs_used`, `demean`, `timestamp`
 """
 struct VARModel{
-        T <: AbstractFloat, S <: AbstractVARSpec, D <: Union{Nothing, AbstractVector},
-    }
+    T <: AbstractFloat, S <: AbstractVARSpec, D <: Union{Nothing, AbstractVector}
+}
     spec::S
     Y::Matrix{T}
     X::Matrix{T}
@@ -188,13 +188,13 @@ struct VARModel{
     function VARModel{T, S, D}(
             spec, Y, X, coefficients, residuals, Σ, companion,
             names, dates, metadata
-        ) where {T, S, D}
+    ) where {T, S, D}
         if dates !== nothing && length(dates) != size(residuals, 1)
             throw(
                 DimensionMismatch(
-                    "dates must have one entry per residual row " *
-                        "(got $(length(dates)) for $(size(residuals, 1)) rows)"
-                )
+                "dates must have one entry per residual row " *
+                "(got $(length(dates)) for $(size(residuals, 1)) rows)"
+            )
             )
         end
         return new{T, S, D}(
@@ -207,7 +207,7 @@ end
 function VARModel(
         spec::AbstractVARSpec, Y::AbstractMatrix, X, coefficients, residuals,
         Σ, companion, names, dates, metadata
-    )
+)
     return VARModel{eltype(Y), typeof(spec), typeof(dates)}(
         spec, Y, X, coefficients,
         residuals, Σ, companion, names, dates, metadata
@@ -258,8 +258,8 @@ function _check_cholesky_ordering(ordering::AbstractVector{<:Integer})
     isempty(ordering) && throw(ArgumentError("CholeskyID ordering must not be empty"))
     sort(ordering) == 1:length(ordering) || throw(
         ArgumentError(
-            "CholeskyID integer ordering must be a permutation of 1:$(length(ordering)), got $ordering"
-        )
+        "CholeskyID integer ordering must be a permutation of 1:$(length(ordering)), got $ordering"
+    )
     )
     return Vector{Int}(ordering)
 end
@@ -267,9 +267,9 @@ end
 function _check_cholesky_ordering(ordering)
     throw(
         ArgumentError(
-            "CholeskyID ordering must be `nothing`, a vector of variable names (Symbol), " *
-                "or a vector of integer positions; got $(repr(ordering))"
-        )
+        "CholeskyID ordering must be `nothing`, a vector of variable names (Symbol), " *
+        "or a vector of integer positions; got $(repr(ordering))"
+    )
     )
 end
 
@@ -305,7 +305,8 @@ function _check_sign_restriction_args(R::AbstractMatrix, horizon)
     size(R, 1) == size(R, 2) || throw(
         ArgumentError("sign restriction matrix must be square (variables × shocks), got size $(size(R))")
     )
-    horizon >= 0 || throw(ArgumentError("sign restriction horizon must be ≥ 0, got $horizon"))
+    horizon >= 0 ||
+        throw(ArgumentError("sign restriction horizon must be ≥ 0, got $horizon"))
     return nothing
 end
 
@@ -337,7 +338,7 @@ end
 function IVIdentification()
     Base.depwarn(
         "`IVIdentification()` is deprecated; pass the instrument, " *
-            "as in `IVIdentification(Z, target_shock)`.",
+        "as in `IVIdentification(Z, target_shock)`.",
         :IVIdentification
     )
     return IVIdentification{Nothing}(nothing)
@@ -505,7 +506,7 @@ struct BlockBootstrap <: InferenceType
     function BlockBootstrap(
             reps::Int = 1000; block_length::Int = 10, save_draws::Bool = false,
             max_failure_rate::Real = 0.1
-        )
+    )
         reps > 0 || throw(ArgumentError("reps must be positive"))
         block_length > 0 || throw(ArgumentError("block_length must be positive"))
         return new(reps, block_length, save_draws, _check_max_failure_rate(max_failure_rate))
@@ -568,7 +569,7 @@ struct ProxySVARMBB <: InferenceType
             norm_scale::Float64 = -1.0,
             save_draws::Bool = false,
             max_failure_rate::Real = 0.1
-        )
+    )
         reps > 0 || throw(ArgumentError("reps must be positive"))
         block_length > 0 || throw(ArgumentError("block_length must be positive"))
         # When compute_ar=true and ar_grid=nothing, a default grid [-10, 10] × 201
@@ -666,9 +667,9 @@ The trailing type parameters `D`, `I`, `N` are the types of `bootstrap_draws`,
   `cumulate` keyword of `irf` and by [`cumulative_irf`](@ref); shown by `show`
 """
 struct IRFResult{
-        T <: AbstractFloat, A <: AxisArray, D <: Union{Nothing, AxisArray},
-        I <: AbstractIdentification, N <: Union{Nothing, InferenceType},
-    } <: AbstractIRFResult{T}
+    T <: AbstractFloat, A <: AxisArray, D <: Union{Nothing, AxisArray},
+    I <: AbstractIdentification, N <: Union{Nothing, InferenceType}
+} <: AbstractIRFResult{T}
     irf::A
     stderr::A
     bootstrap_draws::D
@@ -683,7 +684,7 @@ end
 function IRFResult(
         irf::AxisArray, stderr, bootstrap_draws, lower, upper, coverage,
         identification, inference, metadata
-    )
+)
     return IRFResult{eltype(irf), typeof(irf)}(
         irf, stderr, bootstrap_draws, lower, upper,
         coverage, identification, inference, metadata
@@ -693,8 +694,9 @@ end
 function IRFResult{T, A}(
         irf, stderr, bootstrap_draws, lower, upper, coverage,
         identification, inference, metadata
-    ) where {T, A}
-    return IRFResult{T, A, typeof(bootstrap_draws), typeof(identification), typeof(inference)}(
+) where {T, A}
+    return IRFResult{
+        T, A, typeof(bootstrap_draws), typeof(identification), typeof(inference)}(
         irf, stderr, bootstrap_draws, lower, upper, coverage, identification, inference,
         metadata
     )
@@ -730,9 +732,9 @@ The trailing type parameters `D` and `I` are the types of `irf_draws` and
   [`IRFResult`](@ref) with `n_draws` in place of `inference_type`
 """
 struct SignRestrictedIRFResult{
-        T <: AbstractFloat, A <: AxisArray, D <: AxisArray,
-        I <: AbstractIdentification,
-    } <: AbstractIRFResult{T}
+    T <: AbstractFloat, A <: AxisArray, D <: AxisArray,
+    I <: AbstractIdentification
+} <: AbstractIRFResult{T}
     irf_median::A
     irf_draws::D
     lower::Vector{A}
@@ -746,7 +748,7 @@ end
 function SignRestrictedIRFResult(
         irf_median::AxisArray, irf_draws, lower, upper, coverage,
         rotation_matrices, identification, metadata
-    )
+)
     return SignRestrictedIRFResult{eltype(irf_median), typeof(irf_median)}(
         irf_median, irf_draws,
         lower, upper, coverage, rotation_matrices, identification, metadata
@@ -756,7 +758,7 @@ end
 function SignRestrictedIRFResult{T, A}(
         irf_median, irf_draws, lower, upper, coverage,
         rotation_matrices, identification, metadata
-    ) where {T, A}
+) where {T, A}
     return SignRestrictedIRFResult{T, A, typeof(irf_draws), typeof(identification)}(
         irf_median,
         irf_draws, lower, upper, coverage, rotation_matrices, identification, metadata
@@ -802,7 +804,7 @@ The trailing type parameter `B` is the element type of `lower` and `upper`;
   and not read by this one
 """
 struct BayesianIRFResult{T <: AbstractFloat, A <: AxisArray, I, B <: AxisArray} <:
-    AbstractIRFResult{T}
+       AbstractIRFResult{T}
     data::A                         # 4D AxisArray (draw × variable × shock × horizon)
     lower::Vector{B}                # Credible bands (one per coverage level)
     upper::Vector{B}
@@ -814,7 +816,7 @@ end
 function BayesianIRFResult(
         data::AxisArray, lower, upper, coverage, identification,
         metadata
-    )
+)
     return BayesianIRFResult{eltype(data), typeof(data), typeof(identification)}(
         data, lower,
         upper, coverage, identification, metadata
@@ -824,7 +826,7 @@ end
 function BayesianIRFResult{T, A, I}(
         data, lower, upper, coverage, identification,
         metadata
-    ) where {T, A, I}
+) where {T, A, I}
     return BayesianIRFResult{T, A, I, _band_eltype(lower, upper)}(
         data, lower, upper, coverage,
         identification, metadata
@@ -863,9 +865,9 @@ coverage, metadata)` and `LocalProjectionIRFResult{T, A}(...)` infer them.
   and not read by this one
 """
 struct LocalProjectionIRFResult{
-        T <: AbstractFloat, A <: AxisArray, S <: AxisArray,
-        B <: AxisArray,
-    } <: AbstractIRFResult{T}
+    T <: AbstractFloat, A <: AxisArray, S <: AxisArray,
+    B <: AxisArray
+} <: AbstractIRFResult{T}
     data::A                         # 3D AxisArray (response × shock × horizon)
     stderr::S                       # Standard errors (same shape)
     lower::Vector{B}                # Confidence bands
@@ -877,7 +879,7 @@ end
 function LocalProjectionIRFResult(
         data::AxisArray, stderr, lower, upper, coverage,
         metadata
-    )
+)
     return LocalProjectionIRFResult{eltype(data), typeof(data)}(
         data, stderr, lower, upper,
         coverage, metadata
@@ -887,7 +889,7 @@ end
 function LocalProjectionIRFResult{T, A}(
         data, stderr, lower, upper, coverage,
         metadata
-    ) where {T, A}
+) where {T, A}
     return LocalProjectionIRFResult{T, A, typeof(stderr), _band_eltype(lower, upper)}(
         data,
         stderr, lower, upper, coverage, metadata
@@ -957,7 +959,8 @@ end
 
 function Base.show(io::IO, nr::NarrativeShockRestriction)
     sign_str = nr.sign == 1 ? "+" : "-"
-    return print(io, "NarrativeShockRestriction(", nr.shock, ", ", nr.date, ", ", sign_str, ")")
+    return print(
+        io, "NarrativeShockRestriction(", nr.shock, ", ", nr.date, ", ", sign_str, ")")
 end
 
 """
@@ -1017,8 +1020,8 @@ struct NarrativeRestriction{D} <: AbstractIdentification
         for nr in narrative_shocks
             nr.shock <= n_shocks || throw(
                 ArgumentError(
-                    "narrative restriction on shock $(nr.shock), but the model has $n_shocks shocks"
-                )
+                "narrative restriction on shock $(nr.shock), but the model has $n_shocks shocks"
+            )
             )
         end
         return new{D}(R, narrative_shocks, horizon)
@@ -1036,7 +1039,7 @@ function NarrativeRestriction(
         sign_restrictions::AbstractMatrix,
         narrative_shocks::AbstractVector{<:NarrativeShockRestriction},
         horizon::Integer
-    )
+)
     D = _narrative_date_type(narrative_shocks)
     return NarrativeRestriction{D}(sign_restrictions, narrative_shocks, horizon)
 end
@@ -1045,7 +1048,7 @@ function NarrativeRestriction(
         sign_restrictions::AbstractMatrix,
         narrative_shocks::AbstractVector{<:NarrativeShockRestriction};
         horizon::Integer = 0
-    )
+)
     return NarrativeRestriction(sign_restrictions, narrative_shocks, horizon)
 end
 
@@ -1056,18 +1059,16 @@ function NarrativeRestriction(
         shock_col::Symbol = :shock,
         date_col::Symbol = :date,
         sign_col::Symbol = :sign
-    )
+)
     Tables.istable(table) ||
         throw(ArgumentError("table must implement Tables.jl interface"))
 
-    shocks = [
-        NarrativeShockRestriction(
-            Int(Tables.getcolumn(row, shock_col)),
-            Tables.getcolumn(row, date_col),
-            Int(Tables.getcolumn(row, sign_col))
-        )
-            for row in Tables.rows(table)
-    ]
+    shocks = [NarrativeShockRestriction(
+                  Int(Tables.getcolumn(row, shock_col)),
+                  Tables.getcolumn(row, date_col),
+                  Int(Tables.getcolumn(row, sign_col))
+              )
+              for row in Tables.rows(table)]
     isempty(shocks) && throw(ArgumentError("table must have at least one row"))
     return NarrativeRestriction(sign_restrictions, shocks; horizon)
 end
@@ -1083,7 +1084,7 @@ function NarrativeRestriction(
         narrative_shocks::AbstractVector{<:NarrativeShockRestriction},
         n_vars::Integer;
         horizon::Integer = 0
-    )
+)
     sign_restrictions = zeros(Int, n_vars, n_vars)  # No sign restrictions
     return NarrativeRestriction(sign_restrictions, narrative_shocks; horizon)
 end
@@ -1226,19 +1227,19 @@ Returns the stored array, not a copy. Throws an `ArgumentError` when
 function get_draws(irf::AbstractIRFResult)
     throw(
         ArgumentError(
-            "$(nameof(typeof(irf))) does not store draws; " *
-                "check `has_draws(irf)` before calling `get_draws`"
-        )
+        "$(nameof(typeof(irf))) does not store draws; " *
+        "check `has_draws(irf)` before calling `get_draws`"
+    )
     )
 end
 function get_draws(irf::IRFResult)
     irf.bootstrap_draws === nothing &&
         throw(
-        ArgumentError(
+            ArgumentError(
             "this IRFResult has no bootstrap draws; compute it with " *
-                "a bootstrap `inference` to store them"
+            "a bootstrap `inference` to store them"
         )
-    )
+        )
     return irf.bootstrap_draws
 end
 get_draws(irf::SignRestrictedIRFResult) = irf.irf_draws
@@ -1378,6 +1379,6 @@ function get_scale(irf::Union{IRFResult, SignRestrictedIRFResult})
     norm = md.normalization()   # reconstruct instance from stored type
     T = eltype(md.impact_diagonal)
     sc = md.scale isa AbstractVector ? T.(md.scale) :
-        fill(T(md.scale), length(md.impact_diagonal))
+         fill(T(md.scale), length(md.impact_diagonal))
     return IRFScale{T, typeof(norm)}(norm, sc, md.impact_diagonal, Symbol.(md.names))
 end

@@ -17,15 +17,15 @@ function recipe_fixture_arrays()
     )
     lower = [
         AxisArray(
-            Array(data) .- 0.2,
-            Axis{:variable}([:y, :x]), Axis{:shock}([:s]), Axis{:horizon}(0:4)
-        ),
+        Array(data) .- 0.2,
+        Axis{:variable}([:y, :x]), Axis{:shock}([:s]), Axis{:horizon}(0:4)
+    ),
     ]
     upper = [
         AxisArray(
-            Array(data) .+ 0.2,
-            Axis{:variable}([:y, :x]), Axis{:shock}([:s]), Axis{:horizon}(0:4)
-        ),
+        Array(data) .+ 0.2,
+        Axis{:variable}([:y, :x]), Axis{:shock}([:s]), Axis{:horizon}(0:4)
+    ),
     ]
     return data, lower, upper
 end
@@ -46,7 +46,8 @@ end
     @test_throws "needs stored draws" RecipesBase.apply_recipe(
         Dict{Symbol, Any}(:plot_type => :paths), frequentist
     )
-    zero_line(series) = only(s for s in series if get(s.plotattributes, :seriestype, nothing) === :hline)
+    zero_line(series) = only(s
+    for s in series if get(s.plotattributes, :seriestype, nothing) === :hline)
     colored = RecipesBase.apply_recipe(
         Dict{Symbol, Any}(:vars => [:y], :shocks => [1], :zerolinecolor => :red), frequentist
     )
@@ -67,8 +68,8 @@ end
     )
     @test !isempty(
         RecipesBase.apply_recipe(
-            Dict{Symbol, Any}(:plot_type => :both), bayesian
-        )
+        Dict{Symbol, Any}(:plot_type => :both), bayesian
+    )
     )
 
     lp_data = AxisArray(
@@ -81,15 +82,15 @@ end
     )
     lp_lower = [
         AxisArray(
-            Array(lp_data) .- 0.2,
-            Axis{:response}([:y, :x]), Axis{:shock}([:s]), Axis{:horizon}(0:4)
-        ),
+        Array(lp_data) .- 0.2,
+        Axis{:response}([:y, :x]), Axis{:shock}([:s]), Axis{:horizon}(0:4)
+    ),
     ]
     lp_upper = [
         AxisArray(
-            Array(lp_data) .+ 0.2,
-            Axis{:response}([:y, :x]), Axis{:shock}([:s]), Axis{:horizon}(0:4)
-        ),
+        Array(lp_data) .+ 0.2,
+        Axis{:response}([:y, :x]), Axis{:shock}([:s]), Axis{:horizon}(0:4)
+    ),
     ]
     local_projection = LocalProjectionIRFResult{Float64, typeof(lp_data)}(
         lp_data, lp_stderr, lp_lower, lp_upper, [0.9], (;)

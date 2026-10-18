@@ -53,7 +53,7 @@ end
     @testset "rescaled and cumulated results" begin
         scaled = rescale(result, 2.0)
         @test Array.(confidence_bands(scaled; coverage = [0.8]).lower) ≈
-            Array.(rescale(confidence_bands(result; coverage = [0.8]), 2.0).lower)
+              Array.(rescale(confidence_bands(result; coverage = [0.8]), 2.0).lower)
         cum = cumulative_irf(result; vars = [:a])
         cb = confidence_bands(cum; coverage = [0.8])
         direct = boot(; coverage = [0.8], cumulate = [:a])
@@ -201,7 +201,7 @@ end
     @test size(hd.initial_condition) == (n, 3)
     @test hd.structural_shocks * P' ≈ residuals(model)
     @test hd.initial_condition + dropdims(sum(hd.contributions; dims = 3); dims = 3) ≈
-        Y[(p + 1):end, :]
+          Y[(p + 1):end, :]
     # The part not explained by shocks is the forecast from the first p observations.
     @test hd.initial_condition ≈ forecast(model, n; Y_init = Y[1:p, :])
     # In the first period only the contemporaneous shock contributes.

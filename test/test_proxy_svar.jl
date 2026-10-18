@@ -29,7 +29,7 @@ A_coefs is a vector of matrices [A₁, A₂, ...].
 function simulate_var_dgp(
         T::Int, A_coefs::Vector{Matrix{Float64}},
         H::Matrix{Float64}; rng = StableRNG(42), burn::Int = 500
-    )
+)
     p = length(A_coefs)
     K = size(H, 1)
     T_total = T + burn
@@ -57,17 +57,13 @@ end
     K = 3
     T = 5000  # large sample for near-exact recovery
 
-    H_true = [
-        1.0 0.0 0.0;
-        0.5 1.0 0.0;
-        0.3 0.2 1.0
-    ]
+    H_true = [1.0 0.0 0.0;
+              0.5 1.0 0.0;
+              0.3 0.2 1.0]
 
-    A1 = [
-        0.3 0.0 0.1;
-        0.1 0.5 0.0;
-        0.0 0.0 0.4
-    ]
+    A1 = [0.3 0.0 0.1;
+          0.1 0.5 0.0;
+          0.0 0.0 0.4]
 
     Y, ε = simulate_var_dgp(T, [A1], H_true; rng = rng)
 
@@ -120,16 +116,12 @@ end
     rng = StableRNG(2024)
     K = 3
     T = 500
-    H_true = [
-        1.0 0.0 0.0;
-        0.5 0.8 0.0;
-        0.3 0.2 1.0
-    ]
-    A1 = [
-        0.3 0.0 0.1;
-        0.1 0.5 0.0;
-        0.0 0.0 0.4
-    ]
+    H_true = [1.0 0.0 0.0;
+              0.5 0.8 0.0;
+              0.3 0.2 1.0]
+    A1 = [0.3 0.0 0.1;
+          0.1 0.5 0.0;
+          0.0 0.0 0.4]
     Y, ε = simulate_var_dgp(T, [A1], H_true; rng = rng)
 
     p = 1
@@ -180,17 +172,13 @@ end
     T = 10000  # very large for asymptotic equivalence
 
     # Lower-triangular H → Cholesky-identified DGP
-    H_true = [
-        1.0 0.0 0.0;
-        0.7 0.8 0.0;
-        -0.2 0.3 0.9
-    ]
+    H_true = [1.0 0.0 0.0;
+              0.7 0.8 0.0;
+              -0.2 0.3 0.9]
 
-    A1 = [
-        0.4 0.0 0.0;
-        0.1 0.5 0.0;
-        0.0 0.1 0.3
-    ]
+    A1 = [0.4 0.0 0.0;
+          0.1 0.5 0.0;
+          0.0 0.1 0.3]
 
     Y, ε = simulate_var_dgp(T, [A1], H_true; rng = rng)
 
@@ -249,19 +237,13 @@ end
     K = 2
     T = 500
 
-    H_true = [
-        sqrt(2) / 2 sqrt(2) / 2;
-        (sqrt(2) - sqrt(6)) / 4 (sqrt(2) + sqrt(6)) / 4
-    ]
+    H_true = [sqrt(2) / 2 sqrt(2) / 2;
+              (sqrt(2) - sqrt(6)) / 4 (sqrt(2) + sqrt(6)) / 4]
 
-    A1 = [
-        0.44 0.66;
-        -0.11 1.32
-    ]
-    A2 = [
-        -0.18 0.0;
-        -0.18 -0.09
-    ]
+    A1 = [0.44 0.66;
+          -0.11 1.32]
+    A2 = [-0.18 0.0;
+          -0.18 -0.09]
 
     Y, ε = simulate_var_dgp(T, [A1, A2], H_true; rng = rng)
 
@@ -321,19 +303,13 @@ end
     T = 2000  # large sample
 
     # Exact J&L DGP parameters
-    H_true = [
-        sqrt(2) / 2 sqrt(2) / 2;
-        (sqrt(2) - sqrt(6)) / 4 (sqrt(2) + sqrt(6)) / 4
-    ]
+    H_true = [sqrt(2) / 2 sqrt(2) / 2;
+              (sqrt(2) - sqrt(6)) / 4 (sqrt(2) + sqrt(6)) / 4]
 
-    A1 = [
-        0.44 0.66;
-        -0.11 1.32
-    ]
-    A2 = [
-        -0.18 0.0;
-        -0.18 -0.09
-    ]
+    A1 = [0.44 0.66;
+          -0.11 1.32]
+    A2 = [-0.18 0.0;
+          -0.18 -0.09]
 
     Y, ε = simulate_var_dgp(T, [A1, A2], H_true; rng = rng)
 

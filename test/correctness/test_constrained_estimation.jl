@@ -13,7 +13,7 @@ using MacroEconometricTools
     expected_output = zeros(5)
     expected_output[free] = reference.X[:, free] \ Y[3:end, 1]
     @test [model.coefficients.intercept[1]; vec(model.coefficients.lags[1, :, :])] ≈
-        expected_output atol = 1.0e-12
+          expected_output atol = 1.0e-12
     @test model.coefficients.lags[1, 2, 1] == 0
 
     block = BlockExogeneity([:price], [:output])
@@ -21,8 +21,9 @@ using MacroEconometricTools
     block_free = [1, 2, 4]
     expected_block = zeros(5)
     expected_block[block_free] = reference.X[:, block_free] \ Y[3:end, 1]
-    @test [block_model.coefficients.intercept[1]; vec(block_model.coefficients.lags[1, :, :])] ≈
-        expected_block atol = 1.0e-12
+    @test [block_model.coefficients.intercept[1];
+           vec(block_model.coefficients.lags[1, :, :])] ≈
+          expected_block atol = 1.0e-12
     @test all(block_model.coefficients.lags[1, 2, :] .== 0)
 end
 
@@ -41,7 +42,8 @@ end
     expected = zeros(5)
     expected[3] = 0.3
     expected[free] = X[:, free] \ (y - X[:, 3] * 0.3)
-    @test [model.coefficients.intercept[1]; vec(model.coefficients.lags[1, :, :])] ≈ expected atol = 1.0e-12
+    @test [model.coefficients.intercept[1]; vec(model.coefficients.lags[1, :, :])] ≈
+          expected atol = 1.0e-12
     # The price equation is unrestricted
     @test model.coefficients.lags[2, :, :] ≈ fixture.model.coefficients.lags[2, :, :] atol = 1.0e-12
 
@@ -52,6 +54,7 @@ end
     expected = zeros(5)
     expected[3] = 0.3
     expected[free] = X[:, free] \ (y - X[:, 3] * 0.3)
-    @test [mixed.coefficients.intercept[1]; vec(mixed.coefficients.lags[1, :, :])] ≈ expected atol = 1.0e-12
+    @test [mixed.coefficients.intercept[1]; vec(mixed.coefficients.lags[1, :, :])] ≈
+          expected atol = 1.0e-12
     @test mixed.coefficients.lags[1, 2, 2] == 0
 end

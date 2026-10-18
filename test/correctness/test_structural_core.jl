@@ -4,7 +4,8 @@
 # argument checks.
 
 using MacroEconometricTools
-using MacroEconometricTools: check_sign_restrictions, compute_ma_matrices_from_B!, generate_random_orthogonal!, structural_impact
+using MacroEconometricTools: check_sign_restrictions, compute_ma_matrices_from_B!,
+                             generate_random_orthogonal!, structural_impact
 using Test
 using LinearAlgebra
 using Random
@@ -32,9 +33,10 @@ end
         Φ = MET.compute_ma_matrices(F, 8, K, 2)
         @test size(Φ) == (K, K, 9)
         for h in 0:8
-            @test Φ[:, :, h + 1] ≈ (F^h)[1:K, 1:K] atol = 1.0e-12
+            @test Φ[:, :, h + 1] ≈ (F ^ h)[1:K, 1:K] atol = 1.0e-12
         end
-        @test_throws "companion matrix must be 3×3 for n_vars=3, n_lags=1; got (6, 6)" MET.compute_ma_matrices(F, 3, K, 1)
+        @test_throws "companion matrix must be 3×3 for n_vars=3, n_lags=1; got (6, 6)" MET.compute_ma_matrices(
+            F, 3, K, 1)
     end
 
     @testset "compute_ma_matrices_from_B! argument checks" begin
@@ -76,7 +78,7 @@ end
         end
         names_order = model.names[[3, 1, 2]]
         @test rotation_matrix(model, CholeskyID(names_order)) ≈
-            rotation_matrix(model, CholeskyID([3, 1, 2])) rtol = 1.0e-12
+              rotation_matrix(model, CholeskyID([3, 1, 2])) rtol = 1.0e-12
         @test structural_impact(
             Σ_L, CholeskyID(names_order); ordering_idx = [3, 1, 2]
         ) == rotation_matrix(model, CholeskyID(names_order))
@@ -107,7 +109,7 @@ end
         agree = map(1:200) do _
             P = Σ_L * MET.generate_random_orthogonal(K, rng_q)
             check_sign_restrictions(P, restrictions, model, 4) ==
-                check_sign_restrictions(P, restrictions, Φ, 4)
+            check_sign_restrictions(P, restrictions, Φ, 4)
         end
         @test all(agree)
         @test_throws "Φ holds horizons 0:4; restrictions need 0:5" check_sign_restrictions(
@@ -158,7 +160,7 @@ end
         buf = MET.ProxyDynamicsBuffers{Float64}(Kd, p, n_imp)
         MET.proxy_svar_dynamics!(buf, A_est, Σ_uu, Σ_um, H1, p, -1.0, n_imp, 1)
         @test dyn.irf == buf.irf && dyn.irf_norm == buf.irf_norm &&
-            dyn.fevd == buf.fevd && dyn.svma == buf.svma
+              dyn.fevd == buf.fevd && dyn.svma == buf.svma
 
         # Oracle: IRF_h = Φ_h H1 from the hub's MA recursion
         B = vcat(A_est[:, 1]', A_est[:, 2:end]')

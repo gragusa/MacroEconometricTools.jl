@@ -41,7 +41,7 @@ function proxy_svar_dynamics(
         A_est::AbstractMatrix{T}, Σ_uu::AbstractMatrix{T},
         Σ_um::AbstractVector{T}, H1::AbstractVector{T},
         p::Int, norm_scale::Float64, n_imp::Int, target::Int
-    ) where {T}
+) where {T}
     buf = ProxyDynamicsBuffers{T}(length(H1), p, n_imp)
     proxy_svar_dynamics!(buf, A_est, Σ_uu, Σ_um, H1, p, norm_scale, n_imp, target)
     return (irf = buf.irf, irf_norm = buf.irf_norm, fevd = buf.fevd, svma = buf.svma)
@@ -95,19 +95,19 @@ function proxy_svar_dynamics!(
         A_est::AbstractMatrix{T}, Σ_uu::AbstractMatrix{T},
         Σ_um::AbstractVector{T}, H1::AbstractVector{T},
         p::Int, norm_scale::Float64, n_imp::Int, target::Int
-    ) where {T}
+) where {T}
     Base.require_one_based_indexing(A_est, Σ_uu, Σ_um, H1)
     K = length(H1)
     Kp = K * p
     size(buf.irf) == (K, n_imp) && size(buf.comp) == (Kp, Kp) || throw(
         DimensionMismatch(
-            "buffers sized for K=$(size(buf.irf, 1)), K*p=$(size(buf.comp, 1)), n_imp=$(size(buf.irf, 2)); got K=$K, p=$p, n_imp=$n_imp"
-        )
+        "buffers sized for K=$(size(buf.irf, 1)), K*p=$(size(buf.comp, 1)), n_imp=$(size(buf.irf, 2)); got K=$K, p=$p, n_imp=$n_imp"
+    )
     )
     size(A_est) == (K, 1 + Kp) && size(Σ_uu) == (K, K) && length(Σ_um) == K || throw(
         DimensionMismatch(
-            "expected A_est $(K)×$(1 + Kp), Σ_uu $(K)×$K, Σ_um of length $K; got $(size(A_est)), $(size(Σ_uu)), $(length(Σ_um))"
-        )
+        "expected A_est $(K)×$(1 + Kp), Σ_uu $(K)×$K, Σ_um of length $K; got $(size(A_est)), $(size(Σ_uu)), $(length(Σ_um))"
+    )
     )
     1 <= target <= K || throw(ArgumentError("target must lie in 1:$K, got $target"))
 
@@ -207,7 +207,7 @@ function estimate_proxy_svar(
         yy::AbstractMatrix{T},
         xx::AbstractMatrix{T},
         mm::AbstractVector{T}
-    ) where {T <: Union{Float32, Float64}}
+) where {T <: Union{Float32, Float64}}
     buf = ProxySvarBuffers{T}(size(yy, 1), size(yy, 2), size(xx, 2))
     return estimate_proxy_svar!(buf, yy, xx, mm)
 end
@@ -273,14 +273,14 @@ function estimate_proxy_svar!(
         buf::ProxySvarBuffers{T},
         yy::AbstractMatrix{T}, xx::AbstractMatrix{T},
         mm::AbstractVector{T}
-    ) where {T}
+) where {T}
     Base.require_one_based_indexing(yy, xx, mm)
     size(xx) == size(buf.X_qr) && size(yy) == size(buf.Y_qr) && length(mm) == size(yy, 1) ||
         throw(
-        DimensionMismatch(
+            DimensionMismatch(
             "buffers sized for xx $(size(buf.X_qr)), yy $(size(buf.Y_qr)); got xx $(size(xx)), yy $(size(yy)), mm of length $(length(mm))"
         )
-    )
+        )
     TT, KK = size(yy)
     d = size(xx, 2)
 
@@ -409,7 +409,7 @@ function proxy_svar_mbb(
         coverage::AbstractVector{<:Real} = [0.68, 0.9, 0.95],
         rng::AbstractRNG = Random.default_rng(),
         block_indices::Union{Nothing, AbstractMatrix{<:Integer}} = nothing
-    ) where {T}
+) where {T}
     coverage = collect(Float64, _validate_irf_args(horizon, coverage))
     resolved = _resolve_iv(model, id)
     ν = model.residuals
@@ -441,7 +441,7 @@ function proxy_svar_mbb(
         coverage::AbstractVector{<:Real} = [0.68, 0.9, 0.95],
         rng::AbstractRNG = Random.default_rng(),
         block_indices::Union{Nothing, AbstractMatrix{<:Integer}} = nothing
-    ) where {T}
+) where {T}
     return proxy_svar_mbb(
         model, IVIdentification(model.spec.instrument),
         horizon, inf; coverage, rng, block_indices
@@ -453,7 +453,7 @@ function _proxy_svar_mbb_impl(
         horizon::Int, inf::ProxySVARMBB, target::Int, coverage::Vector{Float64};
         rng::AbstractRNG = Random.default_rng(),
         block_indices::Union{Nothing, AbstractMatrix{<:Integer}} = nothing
-    ) where {T}
+) where {T}
     ν = model.residuals
     TT, KK = size(ν)
     p_val = n_lags(model)
@@ -512,13 +512,13 @@ function _proxy_svar_mbb_impl(
     if block_indices !== nothing
         size(block_indices) == (n_boot, n_resample) || throw(
             DimensionMismatch(
-                "block_indices must be ($n_boot, $n_resample), got $(size(block_indices))"
-            )
+            "block_indices must be ($n_boot, $n_resample), got $(size(block_indices))"
+        )
         )
         all(i -> 1 <= i <= n_blocks, block_indices) || throw(
             ArgumentError(
-                "block_indices must all lie in 1:$n_blocks"
-            )
+            "block_indices must all lie in 1:$n_blocks"
+        )
         )
     end
 
@@ -561,7 +561,7 @@ function _proxy_svar_mbb_impl(
         # 4a: Resample blocks with replacement
         for j in 1:n_resample
             idx = block_indices === nothing ? rand(rng, 1:n_blocks) :
-                block_indices[b, j]
+                  block_indices[b, j]
             blk_start = (j - 1) * ℓ + 1
             @inbounds for s in 1:ℓ, k in 1:KK
 
@@ -611,7 +611,7 @@ function _proxy_svar_mbb_impl(
             view(fevd_store, b, :, :)
         ) do irf_b, irf_norm_b, fevd_b
             A_star, U_star, Σ_uu_star,
-                Σ_um_star, H1_star = estimate_proxy_svar!(est_buf, y_star, x_star, m_star)
+            Σ_um_star, H1_star = estimate_proxy_svar!(est_buf, y_star, x_star, m_star)
 
             # 4f: Compute bootstrap dynamics (in-place)
             proxy_svar_dynamics!(
@@ -668,7 +668,7 @@ function _proxy_svar_mbb_impl(
         ar = ar_result,
         irf_draws = irf_store,
         irf_norm_draws = irf_norm_store,
-        n_failed = n_failed,
+        n_failed = n_failed
     )
 end
 
@@ -677,7 +677,9 @@ end
 # decimal tails (`α = 0.95` gives `0.025`, not `0.025000000000000022`). Percentile
 # ranks and AR inclusion are step functions of the tails, so the representation
 # error of `1 - α` would otherwise move them at exact ties.
-_interval_tails(α::Real) = (round((1 - α) / 2; sigdigits = 12), round((1 + α) / 2; sigdigits = 12))
+function _interval_tails(α::Real)
+    (round((1 - α) / 2; sigdigits = 12), round((1 + α) / 2; sigdigits = 12))
+end
 
 # Rank of the `q` quantile among `n` sorted draws. The reference implementation
 # indexes the sorted draws 0-based at `round(q * n)`, i.e. the `round(q * n) + 1`-th
@@ -712,7 +714,7 @@ Hall's intervals from percentile intervals `bands`:
 function _halls_intervals(bands::NamedTuple, point::AbstractMatrix)
     return (
         lower = [2 .* point .- u for u in bands.upper],
-        upper = [2 .* point .- l for l in bands.lower],
+        upper = [2 .* point .- l for l in bands.lower]
     )
 end
 
@@ -728,7 +730,7 @@ construction, so grid values `≈ scale` are always included at `(target, impact
 function _ar_confidence_sets(
         ar_store::AbstractArray{T, 4}, grid::AbstractVector{<:Real}, scale::Real,
         target::Integer, coverage::AbstractVector{<:Real}
-    ) where {T}
+) where {T}
     n = size(ar_store, 4)
     rates = dropdims(count(<=(0), ar_store; dims = 4); dims = 4) ./ n
     at_scale = findall(g -> g ≈ scale, grid)
@@ -764,11 +766,11 @@ function compute_inference_bands(
         coverage::Vector{Float64},
         ::AbstractNormalization,  # ProxySVARMBB uses its own norm_scale
         rng::AbstractRNG
-    ) where {T}
+) where {T}
     horizon = size(irf_point, 3) - 1
     id = _resolve_iv(model, identification)
     _,
-        target = _extract_instrument(
+    target = _extract_instrument(
         id.instrument, size(model.residuals, 1),
         n_lags(model), model.names
     )
@@ -792,6 +794,7 @@ function compute_inference_bands(
 
     draws_4d = zeros(T, n_boot, K, K, n_imp)
     for h in 1:n_imp, k in 1:K
+
         draws_4d[:, k, target, h] .= view(irf_norm_draws, :, k, h) .* norm_factor
     end
     # Non-identified columns: fill with point estimate (no variation)
@@ -852,10 +855,10 @@ end
 function _check_resamples_instrument(::IVIdentification, inference::_ResidualBootstrap)
     throw(
         ArgumentError(
-            "$(nameof(typeof(inference))) does not resample the instrument and is not " *
-                "supported with IVIdentification. Use inference = ProxySVARMBB(reps), " *
-                "which resamples residuals and instrument jointly."
-        )
+        "$(nameof(typeof(inference))) does not resample the instrument and is not " *
+        "supported with IVIdentification. Use inference = ProxySVARMBB(reps), " *
+        "which resamples residuals and instrument jointly."
+    )
     )
 end
 
@@ -868,11 +871,11 @@ function compute_inference_bands(
         ::Vector{Float64},
         ::AbstractNormalization,
         ::AbstractRNG
-    ) where {T}
+) where {T}
     throw(
         ArgumentError(
-            "ProxySVARMBB inference requires IVIdentification. " *
-                "Use IVIdentification(Z, target_shock) or a different inference method."
-        )
+        "ProxySVARMBB inference requires IVIdentification. " *
+        "Use IVIdentification(Z, target_shock) or a different inference method."
+    )
     )
 end

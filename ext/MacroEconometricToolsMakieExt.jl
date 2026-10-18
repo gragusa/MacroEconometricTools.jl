@@ -2,8 +2,9 @@ module MacroEconometricToolsMakieExt
 
 using Makie: Makie
 using MacroEconometricTools: MacroEconometricTools, AbstractIRFResult,
-    point_estimate, lowerbounds, upperbounds, coverages, varnames, shocknames,
-    get_draws, horizon
+                             point_estimate, lowerbounds, upperbounds, coverages, varnames,
+                             shocknames,
+                             get_draws, horizon
 
 import MacroEconometricTools: irfplot, irfplot!
 
@@ -30,7 +31,7 @@ function _plot_irf_panel!(
         bandcolor = :steelblue, bandalpha = 0.2,
         linecolor = :black, linewidth = 2.0,
         xtickstep = 4
-    )
+)
     Makie.xlims!(ax, xvals[1] - 0.4, xvals[end] + 0.4)
     if xtickstep > 0
         ax.xticks = xvals[1]:xtickstep:xvals[end]
@@ -73,7 +74,7 @@ function _plot_paths!(
         ax, xvals, draws::AbstractMatrix;
         path_alpha = 0.02, path_color = :gray,
         path_linewidth = 0.5
-    )
+)
     col = Makie.RGBAf(Makie.to_color(path_color), Float32(path_alpha))
     for i in axes(draws, 1)
         Makie.lines!(
@@ -91,7 +92,7 @@ end
 function _make_figure(;
         figure = (;), size = nothing, title = nothing,
         title_fontsize = 20, title_font = :bold
-    )
+)
     fig_kw = Dict{Symbol, Any}(pairs(figure)...)
     if size !== nothing
         fig_kw[:size] = size
@@ -110,7 +111,7 @@ function _configure_axes!(
         fig, axes_matrix, nrows, ncols;
         linkxaxes = true, linkyaxes = :row,
         colgap = 10, rowgap = 10
-    )
+)
     # Link x-axes across all panels
     if linkxaxes
         all_axes = vec(axes_matrix)
@@ -155,7 +156,7 @@ function _panel_data(irf::AbstractIRFResult, plot_type)
         lower = [Array(l) for l in lowerbounds(irf)],
         upper = [Array(u) for u in upperbounds(irf)],
         coverages = coverages(irf),
-        draws = plot_type === :quantiles ? nothing : Array(get_draws(irf)),
+        draws = plot_type === :quantiles ? nothing : Array(get_draws(irf))
     )
 end
 
@@ -163,7 +164,7 @@ function _draw_irf_panel!(
         ax, pd, vi, si, plot_type;
         bandcolor, bandalpha, path_alpha, path_color, path_linewidth,
         linecolor, linewidth, drawzero, zerolinecolor, zerolinestyle, xtickstep
-    )
+)
     xvals = pd.xvals
     y = pd.point[vi, si, :]
     Makie.xlims!(ax, xvals[1] - 0.4, xvals[end] + 0.4)
@@ -211,7 +212,7 @@ function irfplot!(
         linecolor = :black, linewidth = 2.0,
         drawzero = true, zerolinecolor = :gray60, zerolinestyle = :dash,
         xtickstep = 4, kwargs...
-    )
+)
     MET._check_plot_type(irf, plot_type)
     vi = only(MET._resolve_selection(varnames(irf), [var], :var))
     si = only(MET._resolve_selection(shocknames(irf), [shock], :shock))
@@ -251,7 +252,7 @@ function irfplot(
         linkxaxes = true, linkyaxes = :row,
         colgap = 10, rowgap = 10,
         kwargs...
-    )
+)
     MET._check_plot_type(irf, plot_type)
     setup = MET._prepare_irf_plot(irf; vars, shocks, pretty_vars, pretty_shocks)
     pd = _panel_data(irf, plot_type)

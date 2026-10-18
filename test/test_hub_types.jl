@@ -25,22 +25,18 @@ using AxisArrays
 
         # Create lower/upper bounds
         coverage = [0.68, 0.9]
-        lower = [
-            AxisArray(
-                randn(n_vars, n_shocks, n_horizons),
-                Axis{:variable}([:GDP, :INF, :RATE]),
-                Axis{:shock}([:GDP, :INF, :RATE]),
-                Axis{:horizon}(0:10)
-            ) for _ in coverage
-        ]
-        upper = [
-            AxisArray(
-                randn(n_vars, n_shocks, n_horizons),
-                Axis{:variable}([:GDP, :INF, :RATE]),
-                Axis{:shock}([:GDP, :INF, :RATE]),
-                Axis{:horizon}(0:10)
-            ) for _ in coverage
-        ]
+        lower = [AxisArray(
+                     randn(n_vars, n_shocks, n_horizons),
+                     Axis{:variable}([:GDP, :INF, :RATE]),
+                     Axis{:shock}([:GDP, :INF, :RATE]),
+                     Axis{:horizon}(0:10)
+                 ) for _ in coverage]
+        upper = [AxisArray(
+                     randn(n_vars, n_shocks, n_horizons),
+                     Axis{:variable}([:GDP, :INF, :RATE]),
+                     Axis{:shock}([:GDP, :INF, :RATE]),
+                     Axis{:horizon}(0:10)
+                 ) for _ in coverage]
 
         id = CholeskyID()
         metadata = (max_horizon = 10, n_draws = n_draws)
@@ -70,22 +66,18 @@ using AxisArrays
         )
 
         coverage = [0.68, 0.9]
-        lower = [
-            AxisArray(
-                zeros(num_vars, num_shocks, num_horizons),
-                Axis{:variable}([:Y1, :Y2]),
-                Axis{:shock}([:S1, :S2]),
-                Axis{:horizon}(0:5)
-            ) for _ in coverage
-        ]
-        upper = [
-            AxisArray(
-                ones(num_vars, num_shocks, num_horizons),
-                Axis{:variable}([:Y1, :Y2]),
-                Axis{:shock}([:S1, :S2]),
-                Axis{:horizon}(0:5)
-            ) for _ in coverage
-        ]
+        lower = [AxisArray(
+                     zeros(num_vars, num_shocks, num_horizons),
+                     Axis{:variable}([:Y1, :Y2]),
+                     Axis{:shock}([:S1, :S2]),
+                     Axis{:horizon}(0:5)
+                 ) for _ in coverage]
+        upper = [AxisArray(
+                     ones(num_vars, num_shocks, num_horizons),
+                     Axis{:variable}([:Y1, :Y2]),
+                     Axis{:shock}([:S1, :S2]),
+                     Axis{:horizon}(0:5)
+                 ) for _ in coverage]
 
         id = CholeskyID()
         metadata = (max_horizon = 5, n_draws = num_draws)
@@ -136,22 +128,18 @@ using AxisArrays
         )
 
         coverage = [0.68, 0.95]
-        lower = [
-            AxisArray(
-                Array(data) .- 1.0,
-                Axis{:response}([:y]),
-                Axis{:shock}([:x]),
-                Axis{:horizon}(0:12)
-            ) for _ in coverage
-        ]
-        upper = [
-            AxisArray(
-                Array(data) .+ 1.0,
-                Axis{:response}([:y]),
-                Axis{:shock}([:x]),
-                Axis{:horizon}(0:12)
-            ) for _ in coverage
-        ]
+        lower = [AxisArray(
+                     Array(data) .- 1.0,
+                     Axis{:response}([:y]),
+                     Axis{:shock}([:x]),
+                     Axis{:horizon}(0:12)
+                 ) for _ in coverage]
+        upper = [AxisArray(
+                     Array(data) .+ 1.0,
+                     Axis{:response}([:y]),
+                     Axis{:shock}([:x]),
+                     Axis{:horizon}(0:12)
+                 ) for _ in coverage]
 
         metadata = (horizon = 12, term = :x)
 
@@ -184,19 +172,19 @@ using AxisArrays
         coverage = [0.9]
         lower = [
             AxisArray(
-                Array(data) .- 1.96 .* Array(stderr),
-                Axis{:response}([:y]),
-                Axis{:shock}([:x]),
-                Axis{:horizon}(0:5)
-            ),
+            Array(data) .- 1.96 .* Array(stderr),
+            Axis{:response}([:y]),
+            Axis{:shock}([:x]),
+            Axis{:horizon}(0:5)
+        ),
         ]
         upper = [
             AxisArray(
-                Array(data) .+ 1.96 .* Array(stderr),
-                Axis{:response}([:y]),
-                Axis{:shock}([:x]),
-                Axis{:horizon}(0:5)
-            ),
+            Array(data) .+ 1.96 .* Array(stderr),
+            Axis{:response}([:y]),
+            Axis{:shock}([:x]),
+            Axis{:horizon}(0:5)
+        ),
         ]
 
         metadata = (horizon = 5, term = :x)
@@ -232,14 +220,12 @@ end
     end
 
     @testset "NarrativeRestriction construction from explicit restrictions" begin
-        sign_restrictions = [
-            1 0;
-            -1 0
-        ]
+        sign_restrictions = [1 0;
+                             -1 0]
 
         narrative_shocks = [
             NarrativeShockRestriction(1, 50, 1),
-            NarrativeShockRestriction(1, 75, -1),
+            NarrativeShockRestriction(1, 75, -1)
         ]
 
         # Default horizon
@@ -256,7 +242,7 @@ end
     @testset "NarrativeRestriction with only narrative shocks" begin
         narrative_shocks = [
             NarrativeShockRestriction(1, 50, 1),
-            NarrativeShockRestriction(2, 75, -1),
+            NarrativeShockRestriction(2, 75, -1)
         ]
 
         # Should auto-create zero sign_restrictions matrix
@@ -287,19 +273,19 @@ end
         )
         lower_b = [
             AxisArray(
-                randn(2, 2, 5),
-                Axis{:variable}([:A, :B]),
-                Axis{:shock}([:A, :B]),
-                Axis{:horizon}(0:4)
-            ),
+            randn(2, 2, 5),
+            Axis{:variable}([:A, :B]),
+            Axis{:shock}([:A, :B]),
+            Axis{:horizon}(0:4)
+        ),
         ]
         upper_b = [
             AxisArray(
-                randn(2, 2, 5),
-                Axis{:variable}([:A, :B]),
-                Axis{:shock}([:A, :B]),
-                Axis{:horizon}(0:4)
-            ),
+            randn(2, 2, 5),
+            Axis{:variable}([:A, :B]),
+            Axis{:shock}([:A, :B]),
+            Axis{:horizon}(0:4)
+        ),
         ]
         irf_b = BayesianIRFResult{Float64, typeof(data_b), CholeskyID}(
             data_b, lower_b, upper_b, [0.9], CholeskyID(), (;)
@@ -323,19 +309,19 @@ end
         )
         lower_l = [
             AxisArray(
-                Array(data_l) .- 1.0,
-                Axis{:response}([:y]),
-                Axis{:shock}([:x]),
-                Axis{:horizon}(0:4)
-            ),
+            Array(data_l) .- 1.0,
+            Axis{:response}([:y]),
+            Axis{:shock}([:x]),
+            Axis{:horizon}(0:4)
+        ),
         ]
         upper_l = [
             AxisArray(
-                Array(data_l) .+ 1.0,
-                Axis{:response}([:y]),
-                Axis{:shock}([:x]),
-                Axis{:horizon}(0:4)
-            ),
+            Array(data_l) .+ 1.0,
+            Axis{:response}([:y]),
+            Axis{:shock}([:x]),
+            Axis{:horizon}(0:4)
+        ),
         ]
         irf_l = LocalProjectionIRFResult{Float64, typeof(data_l)}(
             data_l, stderr_l, lower_l, upper_l, [0.9], (;)
@@ -403,7 +389,7 @@ include("minimal_irf_result.jl")
         @test coverages(lp) === lp.coverage
         @test_throws "LocalProjectionIRFResult does not store draws" get_draws(lp)
         @test sprint(show, lp) ==
-            "LocalProjectionIRFResult(1 variables × 1 shocks, horizon 2)"
+              "LocalProjectionIRFResult(1 variables × 1 shocks, horizon 2)"
     end
 end
 
@@ -411,9 +397,9 @@ end
     # BayesianVAR.jl and LocalProjections.jl export their own names; hub
     # definitions would clash with them under `using`.
     for name in (
-            :BayesianVAR, :LocalProjection, :AbstractPrior, :MinnesotaPrior,
-            :NormalWishartPrior,
-        )
+        :BayesianVAR, :LocalProjection, :AbstractPrior, :MinnesotaPrior,
+        :NormalWishartPrior
+    )
         @test !isdefined(MacroEconometricTools, name)
     end
 end
@@ -438,9 +424,9 @@ end
     @test concrete_fields(irf(model, CholeskyID(); horizon = 3))
     @test concrete_fields(
         irf(
-            model, SignRestriction([1 0; 0 0]); horizon = 2,
-            n_draws = 10
-        )
+        model, SignRestriction([1 0; 0 0]); horizon = 2,
+        n_draws = 10
+    )
     )
 
     # Spoke call forms: partial type parameters, bands in an abstractly typed vector
@@ -457,7 +443,7 @@ end
     @test lowerbounds(b) === b.lower
     @test b.lower == lower
     @test BayesianIRFResult(data, lower, lower, [0.68, 0.9], CholeskyID(), (;)) isa
-        typeof(b)
+          typeof(b)
 
     lp_data = AxisArray(
         randn(1, 1, 3), Axis{:response}([:y]), Axis{:shock}([:x]),

@@ -7,7 +7,7 @@ using MacroEconometricTools
     constraints = AbstractConstraint[
         ZeroConstraint(:y, [:x]),
         FixedConstraint(:x, :x, 2, 0.25),
-        BlockExogeneity([:y], [:x]),
+        BlockExogeneity([:y], [:x])
     ]
     MacroEconometricTools.apply_constraints!(matrix, constraints, names, 2)
     @test matrix[1, [3, 5]] == [0, 0]

@@ -72,5 +72,6 @@ using CairoMakie: CairoMakie
     @test length(ax.scene.plots) == 22
 
     @test_throws "needs stored draws" irfplot(analytic; plot_type = :paths)
-    @test_throws "entry :x is not one of" irfplot!(CairoMakie.Axis(CairoMakie.Figure()[1, 1]), analytic; var = :x, shock = 1)
+    @test_throws "entry :x is not one of" irfplot!(
+        CairoMakie.Axis(CairoMakie.Figure()[1, 1]), analytic; var = :x, shock = 1)
 end

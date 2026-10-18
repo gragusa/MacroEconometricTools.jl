@@ -47,8 +47,10 @@ using DataFrames
         for (i, (rank_lo, rank_hi)) in enumerate(((39, 113), (16, 136), (5, 147)))
             @test mbb.irf_norm_bands.lower[i] == sorted[rank_lo, :, :]
             @test mbb.irf_norm_bands.upper[i] == sorted[rank_hi, :, :]
-            @test mbb.halls_irf_norm_bands.lower[i] ≈ 2 .* mbb.point_irf_norm .- sorted[rank_hi, :, :]
-            @test mbb.halls_irf_norm_bands.upper[i] ≈ 2 .* mbb.point_irf_norm .- sorted[rank_lo, :, :]
+            @test mbb.halls_irf_norm_bands.lower[i] ≈
+                  2 .* mbb.point_irf_norm .- sorted[rank_hi, :, :]
+            @test mbb.halls_irf_norm_bands.upper[i] ≈
+                  2 .* mbb.point_irf_norm .- sorted[rank_lo, :, :]
         end
 
         # AR sets: inclusion follows the rates, nested in the level.
@@ -77,6 +79,7 @@ using DataFrames
         lower = Array(r.lower[1])
         upper = Array(r.upper[1])
         for k in 1:K, h in 1:n_imp
+
             g = grid[mbb.ar.included[1][:, k, h]] .* norm_factor
             @test lower[k, 1, h] ≈ minimum(g)
             @test upper[k, 1, h] ≈ maximum(g)
@@ -87,7 +90,7 @@ using DataFrames
         # χ²(1) quantiles at 0.5, 0.68, 0.9, 0.95, 0.99
         crit = [
             0.45493642311957266, 0.9889464814780231, 2.705543454095415,
-            3.8414588206941245, 6.634896601021214,
+            3.8414588206941245, 6.634896601021214
         ]
         cov = [0.99, 0.5, 0.68, 0.9, 0.95]
         msw = msw_confidence_set(model, id; coverage = cov, horizon)

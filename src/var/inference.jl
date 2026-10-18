@@ -114,7 +114,7 @@ This is used in the delta method for computing IRF standard errors.
 function irf_jacobian_matrices(
         model::VARModel{T, OLSVAR}, irf_point::Array{T, 3},
         horizon::Int
-    ) where {T}
+) where {T}
     n_vars_val = n_vars(model)
     n_lags_val = n_lags(model)
     n_comp = n_vars_val * n_lags_val
@@ -179,7 +179,7 @@ Based on Lütkepohl (2005), Section 3.7.
 function irf_effect_covariance(
         model::VARModel{T, OLSVAR}, P::Matrix{T},
         irf_point::Array{T, 3}
-    ) where {T}
+) where {T}
     horizon = size(irf_point, 3) - 1
     n_vars_val = n_vars(model)
     n_lags_val = n_lags(model)
@@ -248,7 +248,7 @@ Extracts the square root of diagonal elements of the covariance matrix.
 function irf_asymptotic_stderror(
         model::VARModel{T, OLSVAR}, P::Matrix{T},
         irf_point::Array{T, 3}
-    ) where {T}
+) where {T}
     n_vars_val = n_vars(model)
 
     # Compute covariance

@@ -32,10 +32,10 @@ Returns a `VARModel{T, IVSVAR{I}}` whose `metadata` holds `structural_impact`,
 function StatsBase.fit(
         ::Type{IVSVAR}, Y::AbstractMatrix{T}, n_lags::Int;
         instrument::AbstractInstrument, kwargs...
-    ) where {T <: AbstractFloat}
+) where {T <: AbstractFloat}
     Base.depwarn(
         "`fit(IVSVAR, Y, n_lags; instrument)` is deprecated; use " *
-            "`fit(OLSVAR, Y, n_lags)` and `IVIdentification(instrument)`.",
+        "`fit(OLSVAR, Y, n_lags)` and `IVIdentification(instrument)`.",
         :fit
     )
     return _fit_ivsvar(Y, n_lags; instrument, kwargs...)
@@ -47,7 +47,7 @@ function _fit_ivsvar(
         constraints::Vector{<:AbstractConstraint} = AbstractConstraint[],
         names::Union{Nothing, Vector{Symbol}} = nothing,
         demean::Bool = false
-    ) where {T <: AbstractFloat}
+) where {T <: AbstractFloat}
 
     # ── Step 1: Reduced-form VAR ──────────────────────────────────────────
     var_ols = fit(
@@ -79,7 +79,7 @@ function _fit_ivsvar(
         first_stage_F = F_stat,
         first_stage_coef = π_hat,
         target_shock = target,
-        iv_coefficients = β_iv,
+        iv_coefficients = β_iv
     )
 
     return VARModel(
@@ -134,9 +134,9 @@ function _require_observed(Z::AbstractMatrix, what::AbstractString)
     n_missing = size(Z, 1) - length(_observed_rows(Z))
     n_missing == 0 || throw(
         ArgumentError(
-            "$what requires an instrument observed in every residual period; it is " *
-                "missing in $n_missing of $(size(Z, 1)) periods."
-        )
+        "$what requires an instrument observed in every residual period; it is " *
+        "missing in $n_missing of $(size(Z, 1)) periods."
+    )
     )
     return convert(Matrix{nonmissingtype(eltype(Z))}, Z)
 end
@@ -164,16 +164,16 @@ identification (k proxies for k shocks), system GMM is required.
 function _iv_identify(ν::AbstractMatrix{T}, Z::AbstractMatrix, target::Int) where {T}
     size(Z, 1) == size(ν, 1) || throw(
         DimensionMismatch(
-            "instrument has $(size(Z, 1)) rows but the residuals have $(size(ν, 1))"
-        )
+        "instrument has $(size(Z, 1)) rows but the residuals have $(size(ν, 1))"
+    )
     )
     rows = _observed_rows(Z)
     k_z = size(Z, 2)
     length(rows) > k_z + 1 || throw(
         ArgumentError(
-            "instrument is observed in $(length(rows)) residual periods; 2SLS with " *
-                "$k_z instrument(s) needs at least $(k_z + 2)"
-        )
+        "instrument is observed in $(length(rows)) residual periods; 2SLS with " *
+        "$k_z instrument(s) needs at least $(k_z + 2)"
+    )
     )
     return _iv_identify_complete(Matrix{T}(ν[rows, :]), Matrix{T}(Z[rows, :]), target)
 end
@@ -227,8 +227,8 @@ function _resolve_iv(model::VARModel, id::IVIdentification)
     else
         throw(
             ArgumentError(
-                "IVIdentification requires an instrument: use IVIdentification(Z, target_shock)"
-            )
+            "IVIdentification requires an instrument: use IVIdentification(Z, target_shock)"
+        )
         )
     end
 end
@@ -249,7 +249,7 @@ shock index (a `Symbol` target is resolved against `names`).
 function _extract_instrument(
         instrument::ExternalInstrument,
         n_obs::Int, n_lags::Int, names::Vector{Symbol}
-    )
+)
     Z = instrument.Z
     n_z = size(Z, 1)
     target = _resolve_target(instrument.target_shock, names)
@@ -260,9 +260,9 @@ function _extract_instrument(
     else
         throw(
             DimensionMismatch(
-                "Instrument has $n_z rows; expected $(n_obs + n_lags) (the number of rows of Y) " *
-                    "or $n_obs (the number of VAR residuals, Y without its first $n_lags rows)."
-            )
+            "Instrument has $n_z rows; expected $(n_obs + n_lags) (the number of rows of Y) " *
+            "or $n_obs (the number of VAR residuals, Y without its first $n_lags rows)."
+        )
         )
     end
 end
@@ -342,7 +342,7 @@ the fixed instrument.
 function iv_impact(
         ν::AbstractMatrix{T}, Σ::AbstractMatrix{T}, Z::AbstractMatrix,
         target::Int
-    ) where {T}
+) where {T}
     β_iv, F_stat, _ = _iv_identify(ν, Z, target)
     P = _build_full_impact_matrix(β_iv, target, Matrix(Σ))
     return P, F_stat
@@ -374,7 +374,7 @@ the bootstrap machinery.
 function refit_for_bootstrap(
         model::VARModel{T, <:IVSVAR}, Y_boot::Matrix{T},
         n_lags_val::Int
-    ) where {T}
+) where {T}
     constraints_arg = model.coefficients.constraints
     constraints_arg = constraints_arg === nothing ? AbstractConstraint[] : constraints_arg
 
@@ -398,7 +398,7 @@ Re-estimate a non-IVSVAR model on bootstrap data. Generic fallback.
 function refit_for_bootstrap(
         model::VARModel{T}, Y_boot::Matrix{T},
         n_lags_val::Int
-    ) where {T}
+) where {T}
     constraints_arg = model.coefficients.constraints
     constraints_arg = constraints_arg === nothing ? AbstractConstraint[] : constraints_arg
     return fit(

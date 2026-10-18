@@ -56,7 +56,7 @@ Computes lower-triangular Cholesky factor: Σ = P*P'
 function rotation_matrix(model::VARModel{T}, id::CholeskyID) where {T}
     Σ_L = Matrix(cholesky(residual_covariance(model)).L)
     ordering_idx = id.ordering === nothing ? nothing :
-        get_permutation(model.names, id.ordering)
+                   get_permutation(model.names, id.ordering)
     return structural_impact(Σ_L, id; ordering_idx)
 end
 
@@ -128,7 +128,7 @@ function rotation_matrix(
         parallel::Symbol = :none,
         verbose::Bool = false,
         rng::AbstractRNG = Random.default_rng()
-    ) where {T}
+) where {T}
     parallel ∈ [:none, :distributed] ||
         throw(ArgumentError("parallel must be :none or :distributed"))
 
@@ -148,7 +148,7 @@ function identify_sign_serial(
         model::VARModel{T}, id::SignRestriction,
         max_draws::Int, verbose::Bool,
         rng::AbstractRNG
-    ) where {T}
+) where {T}
     n_vars_val = n_vars(model)
     Σ = residual_covariance(model)
 
@@ -191,7 +191,7 @@ function identify_sign_distributed(
         model::VARModel{T}, id::SignRestriction,
         max_draws::Int, verbose::Bool,
         rng::AbstractRNG
-    ) where {T}
+) where {T}
 
     # Check if Distributed is available
     # if !isdefined(Main, :Distributed)
@@ -241,10 +241,8 @@ function identify_sign_distributed(
     end
 
     base_seed = rand(rng, UInt64)
-    work_specs = [
-        (draws_per_worker[i], i, base_seed)
-            for i in 1:n_w if draws_per_worker[i] > 0
-    ]
+    work_specs = [(draws_per_worker[i], i, base_seed)
+                  for i in 1:n_w if draws_per_worker[i] > 0]
     active_workers = length(work_specs)
 
     if verbose
@@ -295,7 +293,7 @@ candidates against one model, compute `Φ` once and call that method directly.
 function check_sign_restrictions(
         P::AbstractMatrix, restrictions::Matrix{Int},
         model::VARModel, horizon::Int
-    )
+)
     Φ = compute_ma_matrices(model.companion, horizon, n_vars(model), n_lags(model))
     return check_sign_restrictions(P, restrictions, Φ, horizon)
 end
@@ -354,7 +352,7 @@ function rotation_matrix(
         model::VARModel{T}, id::NarrativeRestriction;
         max_draws::Int = 10000,
         rng::AbstractRNG = Random.default_rng()
-    ) where {T}
+) where {T}
     n_vars_val = n_vars(model)
     n_lags_val = n_lags(model)
 
@@ -411,7 +409,9 @@ end
 
 Non-mutating [`normalize_impact!`](@ref).
 """
-normalize_impact(P::AbstractMatrix, norm::AbstractNormalization) = normalize_impact!(copy(P), norm)
+function normalize_impact(P::AbstractMatrix, norm::AbstractNormalization)
+    normalize_impact!(copy(P), norm)
+end
 
 @deprecate normalize!(P::AbstractMatrix, norm::AbstractNormalization) normalize_impact!(P, norm) false
 @deprecate normalize(P::AbstractMatrix, norm::AbstractNormalization) normalize_impact(P, norm) false
@@ -433,13 +433,13 @@ from the companion matrix `F`, for `h = 0, …, horizon`. Only the first
 """
 function compute_ma_matrices(
         F::AbstractMatrix{T}, horizon::Int, n_vars::Int, n_lags::Int
-    ) where {T}
+) where {T}
     Base.require_one_based_indexing(F)
     n_comp = n_vars * n_lags
     size(F) == (n_comp, n_comp) || throw(
         DimensionMismatch(
-            "companion matrix must be $(n_comp)×$(n_comp) for n_vars=$n_vars, n_lags=$n_lags; got $(size(F))"
-        )
+        "companion matrix must be $(n_comp)×$(n_comp) for n_vars=$n_vars, n_lags=$n_lags; got $(size(F))"
+    )
     )
     B = zeros(T, 1 + n_comp, n_vars)
     if n_comp > 0

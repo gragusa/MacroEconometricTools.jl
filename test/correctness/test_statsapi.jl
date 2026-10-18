@@ -33,6 +33,7 @@ using Test
     se = stderror(model)
     @test size(se) == size(coef(model))
     for j in 1:n, i in 1:n_coef
+
         @test se[i, j] ≈ sqrt(covariance[j, j] * XXinv[i, i]) rtol = 1.0e-10
     end
 

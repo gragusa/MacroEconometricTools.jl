@@ -31,9 +31,9 @@ using StableRNGs: StableRNG
     end
 
     @testset "Same draws as irf: $(nameof(typeof(inf)))" for inf in (
-            WildBootstrap(reps; save_draws = true), Bootstrap(reps; save_draws = true),
-            BlockBootstrap(reps; block_length = 6, save_draws = true),
-        )
+        WildBootstrap(reps; save_draws = true), Bootstrap(reps; save_draws = true),
+        BlockBootstrap(reps; block_length = 6, save_draws = true)
+    )
         for id_ in (id, CholeskyID([3, 1, 2]))
             draws = bootstrap_irf(model, id_, inf; horizon, rng = StableRNG(7))
             result = irf(model, id_; horizon, inference = inf, rng = StableRNG(7))
@@ -70,40 +70,41 @@ using StableRNGs: StableRNG
     end
 
     @testset "Deprecated forms forward to the entry point" begin
-        new_wild = bootstrap_irf(model, id, WildBootstrap(reps); horizon, rng = StableRNG(5))
+        new_wild = bootstrap_irf(
+            model, id, WildBootstrap(reps); horizon, rng = StableRNG(5))
         new_std = bootstrap_irf(model, id, Bootstrap(reps); horizon, rng = StableRNG(5))
         new_block = bootstrap_irf(
             model, id, BlockBootstrap(reps; block_length = 6); horizon, rng = StableRNG(5)
         )
         @test (
             @test_deprecated bootstrap_irf(
-                model, id, horizon, reps; rng = StableRNG(5)
-            )
+            model, id, horizon, reps; rng = StableRNG(5)
+        )
         ) == new_wild
         @test (
             @test_deprecated bootstrap_irf(
-                model, id, horizon, reps; method = :standard, rng = StableRNG(5)
-            )
+            model, id, horizon, reps; method = :standard, rng = StableRNG(5)
+        )
         ) == new_std
         @test (
             @test_deprecated bootstrap_irf(
-                model, id, horizon, reps; method = :block, block_length = 6, rng = StableRNG(5)
-            )
+            model, id, horizon, reps; method = :block, block_length = 6, rng = StableRNG(5)
+        )
         ) == new_block
         @test (
             @test_deprecated MacroEconometricTools.bootstrap_irf_wild(
-                model, id, horizon, reps, StableRNG(5)
-            )
+            model, id, horizon, reps, StableRNG(5)
+        )
         ) == new_wild
         @test (
             @test_deprecated MacroEconometricTools.bootstrap_irf_standard(
-                model, id, horizon, reps, StableRNG(5)
-            )
+            model, id, horizon, reps, StableRNG(5)
+        )
         ) == new_std
         @test (
             @test_deprecated MacroEconometricTools.bootstrap_irf_block(
-                model, id, horizon, reps, 6, StableRNG(5)
-            )
+            model, id, horizon, reps, 6, StableRNG(5)
+        )
         ) == new_block
         @test_throws "method must be :wild, :standard, or :block" bootstrap_irf(
             model, id, horizon, reps; method = :jackknife

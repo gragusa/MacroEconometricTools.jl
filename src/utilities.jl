@@ -92,7 +92,7 @@ In-place creation of lagged matrix for VAR estimation.
 function create_lags!(
         dest::AbstractMatrix{T}, X::AbstractMatrix{T}, p::Int,
         include_intercept::Bool = true
-    ) where {T}
+) where {T}
     n_obs, n_vars = size(X)
     offset = include_intercept ? 1 : 0
 
@@ -304,7 +304,7 @@ function select_lags(
         constraints::Vector{<:AbstractConstraint} = AbstractConstraint[],
         names::Union{Nothing, Vector{Symbol}} = nothing,
         demean::Bool = false
-    )
+)
     Base.require_one_based_indexing(Y)
     criterion in (:aic, :bic, :hqic) ||
         throw(ArgumentError("criterion must be :aic, :bic, or :hqic (got :$criterion)"))
@@ -314,21 +314,22 @@ function select_lags(
     df = n_eff - n_vars * max_lags - 1
     df > 0 || throw(
         ArgumentError(
-            "Not enough observations for max_lags = $max_lags: the common sample has $n_eff rows, leaving $df residual degrees of freedom for the largest model"
-        )
+        "Not enough observations for max_lags = $max_lags: the common sample has $n_eff rows, leaving $df residual degrees of freedom for the largest model"
+    )
     )
     # Names are read from the full input: row subsets of named arrays may drop them.
     names = names === nothing ? try_extract_names(Y, n_vars) : names
 
     candidates = 1:max_lags
     models = map(candidates) do p
-        fit(OLSVAR, view(Y, (max_lags - p + 1):n_obs_total, :), p; constraints, names, demean)
+        fit(OLSVAR, view(Y, (max_lags - p + 1):n_obs_total, :),
+            p; constraints, names, demean)
     end
     table = (
         lags = collect(candidates),
         aic = aic.(models),
         bic = bic.(models),
-        hqic = hqic.(models),
+        hqic = hqic.(models)
     )
     values = getproperty(table, criterion)
     return (; lags = candidates[argmin(values)], criterion, table)

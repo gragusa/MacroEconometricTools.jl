@@ -36,7 +36,7 @@ end
     reps = 40
     failures = Dict(
         3 => PosDefException(1), 9 => SingularException(2),
-        17 => LAPACKException(1), 25 => DomainError(-1.0), 31 => NaN,
+        17 => LAPACKException(1), 25 => DomainError(-1.0), 31 => NaN
     )
 
     @testset "Failure classification" begin
@@ -51,13 +51,13 @@ end
     end
 
     for (name, inf) in (
-            ("Wild bootstrap", WildBootstrap(reps; save_draws = true, max_failure_rate = 0.2)),
-            ("Standard bootstrap", Bootstrap(reps; save_draws = true, max_failure_rate = 0.2)),
-            (
-                "Block bootstrap",
-                BlockBootstrap(reps; block_length = 5, save_draws = true, max_failure_rate = 0.2),
-            ),
-        )
+        ("Wild bootstrap", WildBootstrap(reps; save_draws = true, max_failure_rate = 0.2)),
+        ("Standard bootstrap", Bootstrap(reps; save_draws = true, max_failure_rate = 0.2)),
+        (
+        "Block bootstrap",
+        BlockBootstrap(reps; block_length = 5, save_draws = true, max_failure_rate = 0.2)
+    )
+    )
         @testset "$name" begin
             id = FlakyCholesky(failures)
             result = @test_logs (:warn, r"5 / 40 replications failed") irf(

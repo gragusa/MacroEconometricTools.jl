@@ -23,11 +23,11 @@ function _resolve_selection(names::AbstractVector, selection, label)
     selection === :all && return collect(eachindex(names))
     selection isa AbstractVector ||
         throw(
-        ArgumentError(
+            ArgumentError(
             "`$(label)` must be `:all` or a vector of names or " *
-                "positions, got $(repr(selection))"
+            "positions, got $(repr(selection))"
         )
-    )
+        )
     return [_resolve_entry(names, s, label) for s in selection]
 end
 
@@ -55,11 +55,11 @@ function _resolve_labels(labels, names::AbstractVector, idx, suffix, label)
     labels === nothing && return string.(names[idx]) .* suffix
     length(labels) == length(idx) ||
         throw(
-        ArgumentError(
+            ArgumentError(
             "`$(label)` has $(length(labels)) labels for " *
-                "$(length(idx)) selected entries"
+            "$(length(idx)) selected entries"
         )
-    )
+        )
     return collect(labels)
 end
 
@@ -71,7 +71,7 @@ Resolve the variable and shock selection and the panel labels for `irf`.
 function _prepare_irf_plot(
         irf::AbstractIRFResult; vars = :all, shocks = :all,
         pretty_vars = nothing, pretty_shocks = nothing
-    )
+)
     vnames = varnames(irf)
     snames = shocknames(irf)
     idxvars = _resolve_selection(vnames, vars, :vars)
@@ -82,25 +82,25 @@ function _prepare_irf_plot(
         var_labels = _resolve_labels(pretty_vars, vnames, idxvars, "", :pretty_vars),
         shock_labels = _resolve_labels(
             pretty_shocks, snames, idxshocks, " shock", :pretty_shocks
-        ),
+        )
     )
 end
 
 function _check_plot_type(irf::AbstractIRFResult, plot_type)
     plot_type ∈ (:quantiles, :paths, :both) ||
         throw(
-        ArgumentError(
+            ArgumentError(
             "`plot_type` must be :quantiles, :paths, or :both, " *
-                "got $(repr(plot_type))"
+            "got $(repr(plot_type))"
         )
-    )
+        )
     plot_type === :quantiles || has_draws(irf) ||
         throw(
-        ArgumentError(
+            ArgumentError(
             "`plot_type = $(repr(plot_type))` needs stored draws, " *
-                "but this $(nameof(typeof(irf))) has none"
+            "but this $(nameof(typeof(irf))) has none"
         )
-    )
+        )
     return plot_type
 end
 
@@ -134,7 +134,7 @@ RecipesBase.@recipe function f(
         drawzero = true,
         zerolinecolor = :lightgray,
         zerolinecol = nothing
-    )
+)
     _check_plot_type(irf, plot_type)
     if zerolinecol !== nothing
         Base.depwarn(

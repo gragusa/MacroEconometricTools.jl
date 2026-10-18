@@ -42,9 +42,9 @@ using Random
         shocks = [NarrativeShockRestriction(1, 10, 1)]
         R = [1 0; 0 0]
         for nr in (
-                NarrativeRestriction(R, shocks, 2),
-                NarrativeRestriction(R, shocks; horizon = 2),
-            )
+            NarrativeRestriction(R, shocks, 2),
+            NarrativeRestriction(R, shocks; horizon = 2)
+        )
             @test nr isa NarrativeRestriction{Int}
             @test nr.sign_restrictions == R && nr.horizon == 2
             @test nr.narrative_shocks == shocks

@@ -93,8 +93,10 @@ using StableRNGs: StableRNG
         var = fit(OLSVAR, Y, n_l)
         id = CholeskyID()
 
-        boot1 = bootstrap_irf(var, id, WildBootstrap(20); horizon = 5, rng = StableRNG(20240612))
-        boot2 = bootstrap_irf(var, id, WildBootstrap(20); horizon = 5, rng = StableRNG(20240612))
+        boot1 = bootstrap_irf(
+            var, id, WildBootstrap(20); horizon = 5, rng = StableRNG(20240612))
+        boot2 = bootstrap_irf(
+            var, id, WildBootstrap(20); horizon = 5, rng = StableRNG(20240612))
         @test boot1 == boot2
     end
 

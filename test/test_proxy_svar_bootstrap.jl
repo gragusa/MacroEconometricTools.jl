@@ -86,7 +86,7 @@ end
     mm = proxy[(p + 1):end]
 
     A_est, U_est, Σ_uu, Σ_um,
-        H1 = MacroEconometricTools.estimate_proxy_svar(yy, xx, mm)
+    H1 = MacroEconometricTools.estimate_proxy_svar(yy, xx, mm)
 
     @test A_est ≈ A_est_py atol = 1.0e-10
     @test U_est ≈ U_est_py atol = 1.0e-8
@@ -154,7 +154,8 @@ end
         for k in 1:K, h in 1:21
 
             point = mbb.point_irf_norm[k, h]
-            @test mbb.irf_norm_bands.lower[3][k, h] ≤ point ≤ mbb.irf_norm_bands.upper[3][k, h]
+            @test mbb.irf_norm_bands.lower[3][k, h] ≤ point ≤
+                  mbb.irf_norm_bands.upper[3][k, h]
         end
     end
 
@@ -182,8 +183,10 @@ end
     )
 
     @testset "All CIs are finite" begin
-        @test all(isfinite, mbb.irf_norm_bands.lower[1]) && all(isfinite, mbb.irf_norm_bands.upper[1])
-        @test all(isfinite, mbb.irf_norm_bands.lower[3]) && all(isfinite, mbb.irf_norm_bands.upper[3])
+        @test all(isfinite, mbb.irf_norm_bands.lower[1]) &&
+              all(isfinite, mbb.irf_norm_bands.upper[1])
+        @test all(isfinite, mbb.irf_norm_bands.lower[3]) &&
+              all(isfinite, mbb.irf_norm_bands.upper[3])
     end
 
     @testset "CI widths are positive" begin
@@ -217,8 +220,10 @@ end
     for k in 1:K, h in 1:11
 
         point = mbb.point_irf_norm[k, h]
-        @test mbb.halls_irf_norm_bands.lower[1][k, h] ≈ 2 * point - mbb.irf_norm_bands.upper[1][k, h] atol = 1.0e-12
-        @test mbb.halls_irf_norm_bands.upper[1][k, h] ≈ 2 * point - mbb.irf_norm_bands.lower[1][k, h] atol = 1.0e-12
+        @test mbb.halls_irf_norm_bands.lower[1][k, h] ≈
+              2 * point - mbb.irf_norm_bands.upper[1][k, h] atol = 1.0e-12
+        @test mbb.halls_irf_norm_bands.upper[1][k, h] ≈
+              2 * point - mbb.irf_norm_bands.lower[1][k, h] atol = 1.0e-12
     end
 end
 
@@ -348,27 +353,27 @@ end
     # Reference block starts are 0-based
     block_indices = Matrix{Int}(
         CSV.read(
-            joinpath(BDATA, "jl_crossval_mbb_block_indices.csv"),
-            DataFrame; header = false
-        )
+        joinpath(BDATA, "jl_crossval_mbb_block_indices.csv"),
+        DataFrame; header = false
+    )
     ) .+ 1
     irf_norm_draws_py = Matrix(
         CSV.read(
-            joinpath(BDATA, "jl_crossval_mbb_irf_norm_draws.csv"),
-            DataFrame; header = false
-        )
+        joinpath(BDATA, "jl_crossval_mbb_irf_norm_draws.csv"),
+        DataFrame; header = false
+    )
     )
     ci68_py_flat = Matrix(
         CSV.read(
-            joinpath(BDATA, "jl_crossval_mbb_ci68_irf_norm.csv"),
-            DataFrame; header = false
-        )
+        joinpath(BDATA, "jl_crossval_mbb_ci68_irf_norm.csv"),
+        DataFrame; header = false
+    )
     )
     ci95_py_flat = Matrix(
         CSV.read(
-            joinpath(BDATA, "jl_crossval_mbb_ci95_irf_norm.csv"),
-            DataFrame; header = false
-        )
+        joinpath(BDATA, "jl_crossval_mbb_ci95_irf_norm.csv"),
+        DataFrame; header = false
+    )
     )
 
     p = 2
@@ -395,7 +400,7 @@ end
                 max_diff,
                 abs(
                     mbb.irf_norm_draws[b, k, h] -
-                        irf_norm_draws_py[b, (k - 1) * n_imp + h]
+                    irf_norm_draws_py[b, (k - 1) * n_imp + h]
                 )
             )
         end
@@ -453,9 +458,9 @@ end
     proxy_full = vec(Matrix(CSV.read(joinpath(BDATA, "jl_crossval_proxy.csv"), DataFrame)))
     block_indices = Matrix{Int}(
         CSV.read(
-            joinpath(BDATA, "jl_crossval_mbb_block_indices.csv"),
-            DataFrame; header = false
-        )
+        joinpath(BDATA, "jl_crossval_mbb_block_indices.csv"),
+        DataFrame; header = false
+    )
     ) .+ 1
 
     p = 2
@@ -533,7 +538,7 @@ end
     end
 
     A_star, _, Σ_uu_star, Σ_um_star,
-        H1_star = MacroEconometricTools.estimate_proxy_svar(y_star, x_star, m_star)
+    H1_star = MacroEconometricTools.estimate_proxy_svar(y_star, x_star, m_star)
     dyn = MacroEconometricTools.proxy_svar_dynamics(
         A_star, Σ_uu_star, Σ_um_star, H1_star, p, s, n_imp, 1
     )

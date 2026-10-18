@@ -88,8 +88,8 @@ function _constraint_var(name::Symbol, varnames::Vector{Symbol}, role::AbstractS
     idx = findfirst(==(name), varnames)
     idx === nothing && throw(
         ArgumentError(
-            "constraint $role $(repr(name)) is not a model variable; variables are $(varnames)"
-        )
+        "constraint $role $(repr(name)) is not a model variable; variables are $(varnames)"
+    )
     )
     return idx
 end
@@ -105,10 +105,10 @@ function _restricted_cells(c::ZeroConstraint, varnames::Vector{Symbol}, n_lags::
     n_vars = length(varnames)
     eq = _constraint_var(c.variable, varnames, "variable")
     lags = isempty(c.lags) ? (1:n_lags) : c.lags
-    return [
-        (eq, _coef_row(_constraint_var(r, varnames, "regressor"), _constraint_lag(l, n_lags), n_vars), 0.0)
-            for r in c.regressors for l in lags
-    ]
+    return [(eq,
+                _coef_row(_constraint_var(r, varnames, "regressor"), _constraint_lag(l, n_lags), n_vars),
+                0.0)
+            for r in c.regressors for l in lags]
 end
 
 function _restricted_cells(c::FixedConstraint, varnames::Vector{Symbol}, n_lags::Int)
@@ -121,7 +121,8 @@ function _restricted_cells(c::BlockExogeneity, varnames::Vector{Symbol}, n_lags:
     n_vars = length(varnames)
     from = [_constraint_var(v, varnames, "'from' variable") for v in c.from]
     to = [_constraint_var(v, varnames, "'to' variable") for v in c.to]
-    return [(eq, _coef_row(reg, l, n_vars), 0.0) for eq in to for reg in from for l in 1:n_lags]
+    return [(eq, _coef_row(reg, l, n_vars), 0.0) for eq in to for reg in from
+            for l in 1:n_lags]
 end
 
 function _restricted_cells(c::AbstractConstraint, ::Vector{Symbol}, ::Int)
@@ -143,18 +144,19 @@ or two constraints that restrict the same coefficient to different values.
 function _resolve_constraints(
         constraints::AbstractVector{<:AbstractConstraint},
         varnames::Vector{Symbol}, n_lags::Int
-    )
+)
     n_vars = length(varnames)
     n_coef = 1 + n_vars * n_lags
     restricted = falses(n_coef, n_vars)
     values = zeros(n_coef, n_vars)
     for c in constraints, (eq, row, v) in _restricted_cells(c, varnames, n_lags)
+
         if restricted[row, eq] && values[row, eq] != v
             throw(
                 ArgumentError(
-                    "conflicting constraints on the coefficient of $(repr(varnames[eq])) " *
-                        "on row $row of B: $(values[row, eq]) and $v"
-                )
+                "conflicting constraints on the coefficient of $(repr(varnames[eq])) " *
+                "on row $row of B: $(values[row, eq]) and $v"
+            )
             )
         end
         restricted[row, eq] = true
@@ -175,7 +177,7 @@ Validate that constraints are well-specified.
 function check_constraints(
         constraints::AbstractVector{<:AbstractConstraint},
         varnames::Vector{Symbol}, n_lags::Int
-    )
+)
     _resolve_constraints(constraints, varnames, n_lags)
     return true
 end
@@ -202,12 +204,12 @@ Apply constraints to coefficient matrix `A` in-place.
 function apply_constraints!(
         A::AbstractMatrix, constraints::AbstractVector{<:AbstractConstraint},
         varnames::Vector{Symbol}, n_lags::Int
-    )
+)
     n_vars = length(varnames)
     size(A) == (n_vars, 1 + n_vars * n_lags) || throw(
         DimensionMismatch(
-            "A must be $(n_vars) × $(1 + n_vars * n_lags), got $(size(A))"
-        )
+        "A must be $(n_vars) × $(1 + n_vars * n_lags), got $(size(A))"
+    )
     )
     Base.require_one_based_indexing(A)
     (; restricted, values) = _resolve_constraints(constraints, varnames, n_lags)
@@ -235,7 +237,7 @@ fixed) is excluded.
 function build_selection_matrix(
         constraints::AbstractVector{<:AbstractConstraint},
         varnames::Vector{Symbol}, n_lags::Int
-    )
+)
     (; restricted) = _resolve_constraints(constraints, varnames, n_lags)
     # `restricted` is (1 + K p) × K; `A` is its transpose.
     free_indices = findall(vec(permutedims(.!restricted)))
@@ -258,9 +260,9 @@ end
 # differ only in a type parameter (e.g. the date type `D` of
 # `NarrativeRestriction{D}`) compare by their fields.
 for S in (
-        :ZeroConstraint, :FixedConstraint, :BlockExogeneity, :CholeskyID,
-        :SignRestriction, :NarrativeShockRestriction, :NarrativeRestriction,
-    )
+    :ZeroConstraint, :FixedConstraint, :BlockExogeneity, :CholeskyID,
+    :SignRestriction, :NarrativeShockRestriction, :NarrativeRestriction
+)
     @eval begin
         function Base.:(==)(a::$S, b::$S)
             return all(f -> getfield(a, f) == getfield(b, f), fieldnames(typeof(a)))

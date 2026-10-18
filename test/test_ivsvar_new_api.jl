@@ -18,7 +18,7 @@ using StableRNGs: StableRNG
 function simulate_var_dgp(
         T::Int, A_coefs::Vector{Matrix{Float64}},
         H::Matrix{Float64}; rng = StableRNG(42), burn::Int = 500
-    )
+)
     p = length(A_coefs)
     K = size(H, 1)
     T_total = T + burn
@@ -41,16 +41,12 @@ end
 # ============================================================================
 const K = 3
 const T_sim = 500
-const H_true = [
-    1.0 0.0 0.0;
-    0.5 0.8 0.0;
-    0.3 0.2 1.0
-]
-const A1 = [
-    0.3 0.0 0.1;
-    0.1 0.5 0.0;
-    0.0 0.0 0.4
-]
+const H_true = [1.0 0.0 0.0;
+                0.5 0.8 0.0;
+                0.3 0.2 1.0]
+const A1 = [0.3 0.0 0.1;
+            0.1 0.5 0.0;
+            0.0 0.0 0.4]
 const p_lag = 1
 
 Y, ε = simulate_var_dgp(T_sim, [A1], H_true; rng = StableRNG(2024))
@@ -186,8 +182,10 @@ end
         rng = Random.Xoshiro(42)
     )
 
-    @test all(isfinite, mbb.irf_norm_bands.lower[1]) && all(isfinite, mbb.irf_norm_bands.upper[1])
-    @test all(isfinite, mbb.irf_norm_bands.lower[3]) && all(isfinite, mbb.irf_norm_bands.upper[3])
+    @test all(isfinite, mbb.irf_norm_bands.lower[1]) &&
+          all(isfinite, mbb.irf_norm_bands.upper[1])
+    @test all(isfinite, mbb.irf_norm_bands.lower[3]) &&
+          all(isfinite, mbb.irf_norm_bands.upper[3])
     @test mbb.point_irf_norm[1, 1] ≈ -1.0 atol = 1.0e-10
 end
 
@@ -359,7 +357,7 @@ end
 
     # Integer data is stored as floating point
     @test IVIdentification(collect(1:100), 1).instrument.Z isa
-        Matrix{Union{Missing, Float64}}
+          Matrix{Union{Missing, Float64}}
 
     @test_throws "target_shock must be positive" IVIdentification(randn(100), 0)
 
@@ -602,7 +600,7 @@ end
         rng = StableRNG(11)
         zr = Vector{Union{Missing, Float64}}(
             ε[(p_lag + 1):end, 1] .+
-                0.5 .* randn(rng, n_resid)
+            0.5 .* randn(rng, n_resid)
         )
         gaps = sort(unique(rand(rng, 1:n_resid, 100)))
         zr[gaps] .= missing
@@ -618,9 +616,9 @@ end
     @testset "Matrix instrument uses rows where every column is observed" begin
         Z2 = Matrix{Union{Missing, Float64}}(
             hcat(
-                ε[:, 1], ε[:, 1] .+
-                    randn(StableRNG(3), T_sim)
-            )
+            ε[:, 1], ε[:, 1] .+
+                     randn(StableRNG(3), T_sim)
+        )
         )
         Z2[1:100, 1] .= missing
         Z2[400:T_sim, 2] .= missing
