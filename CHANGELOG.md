@@ -23,6 +23,15 @@ backward-compatible).
 - `BayesianIRFResult` and `LocalProjectionIRFResult` gain `size`, `show`, and
   `n_shocks`.
 
+### Removed (breaking)
+
+- The estimation specifications `BayesianVAR`, `LocalProjection`,
+  `AbstractPrior`, `MinnesotaPrior`, and `NormalWishartPrior`. Nothing in this
+  package estimated them, and their exported names clashed with the names
+  exported by BayesianVAR.jl and LocalProjections.jl, which define their own.
+  The shared result types `BayesianIRFResult` and `LocalProjectionIRFResult`
+  remain.
+
 ### Changed (breaking)
 
 - `get_draws` throws an `ArgumentError` for results without draws: an

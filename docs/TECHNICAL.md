@@ -28,7 +28,8 @@ The package uses Julia's multiple dispatch system extensively. Instead of a unif
 ```julia
 # Good: Type-based dispatch
 var_ols = fit(OLSVAR, Y, lags)
-var_bay = fit(BayesianVAR(MinnesotaPrior()), Y, lags)
+irfs = irf(var_ols, CholeskyID())
+irfs_sign = irf(var_ols, SignRestriction(restrictions))
 
 # Avoided: Method flags
 var = fit(Y, lags; method=:ols)  # NOT used
@@ -81,13 +82,7 @@ lag(x::Vector{Float64}, 1)  # Returns Vector{Float64}, not Vector{Union{Missing,
 ```
 AbstractVARSpec
 ├── OLSVAR (empty struct, pure dispatch)
-├── BayesianVAR{P<:AbstractPrior}
-├── IVSVAR{I<:AbstractInstrument}
-└── LocalProjection
-
-AbstractPrior
-├── MinnesotaPrior
-└── NormalWishartPrior
+└── IVSVAR{I<:AbstractInstrument}
 
 AbstractInstrument
 ├── ExternalInstrument{T}

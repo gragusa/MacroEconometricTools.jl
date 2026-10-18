@@ -344,3 +344,12 @@ include("minimal_irf_result.jl")
               "LocalProjectionIRFResult(1 variables × 1 shocks, horizon 2)"
     end
 end
+
+@testset "Spoke-owned specifications are not defined in the hub" begin
+    # BayesianVAR.jl and LocalProjections.jl export their own names; hub
+    # definitions would clash with them under `using`.
+    for name in (:BayesianVAR, :LocalProjection, :AbstractPrior, :MinnesotaPrior,
+        :NormalWishartPrior)
+        @test !isdefined(MacroEconometricTools, name)
+    end
+end

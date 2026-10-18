@@ -157,7 +157,7 @@ For results with stored draws, also accepts:
 function irfplot! end
 
 # Export main types
-export AbstractVARSpec, OLSVAR, BayesianVAR, IVSVAR, LocalProjection
+export AbstractVARSpec, OLSVAR, IVSVAR
 export VARModel, VARCoefficients
 export VAR
 export AbstractConstraint, ZeroConstraint, FixedConstraint, BlockExogeneity

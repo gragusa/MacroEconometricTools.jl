@@ -5,13 +5,6 @@
 # First, define abstract types that will be used as type parameters
 
 """
-    AbstractPrior
-
-Abstract type for prior specifications in Bayesian VAR models.
-"""
-abstract type AbstractPrior end
-
-"""
     AbstractInstrument
 
 Abstract type for instrument specifications in IV-SVAR models.
@@ -25,9 +18,7 @@ Abstract type for VAR model specifications.
 
 Concrete subtypes include:
 - `OLSVAR`: Ordinary least squares estimation
-- `BayesianVAR`: Bayesian estimation with priors
 - `IVSVAR`: Instrumental variable structural VAR
-- `LocalProjection`: Local projection estimation
 """
 abstract type AbstractVARSpec end
 
@@ -37,21 +28,6 @@ abstract type AbstractVARSpec end
 Ordinary least squares VAR estimation specification.
 """
 struct OLSVAR <: AbstractVARSpec end
-
-"""
-    BayesianVAR{P} <: AbstractVARSpec
-
-Bayesian VAR estimation specification with prior `P`.
-
-Estimation (`fit`) and `irf` for this specification are provided by
-`BayesianVAR.jl`; this hub package defines only the shared type.
-
-# Fields
-- `prior::P`: Prior specification (e.g., Minnesota, Normal-Inverse-Wishart)
-"""
-struct BayesianVAR{P <: AbstractPrior} <: AbstractVARSpec
-    prior::P
-end
 
 """
     IVSVAR{I} <: AbstractVARSpec
@@ -64,63 +40,6 @@ Instrumental Variable Structural VAR specification.
 struct IVSVAR{I <: AbstractInstrument} <: AbstractVARSpec
     instrument::I
 end
-
-"""
-    LocalProjection <: AbstractVARSpec
-
-Local projection estimation specification.
-
-Estimation (`fit`) and `irf` for this specification are provided by
-`LocalProjections.jl`; this hub package defines only the shared type.
-
-# Fields
-- `lags::Union{Int,Symbol}`: Number of lags or `:auto` for automatic selection
-- `lag_selection::Symbol`: Criterion for lag selection (`:aic`, `:bic`, `:cv`)
-"""
-struct LocalProjection <: AbstractVARSpec
-    lags::Union{Int, Symbol}
-    lag_selection::Symbol
-
-    function LocalProjection(lags::Union{Int, Symbol} = :auto; lag_selection::Symbol = :aic)
-        lag_selection ∈ [:aic, :bic, :cv] ||
-            throw(ArgumentError("lag_selection must be :aic, :bic, or :cv"))
-        return new(lags, lag_selection)
-    end
-end
-
-# ============================================================================
-# Prior Types (for Bayesian estimation)
-# ============================================================================
-
-"""
-    MinnesotaPrior <: AbstractPrior
-
-Minnesota/Litterman prior for Bayesian VAR.
-
-Consumed by `BayesianVAR.jl`, which implements the Bayesian estimation that uses
-this prior; this hub package defines only the shared type.
-
-# Fields
-- `λ₁::Float64`: Overall tightness
-- `λ₂::Float64`: Cross-variable tightness
-- `λ₃::Float64`: Lag decay
-- `λ₄::Float64`: Exogenous variable tightness (if applicable)
-"""
-struct MinnesotaPrior <: AbstractPrior
-    λ₁::Float64
-    λ₂::Float64
-    λ₃::Float64
-    λ₄::Float64
-
-    function MinnesotaPrior(λ₁ = 0.2, λ₂ = 0.5, λ₃ = 1.0, λ₄ = 1.0)
-        all([λ₁, λ₂, λ₃, λ₄] .> 0) ||
-            throw(ArgumentError("All hyperparameters must be positive"))
-        return new(λ₁, λ₂, λ₃, λ₄)
-    end
-end
-
-# Placeholder for future priors
-struct NormalWishartPrior <: AbstractPrior end
 
 # ============================================================================
 # Instrument Types (for IV-SVAR)
