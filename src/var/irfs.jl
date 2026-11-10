@@ -136,18 +136,24 @@ function _cumulate_point!(irf::AbstractArray{T, 3}, idx::Vector{Int}) where {T}
 end
 
 """
-    _apply_cumulation(irf_point, draws, coverage, idx)
+    _apply_cumulation(irf_point, draws, coverage, idx, interval)
 
 Apply per-variable cumulation to point estimate and bootstrap draws,
-then recompute confidence bands from the cumulated draws.
+then recompute confidence bands from the cumulated draws with `interval`
+(see [`compute_bands_from_draws`](@ref)).
 
 Returns `(cum_point, cum_draws, stderr, lower, upper)`.
 """
+# The interval of an inference that has bootstrap draws; `nothing` for one without.
+_draws_interval(inf::Union{_ResidualBootstrap, ProxySVARMBB}) = inf.interval
+_draws_interval(::Union{Nothing, Analytic}) = nothing
+
 function _apply_cumulation(
         irf_point::Array{T, 3},
         draws::Union{Nothing, Array{T, 4}},
         coverage::Vector{Float64},
-        idx::Vector{Int}
+        idx::Vector{Int},
+        interval::Union{Nothing, Symbol}
 ) where {T}
     draws === nothing && throw(
         ArgumentError(
@@ -167,7 +173,7 @@ function _apply_cumulation(
     end
 
     # Recompute bands from cumulated draws
-    lower, upper = compute_bands_from_draws(cum_point, cum_draws, coverage)
+    lower, upper = compute_bands_from_draws(cum_point, cum_draws, coverage; interval)
 
     # Stderr from cumulated draws
     stderr = dropdims(std(cum_draws; dims = 1); dims = 1)
@@ -278,7 +284,7 @@ function irf(
     if cumulate_idx !== nothing
         irf_point, draws, stderr,
         lower, upper = _apply_cumulation(
-            irf_point, draws, coverage, cumulate_idx
+            irf_point, draws, coverage, cumulate_idx, _draws_interval(inference)
         )
     end
 
@@ -629,7 +635,7 @@ function cumulative_irf(irf::IRFResult; vars = nothing)
     cum_point, cum_draws, cum_stderr, lower_raw,
     upper_raw = _apply_cumulation(
         _unwrap_irf_3d(irf.irf), _unwrap_irf_4d(irf.bootstrap_draws),
-        irf.coverage, cumulate_idx
+        irf.coverage, cumulate_idx, irf.inference.interval
     )
 
     names = varnames(irf)
@@ -878,7 +884,7 @@ function compute_inference_bands(
 ) where {T}
     horizon = size(irf_point, 3) - 1
     draws = _bootstrap_irf_draws(model, identification, inf, horizon, normalization, rng)
-    lower, upper = compute_bands_from_draws(irf_point, draws, coverage)
+    lower, upper = compute_bands_from_draws(irf_point, draws, coverage; inf.interval)
     stderr = dropdims(std(draws; dims = 1); dims = 1)
 
     return draws, stderr, lower, upper
@@ -946,38 +952,42 @@ function compute_inference_bands(
 end
 
 """
-    compute_bands_from_draws(irf_point, draws, coverage)
+    compute_bands_from_draws(irf_point, draws, coverage; interval = :percentile)
 
-Compute confidence bands from bootstrap IRF draws using percentile method.
+Bootstrap bands of an impulse response at each level `α` in `coverage`, from the
+draws `draws` (reps, n_vars, n_shocks, horizon+1) of the estimator whose estimate is
+`irf_point` (n_vars, n_shocks, horizon+1). With `q_lo` and `q_hi` the elementwise
+`(1 - α) / 2` and `(1 + α) / 2` quantiles of the draws:
 
-# Arguments
-- `irf_point::Array{T,3}`: Point estimate IRF (n_vars, n_shocks, horizon+1)
-- `draws::Array{T,4}`: Bootstrap draws (reps, n_vars, n_shocks, horizon+1)
-- `coverage::Vector{Float64}`: Coverage levels (e.g., [0.68, 0.90, 0.95])
+- `interval = :percentile`: Efron's percentile interval `[q_lo, q_hi]`;
+- `interval = :hall`: Hall's interval `[2 irf_point - q_hi, 2 irf_point - q_lo]`.
+
+Quantiles are order statistics of the sorted draws (see `_quantile_along_dim1!`).
 
 # Returns
 - `(lower, upper)` tuple of vectors, one entry per coverage level
 """
 function compute_bands_from_draws(
         irf_point::Array{T, 3}, draws::Array{T, 4},
-        coverage::Vector{Float64}
+        coverage::Vector{Float64}; interval::Symbol = :percentile
 ) where {T}
+    _check_interval(interval)
+    size(draws)[2:4] == size(irf_point) || throw(DimensionMismatch(
+        "draws of size $(size(draws)) for a point estimate of size $(size(irf_point))"))
     lower = Vector{Array{T, 3}}(undef, length(coverage))
     upper = Vector{Array{T, 3}}(undef, length(coverage))
 
-    # Compute centered bootstrap draws: draws - mean(draws) + irf_point
-    draws_mean = dropdims(mean(draws; dims = 1); dims = 1)
-    draws_centered = draws .- reshape(draws_mean, (1, size(draws_mean)...)) .+
-                     reshape(irf_point, (1, size(irf_point)...))
-
-    sz3 = size(draws_centered)[2:4]
+    sz3 = size(irf_point)
     for (i, α) in enumerate(coverage)
         α_lower = (1 - α) / 2
         α_upper = 1 - α_lower
 
         lo = zeros(T, sz3...)
         hi = zeros(T, sz3...)
-        _quantile_along_dim1!(lo, hi, draws_centered, α_lower, α_upper)
+        _quantile_along_dim1!(lo, hi, draws, α_lower, α_upper)
+        if interval === :hall
+            lo, hi = 2 .* irf_point .- hi, 2 .* irf_point .- lo
+        end
         lower[i] = lo
         upper[i] = hi
     end
@@ -1021,14 +1031,15 @@ end
 """
     confidence_bands(irf::IRFResult; coverage=[0.68, 0.90, 0.95])
 
-Recompute the percentile bands of `irf` at new coverage levels from its saved
-bootstrap draws. The point estimate, standard errors, draws, identification, and
+Recompute the bands of `irf` at new coverage levels from its saved bootstrap
+draws, with the interval of its inference (`irf.inference.interval`, see
+[`compute_bands_from_draws`](@ref)). The point estimate, standard errors, draws, identification, and
 inference settings are unchanged. Rescaled or cumulated results work as well,
 because `rescale` and `cumulative_irf` transform the saved draws.
 
 Throws an `ArgumentError` when `irf` has no saved draws (compute it with
 `save_draws = true`) or when its bands are Anderson-Rubin confidence sets
-(`ProxySVARMBB(compute_ar = true)`), which are not percentile bands of the draws.
+(`ProxySVARMBB(compute_ar = true)`), which are not formed from the draws.
 To change the inference method, call [`irf`](@ref) again.
 
 # Examples
@@ -1061,7 +1072,8 @@ function confidence_bands(
 
     raw_point = _unwrap_irf_3d(irf.irf)
     raw_draws = _unwrap_irf_4d(irf.bootstrap_draws)
-    lower_raw, upper_raw = compute_bands_from_draws(raw_point, raw_draws, coverage)
+    lower_raw, upper_raw = compute_bands_from_draws(raw_point, raw_draws, coverage;
+        irf.inference.interval)
 
     names = varnames(irf)
     lower_ax = [_wrap_irf_3d(lb, names) for lb in lower_raw]

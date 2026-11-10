@@ -80,9 +80,12 @@ end
     θ_true = H_true[:, 1]
 
     @testset "Point estimates close to truth" begin
-        @test θ_est[1] ≈ 1.0 atol = 1.0e-10   # unit effect normalization (exact)
+        # One-standard-deviation impact; the shocks have unit variance, so it is
+        # H_true[:, 1].
+        @test θ_est[1] ≈ θ_true[1] atol = 0.05
         @test θ_est[2] ≈ θ_true[2] atol = 0.05  # 0.5
         @test θ_est[3] ≈ θ_true[3] atol = 0.05  # 0.3
+        @test dot(θ_est, Matrix(residual_covariance(model)) \ θ_est) ≈ 1
     end
 
     @testset "First-stage F-statistic is very large" begin
@@ -259,7 +262,7 @@ end
     model = fit(OLSVAR, Y, p; names = [:Y1, :Y2])
 
     @testset "Unit effect normalization" begin
-        @test rotation_matrix(model, id)[1, 1] == 1.0  # exact by construction
+        @test normalize_impact(rotation_matrix(model, id), UnitEffect())[1, 1] == 1.0
     end
 
     @testset "First-stage F > 0 with valid instrument" begin
@@ -273,7 +276,7 @@ end
     end
 
     @testset "IRF computation succeeds" begin
-        result = irf(model, id; horizon = 20)
+        result = irf(model, id; horizon = 20, normalization = UnitEffect())
         @test size(result.irf) == (K, K, 21)  # (variable, shock, horizon)
         @test Array(result.irf)[1, 1, 1] ≈ 1.0 atol = 1.0e-10  # unit effect
     end
@@ -330,8 +333,7 @@ end
 
     @testset "Estimates converge to truth (large T)" begin
         # With T=2000 and ψ=1, estimates should be very close
-        @test θ_est[1] == 1.0
-        @test θ_est[2] ≈ H1_true_norm[2] atol = 0.15
+        @test θ_est[2] / θ_est[1] ≈ H1_true_norm[2] atol = 0.15
     end
 
     @testset "Identification formula: H1 = Σ_um / φ" begin

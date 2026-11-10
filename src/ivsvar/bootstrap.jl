@@ -423,7 +423,7 @@ function proxy_svar_mbb(
             inf.reps; block_length = inf.block_length,
             compute_ar = true, ar_grid = collect(range(-10.0, 10.0; length = 201)),
             norm_scale = inf.norm_scale, save_draws = inf.save_draws,
-            max_failure_rate = inf.max_failure_rate
+            max_failure_rate = inf.max_failure_rate, interval = inf.interval
         )
     else
         inf
@@ -754,9 +754,22 @@ end
 Dispatch for Jentsch-Lunsford MBB on SVAR-IV models. Works with any VARModel
 (not just IVSVAR) as long as the identification carries an instrument.
 
+The draws of the identified shock's responses are on the scale of `irf_point`,
+the estimator of [`rotation_matrix`](@ref) with `normalization` applied:
+
+- `UnitEffect()`: each draw's normalized responses `irf_norm_draws` divided by
+  `inf.norm_scale`, so that every draw moves the target variable by one on impact.
+- `UnitStd()`: each draw's one-standard-deviation responses `irf_draws`, with the
+  sign that makes the impact on the target variable positive, times
+  `√(T / dof_residual(model))`. The bootstrap estimates `Σ` with divisor `T` (the
+  number of residual periods) and the model with `dof_residual(model)`; the
+  one-standard-deviation impact scales with the square root of the divisor.
+
 When `inf.compute_ar == true`, the bands at each level in `coverage` are the
 smallest and largest grid values in the Anderson-Rubin confidence set at that level
-(weak-instrument robust). Otherwise, percentile bands are computed from the draws.
+(weak-instrument robust), on the unit-effect scale; `UnitStd()` is then an error.
+Otherwise the bands are formed from the draws with `inf.interval`
+(see [`compute_bands_from_draws`](@ref)).
 """
 function compute_inference_bands(
         model::VARModel{T},
@@ -764,7 +777,7 @@ function compute_inference_bands(
         irf_point::Array{T, 3},
         inf::ProxySVARMBB,
         coverage::Vector{Float64},
-        ::AbstractNormalization,  # ProxySVARMBB uses its own norm_scale
+        normalization::AbstractNormalization,
         rng::AbstractRNG
 ) where {T}
     horizon = size(irf_point, 3) - 1
@@ -782,20 +795,20 @@ function compute_inference_bands(
     K = n_vars(model)
     n_imp = horizon + 1
 
-    # Draws of the identified shock only. Each draw is normalized by *its own*
-    # impact on the target variable (J&L 2022), which fixes that impact at
-    # `inf.norm_scale`; using the point-estimate impact instead would leave the
-    # draws' own scale varying. `norm_factor` puts the draws back on the scale of
-    # `irf_point` (which has the identified column at position `target`).
-    target_impact = irf_point[target, target, 1]
-    norm_factor = target_impact / inf.norm_scale
-    irf_norm_draws = mbb.irf_norm_draws  # (draw, variable, horizon)
-    n_boot = size(irf_norm_draws, 1)
+    inf.compute_ar && normalization isa UnitStd && throw(ArgumentError(
+        "Anderson-Rubin confidence sets (ProxySVARMBB(compute_ar = true)) are for " *
+        "the unit-effect response; use normalization = UnitEffect()"))
+
+    # Draws of the identified shock only, (draw, variable, horizon), on the scale
+    # of `irf_point` (which has the identified column at position `target`).
+    shock_draws = _mbb_shock_draws(mbb, normalization, inf, target,
+        size(model.residuals, 1), dof_residual(model))
+    n_boot = size(shock_draws, 1)
 
     draws_4d = zeros(T, n_boot, K, K, n_imp)
     for h in 1:n_imp, k in 1:K
 
-        draws_4d[:, k, target, h] .= view(irf_norm_draws, :, k, h) .* norm_factor
+        draws_4d[:, k, target, h] .= view(shock_draws, :, k, h)
     end
     # Non-identified columns: fill with point estimate (no variation)
     for j in 1:K
@@ -818,6 +831,9 @@ function compute_inference_bands(
         if inf.compute_ar
             # AR confidence sets: convex hull [min, max] of included grid points.
             # Conservative but plottable; the full sets are in `mbb.ar.included`.
+            # The grid is on the normalized scale (impact on the target equals
+            # `inf.norm_scale`); dividing by it gives the unit-effect scale.
+            norm_factor = one(T) / inf.norm_scale
             grid = mbb.ar.grid
             for h in 1:n_imp, k in 1:K
 
@@ -837,8 +853,8 @@ function compute_inference_bands(
                 end
             end
         else
-            # Percentile CIs from draws (consistent with cumulation pipeline)
-            lb_raw, ub_raw = compute_bands_from_draws(irf_point, draws_4d, [α])
+            lb_raw, ub_raw = compute_bands_from_draws(irf_point, draws_4d, [α];
+                inf.interval)
             lb .= lb_raw[1]
             ub .= ub_raw[1]
         end
@@ -848,6 +864,22 @@ function compute_inference_bands(
     end
 
     return draws_4d, stderr, lower, upper
+end
+
+# The MBB draws of the identified shock's responses on the scale of `normalization`
+# (see `compute_inference_bands` for `ProxySVARMBB`). `n_periods` residual periods,
+# `dof` the model's residual degrees of freedom.
+function _mbb_shock_draws(mbb, ::UnitEffect, inf::ProxySVARMBB, target, n_periods, dof)
+    return mbb.irf_norm_draws ./ inf.norm_scale
+end
+
+function _mbb_shock_draws(mbb, ::UnitStd, inf::ProxySVARMBB, target, n_periods, dof)
+    draws = copy(mbb.irf_draws)
+    factor = sqrt(n_periods / dof)
+    for b in axes(draws, 1)
+        draws[b, :, :] .*= sign(draws[b, target, 1]) * factor
+    end
+    return draws
 end
 
 # The residual bootstraps refit the VAR on a resampled series without resampling

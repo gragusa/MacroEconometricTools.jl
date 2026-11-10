@@ -90,6 +90,15 @@ function _check_max_failure_rate(max_failure_rate::Real)
     return max_failure_rate
 end
 
+# The ways `compute_bands_from_draws` forms bands from bootstrap draws.
+const BOOTSTRAP_INTERVALS = (:percentile, :hall)
+
+function _check_interval(interval::Symbol)
+    interval in BOOTSTRAP_INTERVALS || throw(ArgumentError(
+        "interval must be one of $(join(repr.(BOOTSTRAP_INTERVALS), ", ")), got $(repr(interval))"))
+    return interval
+end
+
 # ============================================================================
 # Fast refit / IRF workspace (CholeskyID specialisation)
 # ============================================================================

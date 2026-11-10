@@ -72,7 +72,8 @@ using DataFrames
 
     @testset "irf uses the AR sets at the requested level" begin
         r = irf(
-            model, id; horizon, inference = inf, coverage = [0.8], rng = Xoshiro(11)
+            model, id; horizon, inference = inf, coverage = [0.8], rng = Xoshiro(11),
+            normalization = UnitEffect()
         )
         mbb = proxy_svar_mbb(model, id, horizon, inf; coverage = [0.8], rng = Xoshiro(11))
         norm_factor = Array(r.irf)[1, 1, 1] / inf.norm_scale

@@ -83,7 +83,8 @@ end
 
     P = rotation_matrix(model, id)
     @test size(P) == (K, K)
-    @test P[1, 1] ≈ 1.0 atol = 1.0e-10  # unit effect normalization
+    @test P * P' ≈ Matrix(residual_covariance(model))
+    @test normalize_impact(P, UnitEffect())[1, 1] ≈ 1.0 atol = 1.0e-10
 end
 
 # ============================================================================
@@ -234,7 +235,7 @@ end
     id = IVIdentification(ε[:, 1], 1)
 
     result = irf(
-        model, id; horizon = 5,
+        model, id; horizon = 5, normalization = UnitEffect(),
         inference = ProxySVARMBB(100; block_length = 4, compute_ar = true),
         coverage = [0.68, 0.95],
         rng = Random.Xoshiro(42)
@@ -262,7 +263,7 @@ end
     id = IVIdentification(ε[:, 1], 1)
 
     result = irf(
-        model, id; horizon = 6,
+        model, id; horizon = 6, normalization = UnitEffect(),
         inference = ProxySVARMBB(100; block_length = 4, save_draws = true),
         coverage = [0.68],
         rng = Random.Xoshiro(42)
@@ -286,6 +287,15 @@ end
     # Elsewhere the draws still vary and the bands have positive width
     @test std(d[:, 2, target, 3]) > 0
     @test Array(result.upper[1])[2, target, 3] > Array(result.lower[1])[2, target, 3]
+
+    # Under UnitStd the draws keep their own one-standard-deviation impact.
+    std_draws = Array(irf(
+        model, id; horizon = 6,
+        inference = ProxySVARMBB(100; block_length = 4, save_draws = true),
+        coverage = [0.68], rng = Random.Xoshiro(42)
+    ).bootstrap_draws)
+    @test std(std_draws[:, target, target, 1]) > 0
+    @test all(>(0), std_draws[:, target, target, 1])
 end
 
 @testset "AR bands are on the same scale as the point IRF" begin
@@ -293,7 +303,7 @@ end
     id = IVIdentification(ε[:, 1], 1)
 
     result = irf(
-        model, id; horizon = 4,
+        model, id; horizon = 4, normalization = UnitEffect(),
         inference = ProxySVARMBB(
             300; block_length = 4, compute_ar = true,
             ar_grid = collect(range(-5.0, 5.0; length = 1001))
@@ -593,7 +603,7 @@ end
         e = ε[obs .+ p_lag, :]
         ν_true = e * H_true'
         oracle = [cov(ν_true[:, i], e[:, 1]) / cov(ν_true[:, 1], e[:, 1]) for i in 1:K]
-        @test P[:, 1] ≈ oracle atol = 0.03
+        @test P[:, 1] ./ P[1, 1] ≈ oracle atol = 0.03
     end
 
     @testset "Residual-length instrument with interior gaps" begin
