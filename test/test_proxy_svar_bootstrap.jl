@@ -343,11 +343,14 @@ end
 
     # UnitStd: the one-standard-deviation impact, the bootstrap's H1 rescaled from
     # divisor T to dof_residual(model).
-    std_result = irf(model, id; horizon = 10, inference = ProxySVARMBB(50; block_length = 4),
+    std_result = irf(
+        model, id; horizon = 10, inference = ProxySVARMBB(50; block_length = 4),
         rng = StableRNG(1))
-    mbb = proxy_svar_mbb(model, id, 10, ProxySVARMBB(50; block_length = 4); rng = StableRNG(1))
+    mbb = proxy_svar_mbb(
+        model, id, 10, ProxySVARMBB(50; block_length = 4); rng = StableRNG(1))
     factor = sqrt(size(residuals(model), 1) / dof_residual(model))
-    @test Array(std_result.irf)[:, 1, :] ≈ mbb.point_irf .* sign(mbb.point_irf[1, 1]) .* factor
+    @test Array(std_result.irf)[:, 1, :] ≈
+          mbb.point_irf .* sign(mbb.point_irf[1, 1]) .* factor
     @test all(l -> Array(l)[1, 1, 1] < Array(std_result.irf)[1, 1, 1], std_result.lower)
 end
 

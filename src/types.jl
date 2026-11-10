@@ -526,7 +526,8 @@ struct BlockBootstrap <: InferenceType
     )
         reps > 0 || throw(ArgumentError("reps must be positive"))
         block_length > 0 || throw(ArgumentError("block_length must be positive"))
-        return new(reps, block_length, save_draws, _check_max_failure_rate(max_failure_rate),
+        return new(
+            reps, block_length, save_draws, _check_max_failure_rate(max_failure_rate),
             _check_interval(interval))
     end
 end

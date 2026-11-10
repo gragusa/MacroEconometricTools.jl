@@ -795,9 +795,10 @@ function compute_inference_bands(
     K = n_vars(model)
     n_imp = horizon + 1
 
-    inf.compute_ar && normalization isa UnitStd && throw(ArgumentError(
-        "Anderson-Rubin confidence sets (ProxySVARMBB(compute_ar = true)) are for " *
-        "the unit-effect response; use normalization = UnitEffect()"))
+    inf.compute_ar && normalization isa UnitStd &&
+        throw(ArgumentError(
+            "Anderson-Rubin confidence sets (ProxySVARMBB(compute_ar = true)) are for " *
+            "the unit-effect response; use normalization = UnitEffect()"))
 
     # Draws of the identified shock only, (draw, variable, horizon), on the scale
     # of `irf_point` (which has the identified column at position `target`).

@@ -36,7 +36,8 @@ end
     for interval in (:percentile, :hall)
         r = irf(model, CholeskyID(); horizon = 6, coverage = [0.68, 0.9],
             inference = WildBootstrap(200; save_draws = true, interval), rng = StableRNG(3))
-        lo, hi = compute_bands_from_draws(Array(r.irf), Array(r.bootstrap_draws), [0.68, 0.9];
+        lo, hi = compute_bands_from_draws(
+            Array(r.irf), Array(r.bootstrap_draws), [0.68, 0.9];
             interval)
         @test Array.(r.lower) == lo && Array.(r.upper) == hi
         c = confidence_bands(r; coverage = [0.8])
@@ -44,7 +45,8 @@ end
               only(compute_bands_from_draws(Array(r.irf), Array(r.bootstrap_draws), [0.8];
             interval)[1])
         cum = cumulative_irf(r; vars = [1])
-        direct = irf(model, CholeskyID(); horizon = 6, coverage = [0.68, 0.9], cumulate = [1],
+        direct = irf(
+            model, CholeskyID(); horizon = 6, coverage = [0.68, 0.9], cumulate = [1],
             inference = WildBootstrap(200; save_draws = true, interval), rng = StableRNG(3))
         @test Array.(cum.lower) ≈ Array.(direct.lower)
     end
@@ -79,7 +81,8 @@ end
     # target's impact is positive, rescaled from divisor T to dof_residual(model).
     r = irf(model, id; horizon = 2, coverage = [0.9],
         inference = ProxySVARMBB(100; save_draws = true), rng = StableRNG(4))
-    mbb = proxy_svar_mbb(model, id, 2, ProxySVARMBB(100); coverage = [0.9], rng = StableRNG(4))
+    mbb = proxy_svar_mbb(
+        model, id, 2, ProxySVARMBB(100); coverage = [0.9], rng = StableRNG(4))
     factor = sqrt(size(residuals(model), 1) / dof_residual(model))
     expected = mbb.irf_draws .* sign.(mbb.irf_draws[:, 2:2, 1:1]) .* factor
     @test Array(r.bootstrap_draws)[:, :, 2, :] ≈ expected
