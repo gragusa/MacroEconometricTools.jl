@@ -150,7 +150,8 @@ using StableRNGs: StableRNG
         z = ε[2:end, 1] .+ 0.3 .* randn(rng, T_iv - 1)
         id = IVIdentification(z, 1)
         inf = ProxySVARMBB(50; block_length = 4, compute_ar = true, save_draws = true)
-        r = irf(m, id; horizon = 4, inference = inf, coverage = [0.9], rng = StableRNG(1))
+        r = irf(m, id; horizon = 4, inference = inf, coverage = [0.9], rng = StableRNG(1),
+            normalization = UnitEffect())
 
         scaled = rescale(r, :a => -2)
         @test Array(scaled.lower[1])[:, 1, :] ≈ -2 .* Array(r.upper[1])[:, 1, :]
@@ -158,7 +159,8 @@ using StableRNGs: StableRNG
 
         @test_throws "Anderson-Rubin" cumulative_irf(r)
         @test_throws "Anderson-Rubin" irf(
-            m, id; horizon = 4, inference = inf, cumulate = [:b], rng = StableRNG(1)
+            m, id; horizon = 4, inference = inf, cumulate = [:b], rng = StableRNG(1),
+            normalization = UnitEffect()
         )
     end
 end

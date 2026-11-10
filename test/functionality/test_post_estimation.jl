@@ -77,8 +77,8 @@ end
         p = 2
         pmodel = fit(OLSVAR, Yp, p)
         id = IVIdentification(proxy[(p + 1):end], 1)
-        mbb(; coverage, kw...) = irf(
-            pmodel, id; horizon = 4, coverage, rng = Xoshiro(3),
+        mbb(; coverage, normalization = UnitStd(), kw...) = irf(
+            pmodel, id; horizon = 4, coverage, rng = Xoshiro(3), normalization,
             inference = ProxySVARMBB(50; save_draws = true, kw...)
         )
         cb = confidence_bands(mbb(; coverage = [0.68, 0.9]); coverage = [0.8])
@@ -86,7 +86,8 @@ end
         @test Array.(cb.lower) ≈ Array.(direct.lower)
         @test Array.(cb.upper) ≈ Array.(direct.upper)
 
-        ar = mbb(; coverage = [0.9], compute_ar = true, ar_grid = collect(-3.0:0.5:3.0))
+        ar = mbb(; coverage = [0.9], normalization = UnitEffect(), compute_ar = true,
+            ar_grid = collect(-3.0:0.5:3.0))
         @test_throws "Anderson-Rubin confidence sets" confidence_bands(ar)
     end
 

@@ -401,6 +401,8 @@ conditional heteroskedasticity while maintaining independence across equations.
 - `max_failure_rate::Float64`: Largest fraction of failed replications tolerated
   (default 0.1); above it the call throws. Failed replications are excluded from
   bands and standard errors.
+- `interval::Symbol`: How the bands are formed from the draws (default
+  `:percentile`); see [`compute_bands_from_draws`](@ref).
 
 # References
 - Liu (1988): "Bootstrap Procedures under Some Non-I.I.D. Models"
@@ -420,10 +422,15 @@ struct WildBootstrap <: InferenceType
     reps::Int
     save_draws::Bool
     max_failure_rate::Float64
+    interval::Symbol
 
-    function WildBootstrap(reps::Int = 1000; save_draws::Bool = false, max_failure_rate::Real = 0.1)
+    function WildBootstrap(
+            reps::Int = 1000; save_draws::Bool = false, max_failure_rate::Real = 0.1,
+            interval::Symbol = :percentile
+    )
         reps > 0 || throw(ArgumentError("reps must be positive"))
-        return new(reps, save_draws, _check_max_failure_rate(max_failure_rate))
+        return new(reps, save_draws, _check_max_failure_rate(max_failure_rate),
+            _check_interval(interval))
     end
 end
 
@@ -441,6 +448,8 @@ Appropriate when residuals can be assumed i.i.d. (homoskedastic and uncorrelated
 - `max_failure_rate::Float64`: Largest fraction of failed replications tolerated
   (default 0.1); above it the call throws. Failed replications are excluded from
   bands and standard errors.
+- `interval::Symbol`: How the bands are formed from the draws (default
+  `:percentile`); see [`compute_bands_from_draws`](@ref).
 
 # References
 - Efron (1979): "Bootstrap methods: Another look at the jackknife"
@@ -459,10 +468,15 @@ struct Bootstrap <: InferenceType
     reps::Int
     save_draws::Bool
     max_failure_rate::Float64
+    interval::Symbol
 
-    function Bootstrap(reps::Int = 1000; save_draws::Bool = false, max_failure_rate::Real = 0.1)
+    function Bootstrap(
+            reps::Int = 1000; save_draws::Bool = false, max_failure_rate::Real = 0.1,
+            interval::Symbol = :percentile
+    )
         reps > 0 || throw(ArgumentError("reps must be positive"))
-        return new(reps, save_draws, _check_max_failure_rate(max_failure_rate))
+        return new(reps, save_draws, _check_max_failure_rate(max_failure_rate),
+            _check_interval(interval))
     end
 end
 
@@ -481,6 +495,8 @@ Uses position-specific centering to ensure resampled residuals have approximatel
 - `max_failure_rate::Float64`: Largest fraction of failed replications tolerated
   (default 0.1); above it the call throws. Failed replications are excluded from
   bands and standard errors.
+- `interval::Symbol`: How the bands are formed from the draws (default
+  `:percentile`); see [`compute_bands_from_draws`](@ref).
 
 # References
 - Künsch (1989): "The jackknife and the bootstrap for general stationary observations"
@@ -502,14 +518,17 @@ struct BlockBootstrap <: InferenceType
     block_length::Int
     save_draws::Bool
     max_failure_rate::Float64
+    interval::Symbol
 
     function BlockBootstrap(
             reps::Int = 1000; block_length::Int = 10, save_draws::Bool = false,
-            max_failure_rate::Real = 0.1
+            max_failure_rate::Real = 0.1, interval::Symbol = :percentile
     )
         reps > 0 || throw(ArgumentError("reps must be positive"))
         block_length > 0 || throw(ArgumentError("block_length must be positive"))
-        return new(reps, block_length, save_draws, _check_max_failure_rate(max_failure_rate))
+        return new(
+            reps, block_length, save_draws, _check_max_failure_rate(max_failure_rate),
+            _check_interval(interval))
     end
 end
 
@@ -538,6 +557,8 @@ via grid-based test inversion.
 - `max_failure_rate::Float64`: Largest fraction of failed replications tolerated
   (default 0.1); above it the call throws. Failed replications are excluded from
   bands and standard errors.
+- `interval::Symbol`: How the bands are formed from the draws (default
+  `:percentile`); see [`compute_bands_from_draws`](@ref).
 
 # References
 - Jentsch & Lunsford (2022): "Asymptotically Valid Bootstrap Inference for
@@ -560,6 +581,7 @@ struct ProxySVARMBB <: InferenceType
     norm_scale::Float64
     save_draws::Bool
     max_failure_rate::Float64
+    interval::Symbol
 
     function ProxySVARMBB(
             reps::Int = 2000;
@@ -568,7 +590,8 @@ struct ProxySVARMBB <: InferenceType
             ar_grid::Union{Nothing, Vector{Float64}} = nothing,
             norm_scale::Float64 = -1.0,
             save_draws::Bool = false,
-            max_failure_rate::Real = 0.1
+            max_failure_rate::Real = 0.1,
+            interval::Symbol = :percentile
     )
         reps > 0 || throw(ArgumentError("reps must be positive"))
         block_length > 0 || throw(ArgumentError("block_length must be positive"))
@@ -576,7 +599,7 @@ struct ProxySVARMBB <: InferenceType
         # is applied at runtime in proxy_svar_mbb.
         return new(
             reps, block_length, compute_ar, ar_grid, norm_scale, save_draws,
-            _check_max_failure_rate(max_failure_rate)
+            _check_max_failure_rate(max_failure_rate), _check_interval(interval)
         )
     end
 end

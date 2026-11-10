@@ -330,7 +330,7 @@ end
     model = fit(OLSVAR, Y, p; names = [:Y1, :Y2])
 
     result = irf(
-        model, id; horizon = 10,
+        model, id; horizon = 10, normalization = UnitEffect(),
         inference = ProxySVARMBB(50; block_length = 4)
     )
 
@@ -338,6 +338,20 @@ end
     @test size(result.irf) == (K, K, 11)  # (variable, shock, horizon)
     @test length(result.lower) == 3  # 68%, 90%, 95%
     @test Array(result.irf)[1, 1, 1] ≈ 1.0 atol = 1.0e-10  # unit effect normalization
+    # Every draw moves the target by one on impact, so the band there is a point.
+    @test all(l -> Array(l)[1, 1, 1] ≈ 1.0, result.lower)
+
+    # UnitStd: the one-standard-deviation impact, the bootstrap's H1 rescaled from
+    # divisor T to dof_residual(model).
+    std_result = irf(
+        model, id; horizon = 10, inference = ProxySVARMBB(50; block_length = 4),
+        rng = StableRNG(1))
+    mbb = proxy_svar_mbb(
+        model, id, 10, ProxySVARMBB(50; block_length = 4); rng = StableRNG(1))
+    factor = sqrt(size(residuals(model), 1) / dof_residual(model))
+    @test Array(std_result.irf)[:, 1, :] ≈
+          mbb.point_irf .* sign(mbb.point_irf[1, 1]) .* factor
+    @test all(l -> Array(l)[1, 1, 1] < Array(std_result.irf)[1, 1, 1], std_result.lower)
 end
 
 # ============================================================================

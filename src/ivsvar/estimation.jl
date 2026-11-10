@@ -270,26 +270,27 @@ end
 """
     _build_full_impact_matrix(β_iv, target, Σ) -> Matrix
 
-Build the full n×n structural impact matrix P.
+Build the full n×n structural impact matrix P, with `P P' = Σ`.
 
-The first column (reordered to position `target`) is the IV-identified column β_iv.
-Remaining columns are filled via Cholesky of the residual covariance
-Σ - β_iv · β_iv', providing a complete rotation matrix.
+`β_iv` is the 2SLS impact of the instrumented shock relative to its impact on
+variable `target` (`β_iv[target] = 1`). Column `target` of P is the impact of a
+one-standard-deviation shock, `b = β_iv / √(β_iv' Σ⁻¹ β_iv)`: every column `b` of
+an impact matrix with `P P' = Σ` has `b' Σ⁻¹ b = 1`. The remaining columns factor
+`Σ - b b'`, which has rank n - 1.
 
 This follows Mertens & Ravn (2013): only the `target` column is externally
-identified; the rest use a Cholesky-based fill for the orthogonal complement.
+identified; the rest are a factor of the orthogonal complement.
 """
 function _build_full_impact_matrix(β_iv::Vector{T}, target::Int, Σ::Matrix{T}) where {T}
     n = length(β_iv)
     P = zeros(T, n, n)
 
-    # Place the identified column
-    P[:, target] = β_iv
+    # The identified column: the one-standard-deviation impact.
+    b = β_iv ./ sqrt(dot(β_iv, Symmetric(Σ) \ β_iv))
+    P[:, target] = b
 
-    # Residual covariance after removing identified shock contribution
-    # Under unit variance normalization for shock 1:
-    #   Σ = β_iv β_iv' + Σ_rest  →  Σ_rest = Σ - β_iv β_iv'
-    Σ_rest = Σ - β_iv * β_iv'
+    # Covariance of the other shocks' impacts: Σ = b b' + Σ_rest.
+    Σ_rest = Σ - b * b'
 
     # Σ_rest should be positive semi-definite. Regularize if needed.
     # Use eigendecomposition for robustness

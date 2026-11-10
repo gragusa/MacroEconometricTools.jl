@@ -125,20 +125,20 @@ const DATADIR = joinpath(@__DIR__, "data")
     # ── Test 5: IRFs match ────────────────────────────────────────────────
     @testset "IRFs match Python (normalized)" begin
         n_imp = Int(params["n_imp"])
-        irf_result = irf(model, id; horizon = n_imp - 1)
-
-        # Python IRF is in H1 scale (φ-normalized)
-        # Julia IRF is in unit-effect scale (θ[1]=1)
-        # Scale: irf_julia = irf_python / H1_py[1]
-        scale = H1_py[1]
-
-        irf_data = Array(irf_result.irf)  # (variable, shock, horizon)
+        # Python IRFs are on the H1 scale: the response to a one-standard-deviation
+        # shock, with Σ estimated with divisor T_eff.
+        # UnitEffect: irf_julia = irf_python / H1_py[1].
+        unit_effect = Array(irf(model, id; horizon = n_imp - 1,
+            normalization = UnitEffect()).irf)
+        # UnitStd: Julia estimates Σ with divisor dof_residual(model), which scales
+        # the one-standard-deviation impact by √(T_eff / dof); its sign makes the
+        # impact on the target positive.
+        unit_std = Array(irf(model, id; horizon = n_imp - 1).irf)
+        factor = sign(H1_py[1]) * sqrt(T_eff / dof_residual(model))
         for h in 0:(n_imp - 1)
             for i in 1:K
-                irf_jl = irf_data[i, 1, h + 1]
-                irf_py_scaled = irf_py[i, h + 1] / scale
-
-                @test irf_jl ≈ irf_py_scaled atol = 1.0e-4
+                @test unit_effect[i, 1, h + 1] ≈ irf_py[i, h + 1] / H1_py[1] atol = 1.0e-4
+                @test unit_std[i, 1, h + 1] ≈ irf_py[i, h + 1] * factor atol = 1.0e-4
             end
         end
     end
